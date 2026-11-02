@@ -1,0 +1,106 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Store } from "../src/store.js";
+import { Waker } from "../src/waker.js";
+
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+function fakeSpawn() {
+  const jobs = [];
+  const spawn = (job) => {
+    let finish;
+    const done = new Promise((r) => (finish = r));
+    const j = { ...job, finish: (res = { code: 0 }) => finish(res), killed: false };
+    j.handle = { done, kill: () => { j.killed = true; finish({ code: 143 }); } };
+    jobs.push(j);
+    return j.handle;
+  };
+  return { jobs, spawn };
+}
+
+test("発言のあと間があいたらマネージャを一人だけ起こし、走っているあいだの発言は終わってから読ませる", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 10 }).start();
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "a" } });
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "b" } });
+  await tick(30);
+  assert.equal(f.jobs.filter((j) => j.role === "manager").length, 1);
+  assert.match(f.jobs[0].prompt, /since: 0/);
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "c" } });
+  await tick(30);
+  assert.equal(f.jobs.filter((j) => j.role === "manager").length, 1);
+  f.jobs[0].finish();
+  await tick(30);
+  const m = f.jobs.filter((j) => j.role === "manager");
+  assert.equal(m.length, 2);
+  assert.match(m[1].prompt, /since: 2/);
+  w.stop();
+});
+
+test("仕事が置かれたら名前のあるエージェントを起こし、同じ仕事を二つ走らせない", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const s = store.apply({ by: "human", type: "add", panel: { view: "say", data: "検索の遅さを調べて" } }).op.panel.id;
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: s, data: { text: "遅さを調べる" } }, reason: "取り次ぎ" }).op.panel.id;
+  store.apply({ by: "manager", type: "edit", panel: { id: s, data: "検索の遅さを調べて。" }, reason: "清書" });
+  const tasks = () => f.jobs.filter((j) => j.role === "task");
+  assert.equal(tasks().length, 1);
+  assert.equal(tasks()[0].name, "アリス");
+  assert.equal(tasks()[0].taskId, t);
+  assert.match(tasks()[0].prompt, /遅さを調べる/);
+  assert.deepEqual(w.status().agents.map((a) => a.name), ["アリス"]);
+  store.apply({ by: "アリス", type: "add", panel: { view: "text", about: t, data: "索引がない" }, reason: "結果" });
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done" }, reason: "終わった" });
+  assert.equal(tasks()[0].killed, false);
+  tasks()[0].finish();
+  await tick();
+  assert.equal(tasks().length, 1);
+  assert.equal(w.status().agents.length, 0);
+  w.stop();
+});
+
+test("名前を呼ばれた仕事はその相手に。働いていれば空くまで待つ", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const add = (data) => store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data }, reason: "取り次ぎ" }).op.panel.id;
+  add({ text: "一つ目", to: "ボブ" });
+  add({ text: "二つ目", to: "ボブ" });
+  add({ text: "三つ目" });
+  const tasks = () => f.jobs.filter((j) => j.role === "task");
+  assert.deepEqual(tasks().map((j) => j.name), ["ボブ", "アリス"]);
+  tasks()[0].finish();
+  await tick();
+  assert.deepEqual(tasks().map((j) => j.name), ["ボブ", "アリス", "ボブ"]);
+  w.stop();
+});
+
+test("取り下げられたら止め、結果を置かずに終わったらそれとわかるように残す", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const add = (text) => store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text } }, reason: "取り次ぎ" }).op.panel.id;
+  const a = add("やめるもの");
+  const b = add("落ちるもの");
+  store.apply({ by: "manager", type: "edit", panel: { id: a, state: "done" }, reason: "アリス、それもういい" });
+  assert.equal(f.jobs[0].killed, true);
+  f.jobs[1].finish({ code: 1, error: "終了コード 1" });
+  await tick();
+  const note = store.board.list().find((p) => p.about === b);
+  assert.equal(note.by, "board");
+  assert.match(note.data, /結果を置かずに終わりました/);
+  // 同じ形の仕事で起こし直さない
+  assert.equal(f.jobs.filter((j) => j.taskId === b).length, 1);
+  w.stop();
+});
+
+test("一度に起こすのは slots まで", () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6, slots: 2 }).start();
+  for (const t of ["a", "b", "c"]) store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: t } }, reason: "x" });
+  assert.equal(f.jobs.length, 2);
+  w.stop();
+});

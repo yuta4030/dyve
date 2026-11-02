@@ -1,0 +1,8 @@
+{
+  "name": "dyve",
+  "version": "0.1.0",
+  "description": "潜ったまま働けるボード。声で流し込んだ思考を、マネージャが整え、控室のエージェントが片付ける",
+  "author": { "name": "yuta4030" },
+  "repository": "https://github.com/yuta4030/dyve",
+  "license": "MIT"
+}
