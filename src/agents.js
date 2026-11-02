@@ -22,28 +22,30 @@ export function readDef(file) {
   return text.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
 }
 
-export function claudeArgs(job, boardUrl) {
+// models：役割ごとのモデル（{ manager, task }）。指定がなければ claude の既定
+export function claudeArgs(job, boardUrl, models = {}) {
   const mcp = { mcpServers: { board: { type: "http", url: `${boardUrl}/mcp?as=${encodeURIComponent(job.name)}` } } };
   return [
     "-p", job.prompt,
     "--mcp-config", JSON.stringify(mcp),
     "--strict-mcp-config",
     "--append-system-prompt", readDef(DEFS[job.role]),
+    ...(models[job.role] ? ["--model", models[job.role]] : []),
     "--allowedTools", ...TOOLS[job.role],
   ];
 }
 
 // job: { role, name, prompt } -> { done: Promise<{code, error?}>, kill() }
-export function claudeSpawner({ cmd = "claude", room = process.cwd(), boardUrl, logDir = null }) {
+export function claudeSpawner({ cmd = "claude", room = process.cwd(), boardUrl, logDir = null, models = {} }) {
   return (job) => {
-    const args = claudeArgs(job, boardUrl);
+    const args = claudeArgs(job, boardUrl, models);
     const cwd = room;
     let out = null;
     if (logDir) {
       fs.mkdirSync(logDir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       out = fs.createWriteStream(path.join(logDir, `${stamp}-${job.role}-${job.taskId || "board"}.log`));
-      out.write(`$ ${cmd} (${job.role} ${job.name}) in ${cwd}\n${job.prompt}\n\n`);
+      out.write(`$ ${cmd} (${job.role} ${job.name} ${models[job.role] || "既定"}) in ${cwd}\n${job.prompt}\n\n`);
     }
     let child;
     const done = new Promise((resolve) => {

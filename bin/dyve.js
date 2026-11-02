@@ -12,7 +12,7 @@ import { toMarkdown } from "../src/export.js";
 
 const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
-  dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--slots N]
+  dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--slots N] [--manager-model M] [--task-model M]
   dyve export [--data FILE] [--out FILE]`;
 
 function die(msg) {
@@ -31,7 +31,9 @@ try {
       room: { type: "string", default: process.cwd() },
       "no-agents": { type: "boolean", default: false },
       claude: { type: "string", default: "claude" },
-      pause: { type: "string", default: "4000" },
+      pause: { type: "string", default: "1500" },
+      "manager-model": { type: "string", default: "haiku" },
+      "task-model": { type: "string" },
       slots: { type: "string", default: "3" },
       title: { type: "string", default: "ボード" },
       out: { type: "string" },
@@ -51,7 +53,7 @@ if (cmd === "serve") {
         store,
         pause: Number(args.pause),
         slots: Number(args.slots),
-        spawn: claudeSpawner({ cmd: args.claude, room: path.resolve(args.room), boardUrl, logDir: path.join(path.dirname(path.resolve(args.data)), "logs") }),
+        spawn: claudeSpawner({ cmd: args.claude, room: path.resolve(args.room), boardUrl, logDir: path.join(path.dirname(path.resolve(args.data)), "logs"), models: { manager: args["manager-model"], task: args["task-model"] } }),
       });
   const server = createServer({ store, waker, title: args.title });
   server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ボードはもう立っています（${boardUrl}）。一つだけ立てて、そこへつないでください` : e.message));

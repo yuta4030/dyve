@@ -102,4 +102,16 @@ test("エージェントの起こし方：役割ごとの道具と、名乗り�
   const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
   assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
   assert.match(m[m.indexOf("--append-system-prompt") + 1], /ボードマネージャ/);
+  assert.ok(!m.includes("--model"));
+});
+
+test("エージェントの起こし方：役割ごとのモデル", () => {
+  const models = { manager: "haiku", task: "opus" };
+  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x", models);
+  assert.equal(m[m.indexOf("--model") + 1], "haiku");
+  assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
+  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", models);
+  assert.equal(t[t.indexOf("--model") + 1], "opus");
+  const n = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", { manager: "haiku" });
+  assert.ok(!n.includes("--model"));
 });
