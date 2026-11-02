@@ -1,0 +1,11 @@
+{
+  "name": "dyve",
+  "owner": { "name": "yuta4030" },
+  "plugins": [
+    {
+      "name": "dyve",
+      "source": "./",
+      "description": "潜ったまま働けるボード。声で流し込んだ思考を、マネージャが整え、控室のエージェントが片付ける"
+    }
+  ]
+}
