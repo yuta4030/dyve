@@ -11,14 +11,15 @@
 - **操作ログを正とする。** 変更はすべて `Board.apply`（add・edit・drop）を通し、ログに残す。ボードはログを当て直して作る。印はデータに持たず導く
 - **同じボード、同じ操作。** 人も AI も同じ操作で書く。画面（`/api/op`）から来る操作は人、MCP から来る操作は AI。MCP から人として書けない。AI の操作は reason を持つ
 - **人が優先。** ピン留め・受け入れは人だけ。ピン留めされたものを AI は書き換えない
-- **取り消せないことは、人が決める。** エージェントに渡す道具は読むこと・調べることだけ。開発の仕事（`data.write`）だけは書けるが、仕事ごとの git worktree とブランチの中だけで、取り込むかは人が決める。外に届くこと（push など）は提案（state `proposal`）までに留める
+- **取り消せないことは、人が決める。** エージェントに渡す道具は読むこと・調べることだけ。開発の仕事（`data.write: true`）は仕事ごとの git worktree とブランチの中だけで書け、取り込むかは人が決める。パネルの仕事（`data.write: "panels"`）は利用者のパネル置き場（git で履歴を持つ）の中だけで書ける。パネルの source（shell コマンド）は人が置くか許可したものだけ走らせる。外に届くこと（push など）は提案（state `proposal`）までに留める
 - id は一度振ったら変えない
 
 ## 構成
 - dyve が自前で持つのはボードだけ。エージェントはどれも外の Claude Code で、MCP の口からボードを読み書きする
 - 違いはどのディレクトリで、どの定義を読んで起きるかだけ。清書係は `agents/scribe.md`（起こしっぱなし）、マネージャは `agents/manager.md`、控室は `skills/backroom/SKILL.md`
 - 型は定義しない。エージェントは汎用なので、流し込んだことをそのまま頼む
-- view（Web Components）を書くのは本体だけ。エージェントがその場でコードを流し込むことはしない
+- パネルは view とデータでできている。本体が持つ view は最小限（say・text・list・table・task・summary・json）。拡張は利用者側のパネル置き場（`~/.dyve/panels/views/<名前>.js`）に置き、画面は sandbox の iframe（allow-scripts だけ）で描く。利用者の view はボードの API に触れない
+- データは data に直接、`dyve put`（標準入力）、source の shell コマンドのどれかで流し込む。shell の結果は操作ログに積まず、定義（source）だけをログに持つ
 
 ## 技術スタック
 - サーバーは依存ゼロの Node（http・fs・child_process だけ）。Node 20+

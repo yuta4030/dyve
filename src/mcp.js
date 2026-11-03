@@ -7,10 +7,11 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
 const panelFields = {
-  view: { type: "string", description: "描き方：say（発言）, text（文字列）, list（文字列の配列）, table（{columns, rows}）, task（仕事）, summary（いまの要点：{points, decided, open}）" },
+  view: { type: "string", description: "描き方：本体の say（発言）, text（文字列）, list（文字列の配列）, table（{columns, rows}）, task（仕事）, summary（いまの要点：{points, decided, open}）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える" },
   data: { description: "中身。view に合う JSON" },
   about: { type: "string", description: "どのパネルについてのものか（関係する場所に置く）" },
   state: { type: "string", enum: ["task", "proposal", "done"], description: "仕事・提案・済み" },
+  source: { type: "object", description: "データを shell コマンドの結果から流し込む：{ shell, every? }（every は秒、5 以上）。AI が置いたコマンドは、人が許可するまで走らない" },
 };
 
 export const TOOLS = [

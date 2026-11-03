@@ -11,6 +11,7 @@ const DEFS = {
   manager: path.join(ROOT, "agents", "manager.md"),
   task: path.join(ROOT, "skills", "backroom", "SKILL.md"),
   dev: path.join(ROOT, "skills", "backroom", "SKILL.md"),
+  panels: path.join(ROOT, "skills", "backroom", "SKILL.md"),
 };
 
 // 取り消せないことはしない。清書係は発言の書き換えだけ、マネージャはボードだけ、控室は読むことと調べることだけ。
@@ -21,14 +22,17 @@ const TOOLS = {
   manager: ["mcp__board"],
   task: READ,
   dev: [...READ, "Edit", "Write", "Bash(node --test:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
+  // パネルの仕事：アリスたちが利用者のパネル置き場（~/.dyve/panels）で view を書く。書けるのはその中だけ
+  panels: [...READ, "Edit", "Write", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
 };
-const DENY = { dev: ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git worktree:*)", "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(rm:*)"] };
+const DENY_PANELS = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git reset:*)", "Bash(rm:*)"];
+const DENY = { panels: DENY_PANELS, dev: ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git worktree:*)", "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(rm:*)"] };
 
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
-export const inRoom = (role) => role === "task" || role === "dev";
+export const inRoom = (role) => role === "task" || role === "dev" || role === "panels";
 
-// 開発は控室と同じモデル（--task-model）で起こす
-const modelOf = (models, role) => models[role] ?? (role === "dev" ? models.task : undefined);
+// 開発とパネルの仕事は控室と同じモデル（--task-model）で起こす
+const modelOf = (models, role) => models[role] ?? (role === "dev" || role === "panels" ? models.task : undefined);
 
 export function readDef(file) {
   const text = fs.readFileSync(file, "utf8");
@@ -119,6 +123,18 @@ export function updateApp({ room, app, ref = "HEAD" }) {
   return { commit, created: false };
 }
 
+export function panelsNote(dir) {
+  return [
+    "",
+    "## パネルの仕事",
+    `- 働く場所：${dir}（利用者のパネル置き場。ここだけを書き換えます）`,
+    "- まず README.md を読み、view の書き方に従います。view は views/<名前>.js に一つずつ置きます",
+    "- 書いたら `git add` と `git commit` でコミットします（履歴があるので戻せます）。push はしません",
+    "- 書き終えたら、その view を使うパネルをボードに置くか、頼まれたパネルの view を書き換えて、すぐ見えるようにします",
+    "- shell コマンドでデータを流し込むなら、パネルの source に { shell, every } を書きます。走らせてよいかは人が決めるので、人が「実行を許可」を押すまで走りません",
+  ].join("\n");
+}
+
 export function devNote(ws) {
   return [
     "",
@@ -153,10 +169,14 @@ function logStream(logDir, job, cmd, cwd, model) {
 
 // job: { role, name, prompt } -> { done: Promise<{code, error?, usage?}>, kill() }
 // staff：清書係とマネージャが起きる作業場
-// workDir：開発の worktree を置くところ
-export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = room, workDir = path.join(staff, "..", "work"), boardUrl, logDir = null, models = {} }) {
+// workDir：開発の worktree を置くところ。panels：利用者のパネル置き場
+export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = room, workDir = path.join(staff, "..", "work"), panels = path.join(staff, "..", "panels"), boardUrl, logDir = null, models = {} }) {
   return (job) => {
     let cwd = inRoom(job.role) ? room : staff;
+    if (job.role === "panels") {
+      cwd = panels;
+      job = { ...job, prompt: job.prompt + "\n" + panelsNote(panels) };
+    }
     if (job.role === "dev") {
       try {
         const ws = workspace({ room, workDir, taskId: job.taskId, board: job.board });

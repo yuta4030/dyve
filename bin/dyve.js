@@ -7,6 +7,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { Store } from "../src/store.js";
 import { Desk } from "../src/desk.js";
+import { Feeds } from "../src/feeds.js";
+import { ensurePanels } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
 import { claudeSpawner, claudeSession, updateApp, integrate, ROOT } from "../src/agents.js";
@@ -18,7 +20,9 @@ const USAGE = `使い方:
   dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--scribe-pause MS] [--slots N]
               [--scribe-model M] [--manager-model M] [--task-model M]
   dyve export [--data FILE] [--out FILE]
-  dyve app [--room DIR] [--ref REF] [--app DIR]   使う dyve を作る側のコミットから切り出す・更新する`;
+  dyve app [--room DIR] [--ref REF] [--app DIR]   使う dyve を作る側のコミットから切り出す・更新する
+  dyve put <id> [--port 4740]                     標準入力をそのパネルのデータにする（JSON なら JSON で）
+  dyve add --view V [--shell CMD] [--every SEC] [--port 4740]   人としてパネルを置く（標準入力があればデータに）`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -30,6 +34,7 @@ let args;
 try {
   args = parseArgs({
     args: rest,
+    allowPositionals: true,
     options: {
       port: { type: "string", default: "4740" },
       data: { type: "string", default: path.join(HOME, "board.jsonl") },
@@ -45,12 +50,17 @@ try {
       title: { type: "string", default: "ボード" },
       out: { type: "string" },
       ref: { type: "string", default: "HEAD" },
+      view: { type: "string" },
+      shell: { type: "string" },
+      every: { type: "string" },
       app: { type: "string", default: path.join(HOME, "app") },
     },
-  }).values;
+  });
 } catch (e) {
   die(`${e.message}\n${USAGE}`);
 }
+const pos = args.positionals;
+args = args.values;
 
 // 立て直すときの終了コード。見張り役はこれで落ちた子だけを立て直す
 const RESTART = 75;
@@ -77,7 +87,9 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   const port = Number(args.port);
   const boardUrl = `http://127.0.0.1:${port}`;
   const home = path.dirname(path.resolve(args.data));
+  const panels = ensurePanels(path.join(home, "panels"));
   const how = {
+    panels,
     cmd: args.claude,
     room: path.resolve(args.room),
     staff: path.join(home, "staff"), // 清書係とマネージャの作業場（空のディレクトリ）
@@ -92,7 +104,9 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   const wake = (store) => args["no-agents"]
     ? null
     : new Waker({ store, pause: Number(args.pause), scribePause: Number(args["scribe-pause"]), slots: Number(args.slots), spawn, session, integrate: merge });
-  const desk = new Desk({ file: path.resolve(args.data), wake });
+  // 流し込み係：許可された shell コマンドを部屋で走らせる
+  const feed = (store) => new Feeds({ store, room: how.room });
+  const desk = new Desk({ file: path.resolve(args.data), wake, feed });
   // 使う dyve（ROOT）が部屋と別の置き場なら、部屋のいまのコミットに更新してから立て直す
   const restart = {
     prepare: () => {
@@ -106,7 +120,7 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
       process.exit(RESTART);
     },
   };
-  const server = createServer({ store: desk.store, waker: desk.waker, title: args.title, desk, restart });
+  const server = createServer({ store: desk.store, waker: desk.waker, feeds: desk.feeds, title: args.title, desk, restart, panels });
   server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ボードはもう立っています（${boardUrl}）。一つだけ立てて、そこへつないでください` : e.message));
   server.listen(port, "127.0.0.1", () => {
     process.stdout.write(`ボード：${boardUrl}/\nMCP：${boardUrl}/mcp\n操作ログ：${desk.store.file}（${desk.store.board.seq} 件）\n`);
@@ -126,6 +140,31 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   } catch (e) {
     die(String(e.stderr || e.message).trim());
   }
+} else if (cmd === "put" || cmd === "add") {
+  // 画面と同じ口（/api/op）から、人として書く。手元のスクリプトや shell から何でも流し込める
+  const readStdin = () => (process.stdin.isTTY ? Promise.resolve(null) : new Promise((ok) => {
+    let s = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (c) => (s += c)).on("end", () => ok(s));
+  }));
+  const asData = (s) => { const t = s.trim(); try { return JSON.parse(t); } catch { return t; } };
+  if (cmd === "put" && !pos[0]) die(`パネルの id がない\n${USAGE}`);
+  if (cmd === "add" && !args.view) die(`--view がない\n${USAGE}`);
+  const raw = await readStdin();
+  const text = raw != null && raw.trim() ? raw : null;
+  let panel;
+  if (cmd === "put") {
+    if (text == null) die("標準入力がない（例：df -h | dyve put p12）");
+    panel = { id: pos[0], data: asData(text) };
+  } else {
+    panel = { view: args.view, ...(text != null ? { data: asData(text) } : {}) };
+    if (args.shell) panel.source = { shell: args.shell, ...(args.every ? { every: Number(args.every) } : {}) };
+  }
+  const r = await fetch(`http://127.0.0.1:${args.port}/api/op`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: cmd === "put" ? "edit" : "add", panel }) })
+    .then((x) => x.json())
+    .catch((e) => die(`ボードにつながらない（${e.message}）`));
+  if (!r.ok) die(r.message);
+  process.stdout.write(`${r.op.panel.id}\n`);
 } else if (cmd === "export") {
   const file = path.resolve(args.data);
   if (!fs.existsSync(file)) die(`操作ログがない：${file}`);

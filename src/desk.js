@@ -7,10 +7,11 @@ import { Store } from "./store.js";
 const NAME = /^[\w.-]{1,80}$/;
 
 export class Desk {
-  // file：はじめに開くボード。wake(store)：そのボードの起こし係を作る（なければ null）
-  constructor({ file, wake = () => null, now = () => new Date() }) {
+  // file：はじめに開くボード。wake(store)：そのボードの起こし係を作る（なければ null）。feed(store)：流し込み係（なければ null）
+  constructor({ file, wake = () => null, feed = () => null, now = () => new Date() }) {
     this.dir = path.dirname(path.resolve(file));
     this.wake = wake;
+    this.feed = feed;
     this.now = now;
     this.cur = null;
     this._open(path.resolve(file));
@@ -18,6 +19,7 @@ export class Desk {
 
   get store() { return this.cur.store; }
   get waker() { return this.cur.waker; }
+  get feeds() { return this.cur.feeds; }
 
   current() {
     return path.basename(this.cur.store.file, ".jsonl");
@@ -52,15 +54,17 @@ export class Desk {
   }
 
   _open(file) {
-    this.cur?.waker?.stop();
+    this.stop();
     const store = new Store(file);
-    const waker = this.wake(store);
-    this.cur = { store, waker };
+    const waker = this.wake(store), feeds = this.feed(store);
+    this.cur = { store, waker, feeds };
     waker?.start();
+    feeds?.start();
     return this.cur;
   }
 
   stop() {
     this.cur?.waker?.stop();
+    this.cur?.feeds?.stop();
   }
 }
