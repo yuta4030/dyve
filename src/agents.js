@@ -202,12 +202,13 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
       child.stderr.on("data", (b) => { out?.write(b); tail = (tail + b).slice(-400); });
       child.on("error", (e) => resolve({ code: -1, error: e.message }));
       child.on("close", (code) => {
-        out?.end();
         let r = null;
         try { r = JSON.parse(stdout); } catch {}
         const usage = r ? usageOf(r) : null;
         const last = (tail || stdout).trim().split("\n").at(-1);
-        resolve(code === 0 ? { code, usage } : { code, usage, error: `終了コード ${code}${last ? `：${last.slice(0, 200)}` : ""}` });
+        const res = code === 0 ? { code, usage } : { code, usage, error: `終了コード ${code}${last ? `：${last.slice(0, 200)}` : ""}` };
+        // ログを書き切ってから終わったことにする（書き込みは非同期なので、先に知らせるとログが空のまま読まれる）
+        if (out) out.end(() => resolve(res)); else resolve(res);
       });
     });
     return { done, kill: () => child?.kill("SIGTERM") };
