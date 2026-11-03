@@ -353,12 +353,12 @@ function panelEl(p, kids) {
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
-  // 済みの仕事は結果ごと畳む。まだ見ていない知らせが中にあれば畳まない
+  // 済みの仕事は結果ごと畳む。中に印（まだ見ていない知らせ・受け入れ待ちの提案）があれば畳まない
   const sub = [];
   const walk = (id) => { for (const k of kids(id)) { sub.push(k); walk(k.id); } };
   walk(p.id);
   const done = p.view === "task" && p.state === "done";
-  if (done && !S.unfold.has(p.id) && !sub.some((x) => markOf(x) === "notice")) {
+  if (done && !S.unfold.has(p.id) && !sub.some((x) => markOf(x))) {
     el.classList.add("folded");
     tags.push(`<span class="fold">${esc(L.folded(sub.filter((x) => !isPerson(x.by)).length))}</span>`);
   }
