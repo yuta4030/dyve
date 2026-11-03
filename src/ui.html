@@ -87,8 +87,10 @@ a { color: var(--accent); }
 #status { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
 .ava { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 46px; min-height: 0; padding: 0;
        border: none; background: none; color: var(--mute); font-size: 11px; }
-.ava .ini { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
-            border: 2px solid var(--line); background: var(--card); font-size: 14px; font-weight: 600; }
+/* アイコンは状況とトークで同じもの（ini()）。大きさだけ変える */
+.ini { position: relative; flex: none; display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+       border: 2px solid var(--line); background: var(--card); color: var(--ink); font-size: 14px; font-weight: 600; }
+.ini.sm { width: 20px; height: 20px; border-width: 1px; font-size: 10px; }
 .ava.busy { color: var(--ink); }
 .ava.busy .ini { border-color: var(--accent-soft); color: var(--accent); }
 .ava.busy .ini::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid transparent;
@@ -98,7 +100,20 @@ button.ava { cursor: pointer; }
 .ava.to { color: var(--accent); }
 .ava.to .ini { border-color: var(--accent); background: var(--accent-soft); }
 #to { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
-dv-panel .meta .to { color: var(--accent); }
+dv-panel .meta .to { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
+dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
+/* トーク：宛てた相手の返事は、その発言のすぐ下に */
+.reply { display: flex; align-items: flex-start; gap: 6px; width: 100%; min-height: 0; margin: -2px 0 0 14px; padding: 2px 4px; border: none; background: none;
+         text-align: left; font-size: 13px; color: var(--ink); }
+.reply .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding-top: 1px; }
+.reply.wait .t { color: var(--mute); }
+.reply:hover .t { text-decoration: underline; }
+.topics { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.topics button { min-height: 0; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 11px; color: var(--mute); }
+.topics button:hover { color: var(--ink); }
+/* 観点：結果の欄の群の頭になる */
+dv-topic h3 { margin: 0; font-size: 15px; font-weight: 700; }
+dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #doing { width: 100%; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--mute); }
 #doing li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spin { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%;
@@ -229,7 +244,8 @@ const L = {
   locked: "固定中", lockOn: "固定する", lockOff: "固定を外す",
   folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）", unfold: "畳む",
   lock: "固定する（動かない・大きさも変わらない）", unlock: "固定を外す", close: "閉じる（dyve 設定から戻せます）",
-  toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）", toTag: (n) => `→ ${n}`,
+  replyWait: "受け取りました", replyBusy: "取りかかっています…",
+  toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
   toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
   send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
@@ -243,6 +259,7 @@ const L = {
   restart: "更新して再起動（取り込んだ変更を使っている dyve に反映する）", restartAsk: "使っている dyve を更新して立て直しますか（走っているエージェントは止まります）",
   restarting: "立て直しています…",
   idle: "待機中", scribeBusy: "直しています", managerBusy: "整えています", managerWait: "間があいたら整えます", working: "動いています",
+  // アイコンの字。状況・トーク・宛先のどこでも ini() を通して描く。差し替えるならここと ini() だけ
   initial: { scribe: "清", manager: "M", "アリス": "A", "ボブ": "B", "キャロル": "C", "デイブ": "D", "エレン": "E", "フランク": "F" },
   quota: { five_hour: "5 時間枠", seven_day: "週" },
   quotaLeft: (n) => `残り ${n}%`,
@@ -303,6 +320,9 @@ const isPerson = (by) => by === "human";
 const who = (by) => isPerson(by) ? L.you : by === "manager" ? L.manager : by === "scribe" ? L.scribe : by === "board" ? L.board : by;
 const isWorking = (id) => !!S.live?.agents?.some((a) => a.task === id);
 const textOf = (d) => typeof d === "string" ? d : d?.text ?? JSON.stringify(d);
+// アイコン：ここだけで描く。絵に差し替えるときもここを直せば、状況・トーク・宛先がそろって変わる
+const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria-hidden="true">${esc(L.initial[key] || [...String(key)][0] || "?")}</span>`;
+const topicTitle = (p) => typeof p.data === "string" ? p.data : p.data?.title ?? textOf(p.data);
 
 // ── view：パネルの JSON の流し込み先。コンポーネントを書くのは本体だけ ──
 class View extends HTMLElement {
@@ -338,6 +358,14 @@ class SummaryView extends View {
   }
 }
 customElements.define("dv-summary", SummaryView);
+// 観点：仕事を束ねる見出し。data は { title, note? } か文字列
+class TopicView extends View {
+  render(v) {
+    const note = typeof v === "object" && v ? v.note : "";
+    this.innerHTML = `<div class="body"><h3>${esc(typeof v === "string" ? v : v?.title ?? "")}</h3>${note ? `<p>${linkify(note)}</p>` : ""}</div>`;
+  }
+}
+customElements.define("dv-topic", TopicView);
 customElements.define("dv-json", View);
 customElements.define("dv-say", class extends TextView {});
 customElements.define("dv-text", TextView);
@@ -415,7 +443,7 @@ function panelEl(p, kids) {
   const tags = [];
   if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
   if (mark) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
-  if (p.to) tags.push(`<span class="to">${esc(L.toTag(p.to))}</span>`);
+  if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(p.to)}</span>`);
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
@@ -423,7 +451,7 @@ function panelEl(p, kids) {
   const sub = [];
   const walk = (id) => { for (const k of kids(id)) { sub.push(k); walk(k.id); } };
   walk(p.id);
-  const done = p.view === "task" && p.state === "done";
+  const done = (p.view === "task" || p.view === "topic") && p.state === "done";
   if (done && !S.unfold.has(p.id) && !sub.some((x) => markOf(x))) {
     el.classList.add("folded");
     tags.push(`<span class="fold">${esc(L.folded(sub.filter((x) => !isPerson(x.by)).length))}</span>`);
@@ -492,6 +520,9 @@ function render() {
   const isSay = (p) => isPerson(p.by) && p.view === "say";
   const said = top.filter(isSay);
   if (!said.length) tl.innerHTML = `<p class="empty">${esc(L.emptyTalk)}</p>`;
+  // 発言から出た仕事が束ねられている観点（data.from から導く）
+  const topOf = (p) => { const seen = new Set(); while (p?.about && !seen.has(p.id)) { seen.add(p.id); p = S.panels.find((x) => x.id === p.about); } return p; };
+  const fromOf = (p) => Array.isArray(p.data?.from) ? p.data.from : [];
   for (const p of said) {
     const el = panelEl(p, () => []);
     const d = desc(p.id);
@@ -503,7 +534,28 @@ function render() {
       r.innerHTML = `${d.some((x) => isWorking(x.id)) ? '<span class="spin" aria-hidden="true"></span>' : ""}${esc(L.refs(d.length))}${m ? ` ${L.markShort[m]}` : ""}`;
       $(".meta .who", el).after(r);
     }
+    const topics = [...new Set(S.panels.filter((x) => fromOf(x).includes(p.id)).map(topOf).filter((t) => t?.view === "topic"))];
+    if (topics.length) {
+      const r = document.createElement("span");
+      r.className = "topics";
+      r.innerHTML = topics.map((t) => `<button data-goto="${esc(t.id)}">→ ${esc(topicTitle(t))}</button>`).join("");
+      $(".meta .who", el).after(r);
+    }
     tl.append(el);
+    // 宛てた相手の返事：その発言から出た直接の仕事に、相手が最初に置いた短い文
+    if (p.to) {
+      const t = S.panels.find((x) => x.view === "task" && x.data?.direct && (fromOf(x).at(-1) ?? x.about) === p.id);
+      const name = t?.data?.to || p.to;
+      const ans = t && S.panels.find((x) => x.about === t.id && x.by === name && typeof x.data === "string");
+      const text = ans ? ans.data : t && isWorking(t.id) ? L.replyBusy : t?.state === "done" ? "" : L.replyWait;
+      if (text) {
+        const b = document.createElement("button");
+        b.className = `reply${ans ? "" : " wait"}`;
+        if (t) b.dataset.goto = ans ? ans.id : t.id;
+        b.innerHTML = `${ini(name, "sm")}<span class="t">${esc(text)}</span>`;
+        tl.append(b);
+      }
+    }
   }
   if (follow) tl.scrollTop = tl.scrollHeight;
 
@@ -527,6 +579,9 @@ function render() {
     if (!isSay(p)) groups.push({ key: p.id, src: null, items: [p] });
     else if (kids(p.id).length) groups.push({ key: p.id, src: p, items: kids(p.id) });
   }
+  // 群は動きのあった順（観点は長く生きるので、作った順ではなく中で最後に動いた時で並べる）
+  const lastOf = (g) => Math.max(...g.items.flatMap((p) => [p, ...desc(p.id)]).map((p) => p.rev || 0), g.src?.rev || 0);
+  groups.sort((a, b) => lastOf(a) - lastOf(b));
   main.innerHTML = "";
   if (!groups.length) main.innerHTML = `<p class="empty">${esc(L.emptyResults)}</p>`;
   for (const g of groups.reverse()) {
@@ -576,8 +631,8 @@ function renderLive() {
   ];
   // 控室のエージェントは押すとその人が宛先になる。清書係とマネージャは押せない
   const ava = (x) => `<${x.agent ? `button data-to="${esc(x.name)}"${x.task ? ` data-task="${esc(x.task)}"` : ""} aria-pressed="${S.to === x.name}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}${S.to === x.name ? " to" : ""}" title="${esc(x.agent ? L.toAva(x.name, x.what || L.idle) : `${x.name}：${x.what || L.idle}`)}">` +
-    `<span class="ini">${esc(L.initial[x.key] || x.name.slice(0, 1))}</span>${esc(x.name)}</${x.agent ? "button" : "span"}>`;
-  const doing = people.filter((x) => x.what).map((x) => `<li>${esc(L.initial[x.key] || x.name.slice(0, 1))}：${esc(x.what)}</li>`).join("");
+    `${ini(x.key)}${esc(x.name)}</${x.agent ? "button" : "span"}>`;
+  const doing = people.filter((x) => x.what).map((x) => `<li>${esc(L.initial[x.key] || [...x.name][0])}：${esc(x.what)}</li>`).join("");
   $("#status").innerHTML = people.map(ava).join("") + (doing ? `<ul id="doing">${doing}</ul>` : "");
 
   // 残量：claude が流してくる利用枠から
@@ -904,7 +959,11 @@ grid.addEventListener("click", async (e) => {
     return;
   }
   // トークの発言を押すと、それについて置かれたものを結果で見せる
-  if (el.closest("#timeline")) return reveal(groupOf(p.id));
+  if (el.closest("#timeline")) {
+    const t = S.panels.find((x) => Array.isArray(x.data?.from) && x.data.from.includes(p.id));
+    let top = t; while (top?.about && S.panels.some((x) => x.id === top.about)) top = S.panels.find((x) => x.id === top.about);
+    return reveal(groupOf(p.id) || (top && groupOf(top.id)));
+  }
   // 見たら知らせの印を消す（パネルを触ったとき）
   if (markOf(p) === "notice") { S.seen[p.id] = p.aiSeq; saveSeen(); render(); }
 });

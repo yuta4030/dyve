@@ -284,7 +284,7 @@ export class Waker {
     this.store.apply({
       by: "board",
       type: "add",
-      panel: { view: "task", state: "task", about: says.at(-1).id, data: { text: says.map((p) => textOf(p.data)).join("\n"), to: name, direct: true, ...(after ? { after: after.id } : {}) } },
+      panel: { view: "task", state: "task", about: says.at(-1).id, data: { text: says.map((p) => textOf(p.data)).join("\n"), to: name, direct: true, from: says.map((p) => p.id), ...(after ? { after: after.id } : {}) } },
       reason: `人が${name}に宛てて話したことを、そのまま${name}に渡す`,
     });
   }
@@ -339,9 +339,16 @@ export function managerPrompt(since, board = null, running = []) {
     const n = ["points", "decided", "open"].reduce((a, k) => a + (Array.isArray(summary.data?.[k]) ? summary.data[k].length : 0), 0);
     if (n > SUMMARY_MAX) lines.push(`（いま ${n} 項目あります。今回の書き換えで ${SUMMARY_MAX} 項目までに減らしてください。済んだ話・言い換えの重複・細かい感想から消します）`);
   }
+  const topics = all.filter((p) => p.view === "topic");
+  lines.push("", "## 観点");
+  if (!topics.length) lines.push("（まだない）");
+  for (const t of topics) {
+    const n = all.filter((p) => p.about === t.id && p.view === "task").length;
+    lines.push(`- ${t.id}${t.state === "done" ? "［済み］" : ""}${t.pinned ? "［ピン留め］" : ""}：${clip(typeof t.data === "string" ? t.data : t.data?.title ?? textOf(t.data), 60)}（仕事 ${n}）`);
+  }
   lines.push("", "## 仕事");
   if (!tasks.length) lines.push("（なし）");
-  for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
+  for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}${board.get(t.about)?.view === "topic" ? `・観点 ${t.about}` : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
   lines.push("", "## 新しい発言（清書済み）");
   if (!says.length) lines.push("（なし）");
   for (const p of says) lines.push(`- ${p.id}${p.to ? `（${p.to}宛て。ボードがそのまま${p.to}に渡すので、取り次がない）` : ""}：${textOf(p.data)}`);
@@ -354,17 +361,22 @@ export function managerPrompt(since, board = null, running = []) {
 }
 
 export function taskPrompt(board, task, name) {
-  const src = task.about ? board.get(task.about) : null;
+  // 元の発言：data.from があればそれ、なければ about の先が発言のとき
+  const from = Array.isArray(task.data?.from) ? task.data.from.map((id) => board.get(id)).filter(Boolean) : [];
+  const above = task.about ? board.get(task.about) : null;
+  const srcs = from.length ? from : above?.view === "say" ? [above] : [];
+  const topic = above?.view === "topic" ? above : null;
   const text = typeof task.data === "string" ? task.data : task.data?.text ?? JSON.stringify(task.data);
   const prev = task.data?.after ? board.get(task.data.after) : null;
   const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
   return [
     `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`,
-    task.data?.direct ? `人があなたに直接話しかけました。言われたことにそのまま応えてください。` : "",
+    task.data?.direct ? `人があなたに直接話しかけました。言われたことにそのまま応えてください。まず一、二行の短い返事を about: "${task.id}" の text（data は文字列）で置いてください。人のトークに返事として出ます。中身の結果は、そのあとに置きます。` : "",
     task.data?.direct ? `言われたこと：${text}` : `仕事：${text}`,
     prev ? `前にあなたが受け持った仕事（${prev.id}）：${clip(textOf(prev.data), 300)}` : "",
     ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
-    src && !task.data?.direct ? `元の発言（${src.id}）：${typeof src.data === "string" ? src.data : JSON.stringify(src.data)}` : "",
+    topic ? `観点（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
+    ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
     `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
     "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",
   ].filter(Boolean).join("\n");

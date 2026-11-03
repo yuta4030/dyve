@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Store } from "../src/store.js";
-import { Waker, managerPrompt } from "../src/waker.js";
+import { Waker, managerPrompt, taskPrompt } from "../src/waker.js";
 import { hasAiAnswer } from "../src/board.js";
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -228,8 +228,9 @@ test("アイコンで宛てた発言：続けて話したぶんをまとめて�
   const p = store.board.get(next.taskId);
   assert.equal(p.by, "board");
   assert.equal(p.about, s2);
-  assert.deepEqual(p.data, { text: "丸アイコンにして\n色もつけて", to: "ボブ", direct: true, after: t });
+  assert.deepEqual(p.data, { text: "丸アイコンにして\n色もつけて", to: "ボブ", direct: true, from: [store.board.list().find((x) => x.data === "丸アイコンにして").id, s2], after: t });
   assert.match(next.prompt, /直接話しかけました/);
+  assert.match(next.prompt, /短い返事を about: "p\w+" の text/);
   assert.match(next.prompt, /前にあなたが受け持った仕事（.+）：一覧を作る/);
   assert.match(next.prompt, /一覧を置いた/);
 
@@ -241,4 +242,17 @@ test("アイコンで宛てた発言：続けて話したぶんをまとめて�
   assert.equal(tasks()[2].name, "キャロル");
   assert.equal(store.board.get(tasks()[2].taskId).data.after, undefined);
   w.stop();
+});
+
+test("観点：マネージャには観点の一覧を渡し、控室には観点と元の発言（data.from）を渡す", () => {
+  const store = new Store();
+  const s1 = store.apply({ by: "human", type: "add", panel: { view: "say", data: "diff も欲しい" } }).op.panel.id;
+  const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "パネルの整理" } }, reason: "観点" }).op.panel.id;
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: tp, data: { text: "diff の view を作る", from: [s1] } }, reason: "x" }).op.panel;
+  const m = managerPrompt(0, store.board);
+  assert.match(m, new RegExp(`## 観点\\n- ${tp}：パネルの整理（仕事 1）`));
+  assert.match(m, new RegExp(`${t.id}［task・観点 ${tp}］diff の view を作る`));
+  const p = taskPrompt(store.board, store.board.get(t.id), "アリス");
+  assert.match(p, /観点（.+）：パネルの整理/);
+  assert.match(p, new RegExp(`元の発言（${s1}）：diff も欲しい`));
 });
