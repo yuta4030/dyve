@@ -49,7 +49,8 @@ a { color: var(--accent); }
 .tile.locked .tile-head { cursor: default; }
 .tile.locked .tile-head .grip { visibility: hidden; }
 .tile.locked .sizer { display: none; }
-/* タイルの「⋯」：奥まった設定 */
+/* タイルの歯車：奥まった設定 */
+.tile-head [data-ctl="menu"] svg { vertical-align: -2px; }
 .opts { position: absolute; z-index: 5; top: 28px; right: 6px; min-width: 190px; display: flex; flex-direction: column; gap: 6px;
         padding: 8px 10px; font-size: 12px; color: var(--mute); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
         box-shadow: 0 6px 24px rgb(0 0 0 / .35); }
@@ -215,7 +216,7 @@ const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
   tile: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", results: "結果", tools: "dyve 設定" },
   move: "ドラッグで好きな場所へ", size: "ドラッグで大きさを変える",
-  smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "オプション", zoomLabel: "大きさ",
+  smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   locked: "固定中", lockOn: "固定する", lockOff: "固定を外す",
   folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）", unfold: "畳む",
   lock: "固定する（動かない・大きさも変わらない）", unlock: "固定を外す", close: "閉じる（dyve 設定から戻せます）",
@@ -263,6 +264,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 const ICON = {
   pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"/><path d="M12 15v6"/></svg>',
+  gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   drop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   seen: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><path d="M9 12l2 2 4-4"/></svg>',
   export: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
@@ -611,7 +613,7 @@ for (const k of TILES) {
   head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k])}</h2><span class="badge"></span>
     <span class="ctl">
       <span class="lockmark" title="${esc(L.locked)}" aria-label="${esc(L.locked)}">${ICON.pin}</span>
-      <button class="icon" data-ctl="menu" aria-haspopup="true" aria-expanded="false" title="${esc(L.options)}" aria-label="${esc(L.options)}">⋯</button>
+      <button class="icon" data-ctl="menu" aria-haspopup="true" aria-expanded="false" title="${esc(L.options)}" aria-label="${esc(L.options)}">${ICON.gear}</button>
       ${k === "tools" ? "" : `<button class="icon" data-ctl="close" title="${esc(L.close)}" aria-label="${esc(L.close)}">${ICON.drop}</button>`}
     </span>`;
   t.prepend(head);
@@ -624,7 +626,7 @@ for (const k of TILES) {
       <button data-ctl="larger" title="${esc(L.larger)}" aria-label="${esc(L.larger)}">A＋</button></div>
     <div class="row"><button data-ctl="lock" aria-pressed="false"></button></div>`;
   head.after(menu);
-  // dyve 設定の奥まったもの（ます目・並びを戻す）はこのタイルの「⋯」へ
+  // dyve 設定の奥まったもの（ます目・並びを戻す）はこのタイルの歯車へ
   if (k === "tools") menu.append($("#toolsMore"));
   const sizer = document.createElement("div");
   sizer.className = "sizer";
