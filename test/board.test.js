@@ -89,3 +89,11 @@ test("印を導く：未着手・受け入れ待ち", () => {
   const p = b.apply({ by: "アリス", type: "add", panel: { view: "text", state: "proposal", about: t, data: "直す" }, reason: "提案" }).op.panel.id;
   assert.equal(marks(b)[p], "waiting");
 });
+
+test("to：宛てた相手の名前だけを持てる", () => {
+  const b = new Board();
+  assert.equal(b.apply({ by: "human", type: "add", panel: { view: "say", data: "x", to: "ボブ" } }).op.panel.to, "ボブ");
+  assert.equal(b.apply({ by: "human", type: "add", panel: { view: "say", data: "x", to: 3 } }).code, "invalid");
+  b.apply({ by: "human", type: "edit", panel: { id: "p1", to: null } });
+  assert.equal("to" in b.get("p1"), false);
+});

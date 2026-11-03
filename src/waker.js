@@ -38,6 +38,7 @@ export class Waker {
     this.timer = null;
     this.running = new Map(); // taskId -> { name, startedAt, handle }
     this.tried = new Map(); // taskId -> 起こしたときの rev（同じ形の仕事で二度起こさない）
+    this.direct = new Map(); // 名前 -> { says: [発言の id], timer }（人がアイコンで宛てた発言。間があくか、相手の仕事が終わったら渡す）
     this.listeners = new Set();
     const last = (by) => store.board.log.filter((op) => op.by === by).at(-1)?.seq ?? 0;
     this.cutoff = last("manager");
@@ -56,6 +57,7 @@ export class Waker {
     this.off?.();
     clearTimeout(this.timer);
     clearTimeout(this.scribeTimer);
+    for (const d of this.direct.values()) clearTimeout(d.timer);
     for (const c of Object.values(this.convs)) c.s.kill();
     this.manager?.handle.kill();
     for (const r of this.running.values()) r.handle.kill();
@@ -98,6 +100,7 @@ export class Waker {
     if (op.type === "add" && op.panel.view === "say" && isPerson(op.by)) {
       if (this.session) this._scheduleScribe();
       this._schedule();
+      if (this.names.includes(op.panel.to)) this._queueDirect(op.panel.to, op.panel.id);
     }
     const r = this.running.get(op.panel.id);
     if (r && op.by !== r.name && (op.type === "drop" || (op.type === "edit" && "state" in op.panel && op.panel.state !== "task"))) {
@@ -241,6 +244,7 @@ export class Waker {
       handle.done.then((res) => {
         this._count(res);
         this.running.delete(t.id);
+        if (this.direct.get(name)?.says.length) this._flushDirect(name);
         const cur = this.store.board.get(t.id);
         if (cur && cur.state === "task" && !hasAiAnswer(this.store.board, t.id)) {
           this.store.apply({
@@ -257,6 +261,34 @@ export class Waker {
     if (changed) this._changed();
   }
 
+  // 人がアイコンで宛てた発言：続けて話したぶんは一つにまとめる。相手が働いているあいだは、終わるまで待たせる
+  _queueDirect(name, id) {
+    const d = this.direct.get(name) || { says: [], timer: null };
+    this.direct.set(name, d);
+    d.says.push(id);
+    clearTimeout(d.timer);
+    d.timer = setTimeout(() => this._flushDirect(name), this.pause);
+  }
+
+  _flushDirect(name) {
+    const d = this.direct.get(name);
+    if (!d?.says.length) return;
+    clearTimeout(d.timer);
+    d.timer = null;
+    if ([...this.running.values()].some((r) => r.name === name)) return; // 終わったら渡す
+    const board = this.store.board;
+    const says = d.says.map((id) => board.get(id)).filter(Boolean);
+    d.says = [];
+    if (!says.length) return;
+    const after = lastTaskOf(board, name);
+    this.store.apply({
+      by: "board",
+      type: "add",
+      panel: { view: "task", state: "task", about: says.at(-1).id, data: { text: says.map((p) => textOf(p.data)).join("\n"), to: name, direct: true, ...(after ? { after: after.id } : {}) } },
+      reason: `人が${name}に宛てて話したことを、そのまま${name}に渡す`,
+    });
+  }
+
   _pickName(wanted) {
     const busy = new Set([...this.running.values()].map((r) => r.name));
     // 名前を呼ばれた相手が働いているなら、空くまで待つ
@@ -267,6 +299,16 @@ export class Waker {
 
 const textOf = (d) => (typeof d === "string" ? d : d?.text ?? JSON.stringify(d));
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
+
+// その人がいちばん最近受け持った仕事：宛てられた仕事か、結果を置いた仕事
+function lastTaskOf(board, name) {
+  let best = null;
+  for (const p of board.list()) {
+    const t = p.view === "task" && p.data?.to === name ? p : p.by === name && p.about ? board.get(p.about) : null;
+    if (t?.view === "task" && (!best || t.seq > best.seq)) best = t;
+  }
+  return best;
+}
 
 // 清書係への一通。新しい発言だけを直させ、直前の発言は文脈として渡す（会話の頭のときだけ）
 export function scribePrompt(fresh, before = []) {
@@ -302,7 +344,7 @@ export function managerPrompt(since, board = null, running = []) {
   for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
   lines.push("", "## 新しい発言（清書済み）");
   if (!says.length) lines.push("（なし）");
-  for (const p of says) lines.push(`- ${p.id}：${textOf(p.data)}`);
+  for (const p of says) lines.push(`- ${p.id}${p.to ? `（${p.to}宛て。ボードがそのまま${p.to}に渡すので、取り次がない）` : ""}：${textOf(p.data)}`);
   if (placed.length) {
     lines.push("", "## 新しく置かれたもの");
     for (const p of placed) lines.push(`- ${p.id}（${p.by}${p.about ? `、${p.about} について` : ""}${p.state ? `、${p.state}` : ""}）：${clip(textOf(p.data), 300)}`);
@@ -314,10 +356,15 @@ export function managerPrompt(since, board = null, running = []) {
 export function taskPrompt(board, task, name) {
   const src = task.about ? board.get(task.about) : null;
   const text = typeof task.data === "string" ? task.data : task.data?.text ?? JSON.stringify(task.data);
+  const prev = task.data?.after ? board.get(task.data.after) : null;
+  const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
   return [
     `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`,
-    `仕事：${text}`,
-    src ? `元の発言（${src.id}）：${typeof src.data === "string" ? src.data : JSON.stringify(src.data)}` : "",
+    task.data?.direct ? `人があなたに直接話しかけました。言われたことにそのまま応えてください。` : "",
+    task.data?.direct ? `言われたこと：${text}` : `仕事：${text}`,
+    prev ? `前にあなたが受け持った仕事（${prev.id}）：${clip(textOf(prev.data), 300)}` : "",
+    ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
+    src && !task.data?.direct ? `元の発言（${src.id}）：${typeof src.data === "string" ? src.data : JSON.stringify(src.data)}` : "",
     `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
     "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",
   ].filter(Boolean).join("\n");

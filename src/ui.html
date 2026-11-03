@@ -94,6 +94,11 @@ a { color: var(--accent); }
 .ava.busy .ini::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid transparent;
                         border-top-color: var(--accent); animation: spin .9s linear infinite; }
 .ava.wait .ini { border-style: dashed; border-color: var(--mute); }
+button.ava { cursor: pointer; }
+.ava.to { color: var(--accent); }
+.ava.to .ini { border-color: var(--accent); background: var(--accent-soft); }
+#to { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
+dv-panel .meta .to { color: var(--accent); }
 #doing { width: 100%; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--mute); }
 #doing li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spin { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%;
@@ -184,6 +189,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
         <textarea id="msg" rows="1"></textarea>
         <div class="bar">
           <button id="mic" aria-pressed="false" hidden></button>
+          <button id="to" hidden></button>
           <span class="grow"><span id="err" role="status"></span></span>
           <button id="send" class="primary"></button>
         </div>
@@ -223,6 +229,8 @@ const L = {
   locked: "固定中", lockOn: "固定する", lockOff: "固定を外す",
   folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）", unfold: "畳む",
   lock: "固定する（動かない・大きさも変わらない）", unlock: "固定を外す", close: "閉じる（dyve 設定から戻せます）",
+  toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）", toTag: (n) => `→ ${n}`,
+  toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
   send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
@@ -283,7 +291,7 @@ const ICON = {
   restart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
-const S = { panels: [], marks: {}, live: null, names: [], title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
+const S = { to: null, panels: [], marks: {}, live: null, names: [], title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
 // 見る人ごとの見た目（タイルの並び・大きさ、パネルの大きさ）。ボードのデータには持たない
 const keep = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -407,6 +415,7 @@ function panelEl(p, kids) {
   const tags = [];
   if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
   if (mark) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
+  if (p.to) tags.push(`<span class="to">${esc(L.toTag(p.to))}</span>`);
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
@@ -562,11 +571,12 @@ function renderLive() {
     { key: "manager", name: L.manager, on: !!lv.manager, wait: !lv.manager && lv.waitingManager, what: lv.manager ? L.managerBusy : lv.waitingManager ? L.managerWait : "" },
     ...(S.names || []).map((n) => {
       const a = busy.get(n), t = a && S.panels.find((p) => p.id === a.task);
-      return { key: n, name: n, on: !!a, task: a?.task, what: t ? textOf(t.data) : "" };
+      return { key: n, name: n, on: !!a, task: a?.task, what: t ? textOf(t.data) : "", agent: true };
     }),
   ];
-  const ava = (x) => `<${x.task ? `button data-goto="${esc(x.task)}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}" title="${esc(`${x.name}：${x.what || L.idle}`)}">` +
-    `<span class="ini">${esc(L.initial[x.key] || x.name.slice(0, 1))}</span>${esc(x.name)}</${x.task ? "button" : "span"}>`;
+  // 控室のエージェントは押すとその人が宛先になる。清書係とマネージャは押せない
+  const ava = (x) => `<${x.agent ? `button data-to="${esc(x.name)}"${x.task ? ` data-task="${esc(x.task)}"` : ""} aria-pressed="${S.to === x.name}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}${S.to === x.name ? " to" : ""}" title="${esc(x.agent ? L.toAva(x.name, x.what || L.idle) : `${x.name}：${x.what || L.idle}`)}">` +
+    `<span class="ini">${esc(L.initial[x.key] || x.name.slice(0, 1))}</span>${esc(x.name)}</${x.agent ? "button" : "span"}>`;
   const doing = people.filter((x) => x.what).map((x) => `<li>${esc(L.initial[x.key] || x.name.slice(0, 1))}：${esc(x.what)}</li>`).join("");
   $("#status").innerHTML = people.map(ava).join("") + (doing ? `<ul id="doing">${doing}</ul>` : "");
 
@@ -859,6 +869,12 @@ async function op(type, panel) {
 
 // ── 操作 ──
 grid.addEventListener("click", async (e) => {
+  const ta = e.target.closest("[data-to]");
+  if (ta) {
+    setTo(S.to === ta.dataset.to ? null : ta.dataset.to);
+    if (S.to && ta.dataset.task) reveal(panelOf(ta.dataset.task));
+    return;
+  }
   const go = e.target.closest("[data-goto]")?.dataset.goto;
   // 結果の群の見出しはトークの発言へ、状況のアイコンはその仕事へ
   if (go) return reveal(panelOf(go));
@@ -929,7 +945,7 @@ async function send() {
   const raw = msg.value, text = raw.trim();
   if (!text) return;
   sending = true;
-  const r = await op("add", { view: "say", data: text });
+  const r = await op("add", { view: "say", data: text, ...(S.to ? { to: S.to } : {}) });
   sending = false;
   if (!r) return;
   // 送っているあいだに足された分は残す
@@ -943,6 +959,17 @@ msg.addEventListener("input", () => { grow(); arm(); });
 msg.addEventListener("compositionstart", () => { composing = true; });
 msg.addEventListener("compositionend", () => { composing = false; arm(); });
 // Enter で置く。改行は Shift+Enter
+// 宛先：状況のアイコンを押すと決まり、もう一度押すか ✕ か Esc で外れる。外すまで続く
+function setTo(name) {
+  S.to = name;
+  const b = $("#to");
+  b.hidden = !name;
+  if (name) { b.textContent = L.toChip(name); b.title = L.toOff; }
+  msg.placeholder = name ? L.toPlaceholder(name) : L.placeholder;
+  renderLive();
+}
+$("#to").onclick = () => setTo(null);
+msg.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.to) setTo(null); });
 msg.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); clearTimeout(timer); send(); } });
 $("#send").onclick = () => { clearTimeout(timer); send(); };
 

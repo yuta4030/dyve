@@ -12,7 +12,9 @@ export const CODES = {
   conflict: "あいだに別の変更が入った",
   invalid: "操作の形が正しくない",
 };
-const FIELDS = ["view", "data", "about", "state", "pinned", "source"];
+const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to"];
+// to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
+const badTo = (to) => (to == null || (typeof to === "string" && to.trim() && to.length <= 40) ? null : "to は相手の名前");
 
 // source：データを shell コマンドの結果から流し込む（{ shell, every? }。every は秒、なければ一度だけ）。
 // 走らせてよいかは人が決める：人が置いたか、人が置き直した（＝許可した）ときだけ走る。AI が変えたら許可は外れる
@@ -82,6 +84,10 @@ export class Board {
         if (bad) return refuse("invalid", bad);
         body.source = panel.source;
       }
+      if (panel.to != null) {
+        if (badTo(panel.to)) return refuse("invalid", badTo(panel.to));
+        body.to = panel.to;
+      }
     } else if (type === "edit" || type === "drop") {
       const cur = this.panels.get(panel.id);
       if (!cur) return refuse("not_found");
@@ -101,6 +107,7 @@ export class Board {
         }
         if ("view" in body && (typeof body.view !== "string" || !body.view)) return refuse("invalid", "view がない");
         if ("source" in body && badSource(body.source)) return refuse("invalid", badSource(body.source));
+        if ("to" in body && badTo(body.to)) return refuse("invalid", badTo(body.to));
         if ("state" in body && body.state != null && !STATES.includes(body.state)) return refuse("invalid", `state は ${STATES.join("・")} のどれか`);
         if ("state" in body && cur.state === "proposal" && body.state !== "proposal" && !person) return refuse("forbidden", "提案を受け入れるのは人だけ");
         if ("about" in body && body.about != null) {
@@ -138,6 +145,7 @@ export class Board {
       if (next.about == null) delete next.about;
       if (next.state == null) delete next.state;
       if (next.source == null) delete next.source;
+      if (next.to == null) delete next.to;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
       this.panels.set(p.id, next);
     } else if (op.type === "drop") {

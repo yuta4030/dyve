@@ -205,3 +205,40 @@ test("マネージャへの指示：要点・仕事・新しい発言・置か�
   assert.ok(long.ok);
   assert.match(managerPrompt(since, store.board, []), /いま 20 項目あります。今回の書き換えで 15 項目までに減らして/);
 });
+
+test("アイコンで宛てた発言：続けて話したぶんをまとめてその相手に渡し、働いていれば終わってから続きとして渡す", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 10 }).start();
+  const tasks = () => f.jobs.filter((j) => j.role === "task");
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "一覧を作る", to: "ボブ" } }, reason: "x" }).op.panel.id;
+  assert.equal(tasks()[0].name, "ボブ");
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "丸アイコンにして", to: "ボブ" } });
+  const s2 = store.apply({ by: "human", type: "add", panel: { view: "say", data: "色もつけて", to: "ボブ" } }).op.panel.id;
+  await tick(30);
+  assert.equal(tasks().length, 1); // ボブが働いているあいだは待つ
+  assert.match(managerPrompt(0, store.board), /ボブ宛て。ボードがそのままボブに渡す/);
+  store.apply({ by: "ボブ", type: "add", panel: { view: "list", about: t, data: ["一覧を置いた"] }, reason: "結果" });
+  store.apply({ by: "ボブ", type: "edit", panel: { id: t, state: "done" }, reason: "済み" });
+  tasks()[0].finish();
+  await tick(30);
+  assert.equal(tasks().length, 2);
+  const next = tasks()[1];
+  assert.equal(next.name, "ボブ");
+  const p = store.board.get(next.taskId);
+  assert.equal(p.by, "board");
+  assert.equal(p.about, s2);
+  assert.deepEqual(p.data, { text: "丸アイコンにして\n色もつけて", to: "ボブ", direct: true, after: t });
+  assert.match(next.prompt, /直接話しかけました/);
+  assert.match(next.prompt, /前にあなたが受け持った仕事（.+）：一覧を作る/);
+  assert.match(next.prompt, /一覧を置いた/);
+
+  // 空いている相手には、間があいたらすぐ渡す。宛先のない発言は渡さない
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "ありがとう" } });
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "キャロル、表にして", to: "キャロル" } });
+  await tick(30);
+  assert.equal(tasks().length, 3);
+  assert.equal(tasks()[2].name, "キャロル");
+  assert.equal(store.board.get(tasks()[2].taskId).data.after, undefined);
+  w.stop();
+});
