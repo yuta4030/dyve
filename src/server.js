@@ -9,14 +9,21 @@ import { toMarkdown } from "./export.js";
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
-export function createServer({ store, waker = null, title = "ボード" }) {
+// desk：ボードを切り替えるときに使う（なければ一枚だけ）。{ current(), list(), open(name), create() }
+// open・create は新しい { store, waker } を返す。前のボードの操作ログはそのまま残る
+export function createServer({ store, waker = null, title = "ボード", desk = null }) {
   const clients = new Set();
   const send = (event, data) => {
     const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(chunk);
   };
-  store.onOp((op) => send("op", op));
-  waker?.onChange((live) => send("live", live));
+  let cur;
+  const use = (next) => {
+    cur = next;
+    next.store.onOp((op) => cur.store === next.store && send("op", op));
+    next.waker?.onChange((live) => cur.waker === next.waker && send("live", live));
+  };
+  use({ store, waker });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
@@ -35,18 +42,18 @@ export function createServer({ store, waker = null, title = "ボード" }) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         return res.end(fs.readFileSync(UI));
       }
-      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, ...boardView(store, waker) });
-      if (req.method === "GET" && url.pathname === "/api/history") return json(200, store.board.history(url.searchParams.get("id")));
+      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, name: desk?.current() ?? null, ...boardView(cur.store, cur.waker) });
+      if (req.method === "GET" && url.pathname === "/api/history") return json(200, cur.store.board.history(url.searchParams.get("id")));
       if (req.method === "GET" && url.pathname === "/api/export.md") {
         res.writeHead(200, {
           "content-type": "text/markdown; charset=utf-8",
           "content-disposition": `attachment; filename="board-${new Date().toISOString().slice(0, 10)}.md"`,
         });
-        return res.end(toMarkdown(store.board, { title, running: waker?.runningTasks() ?? [] }));
+        return res.end(toMarkdown(cur.store.board, { title, running: cur.waker?.runningTasks() ?? [] }));
       }
       if (req.method === "GET" && url.pathname === "/api/events") {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
-        res.write(`event: hello\ndata: ${JSON.stringify({ seq: store.board.seq })}\n\n`);
+        res.write(`event: hello\ndata: ${JSON.stringify({ seq: cur.store.board.seq })}\n\n`);
         clients.add(res);
         const beat = setInterval(() => res.write(": beat\n\n"), 25000);
         req.on("close", () => {
@@ -58,8 +65,19 @@ export function createServer({ store, waker = null, title = "ボード" }) {
       if (req.method === "POST" && url.pathname === "/api/op") {
         // 画面から来る操作は人のもの
         const body = await readJson(req);
-        const r = store.apply({ by: "human", type: body.type, panel: body.panel });
+        const r = cur.store.apply({ by: "human", type: body.type, panel: body.panel });
         return json(r.ok ? 200 : 409, r.ok ? { ok: true, op: r.op } : r);
+      }
+      if (url.pathname === "/api/boards") {
+        if (!desk) return json(404, { ok: false, code: "not_found", message: "ボードは一枚だけ" });
+        if (req.method === "GET") return json(200, { current: desk.current(), boards: desk.list() });
+        // 切り替え・新しいボードは人だけ（画面から）
+        const body = await readJson(req);
+        const next = body.action === "new" ? desk.create() : body.action === "open" ? desk.open(String(body.name || "")) : null;
+        if (!next) return json(400, { ok: false, code: "invalid", message: "action は new か open" });
+        use(next);
+        send("board", { current: desk.current() });
+        return json(200, { ok: true, current: desk.current() });
       }
       if (url.pathname === "/mcp") {
         if (req.method !== "POST") {
@@ -69,8 +87,8 @@ export function createServer({ store, waker = null, title = "ボード" }) {
         const as = url.searchParams.get("as") || "guest";
         const body = await readJson(req);
         const out = Array.isArray(body)
-          ? body.map((m) => handleRpc(store, waker, as, m)).filter(Boolean)
-          : handleRpc(store, waker, as, body);
+          ? body.map((m) => handleRpc(cur.store, cur.waker, as, m)).filter(Boolean)
+          : handleRpc(cur.store, cur.waker, as, body);
         if (out == null || (Array.isArray(out) && !out.length)) {
           res.writeHead(202);
           return res.end();

@@ -103,6 +103,22 @@ test("エージェントの起こし方：役割ごとの道具と、名乗り�
   assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
   assert.match(m[m.indexOf("--append-system-prompt") + 1], /ボードマネージャ/);
   assert.ok(!m.includes("--model"));
+  const r = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x", {}, { room: "/repo/x" });
+  assert.match(r[r.indexOf("--append-system-prompt") + 1], /リポジトリ \/repo\/x/);
+});
+
+test("エージェントの起こし方：前置きを固定してキャッシュを効かせる", () => {
+  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x");
+  assert.ok(t.includes("--exclude-dynamic-system-prompt-sections"));
+  assert.equal(t[t.indexOf("--output-format") + 1], "json");
+  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
+  assert.ok(!m.includes("--exclude-dynamic-system-prompt-sections"));
+  // 清書係は起こしっぱなしの会話で、発言を書き換える道具だけ
+  const s = claudeArgs({ role: "scribe", name: "scribe" }, "http://x", { scribe: "haiku" }, { stream: true });
+  assert.equal(s[s.indexOf("--input-format") + 1], "stream-json");
+  assert.equal(s[s.indexOf("--model") + 1], "haiku");
+  assert.deepEqual(s.slice(s.indexOf("--allowedTools") + 1), ["mcp__board__panel_edit"]);
+  assert.match(s[s.indexOf("--append-system-prompt") + 1], /清書係/);
 });
 
 test("エージェントの起こし方：役割ごとのモデル", () => {

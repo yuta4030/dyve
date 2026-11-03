@@ -36,6 +36,11 @@ function render(data) {
     const row = (r) => `| ${r.map((c) => String(c ?? "").replace(/\|/g, "\\|")).join(" | ")} |`;
     return ["", row(data.columns), row(data.columns.map(() => "---")), ...data.rows.map(row)].join("\n");
   }
+  // いまの要点
+  if (["points", "decided", "open"].some((k) => Array.isArray(data[k]))) {
+    const NAME = { points: "要点", decided: "決まったこと", open: "まだ決まっていない" };
+    return "いまの要点\n" + Object.keys(NAME).filter((k) => data[k]?.length).map((k) => `${NAME[k]}：\n${data[k].map((x) => `- ${render(x)}`).join("\n")}`).join("\n");
+  }
   if (typeof data.text === "string") return data.to ? `${data.text}（宛先：${data.to}）` : data.text;
   return "\n```json\n" + JSON.stringify(data, null, 2) + "\n```";
 }

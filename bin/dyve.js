@@ -5,14 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { Store } from "../src/store.js";
+import { Desk } from "../src/desk.js";
 import { Waker } from "../src/waker.js";
-import { claudeSpawner } from "../src/agents.js";
+import { claudeSpawner, claudeSession } from "../src/agents.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
 
 const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
-  dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--slots N] [--manager-model M] [--task-model M]
+  dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--scribe-pause MS] [--slots N]
+              [--scribe-model M] [--manager-model M] [--task-model M]
   dyve export [--data FILE] [--out FILE]`;
 
 function die(msg) {
@@ -31,8 +33,10 @@ try {
       room: { type: "string", default: process.cwd() },
       "no-agents": { type: "boolean", default: false },
       claude: { type: "string", default: "claude" },
-      pause: { type: "string", default: "1500" },
-      "manager-model": { type: "string", default: "haiku" },
+      pause: { type: "string", default: "4000" },
+      "scribe-pause": { type: "string", default: "1000" },
+      "scribe-model": { type: "string", default: "haiku" },
+      "manager-model": { type: "string", default: "sonnet" },
       "task-model": { type: "string" },
       slots: { type: "string", default: "3" },
       title: { type: "string", default: "ボード" },
@@ -44,25 +48,30 @@ try {
 }
 
 if (cmd === "serve") {
-  const store = new Store(path.resolve(args.data));
   const port = Number(args.port);
   const boardUrl = `http://127.0.0.1:${port}`;
-  const waker = args["no-agents"]
+  const home = path.dirname(path.resolve(args.data));
+  const how = {
+    cmd: args.claude,
+    room: path.resolve(args.room),
+    staff: path.join(home, "staff"), // 清書係とマネージャの作業場（空のディレクトリ）
+    boardUrl,
+    logDir: path.join(home, "logs"),
+    models: { scribe: args["scribe-model"], manager: args["manager-model"], task: args["task-model"] },
+  };
+  const spawn = claudeSpawner(how), session = claudeSession(how);
+  // ボードを切り替えるたびに、そのボードの起こし係を作り直す（前のボードの会話は止める）
+  const wake = (store) => args["no-agents"]
     ? null
-    : new Waker({
-        store,
-        pause: Number(args.pause),
-        slots: Number(args.slots),
-        spawn: claudeSpawner({ cmd: args.claude, room: path.resolve(args.room), boardUrl, logDir: path.join(path.dirname(path.resolve(args.data)), "logs"), models: { manager: args["manager-model"], task: args["task-model"] } }),
-      });
-  const server = createServer({ store, waker, title: args.title });
+    : new Waker({ store, pause: Number(args.pause), scribePause: Number(args["scribe-pause"]), slots: Number(args.slots), spawn, session });
+  const desk = new Desk({ file: path.resolve(args.data), wake });
+  const server = createServer({ store: desk.store, waker: desk.waker, title: args.title, desk });
   server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ボードはもう立っています（${boardUrl}）。一つだけ立てて、そこへつないでください` : e.message));
   server.listen(port, "127.0.0.1", () => {
-    waker?.start();
-    process.stdout.write(`ボード：${boardUrl}/\nMCP：${boardUrl}/mcp\n操作ログ：${store.file}（${store.board.seq} 件）\n`);
+    process.stdout.write(`ボード：${boardUrl}/\nMCP：${boardUrl}/mcp\n操作ログ：${desk.store.file}（${desk.store.board.seq} 件）\n`);
   });
   const quit = () => {
-    waker?.stop();
+    desk.stop();
     server.closeAll();
     process.exit(0);
   };

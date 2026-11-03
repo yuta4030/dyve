@@ -136,8 +136,8 @@ export function marks(board, { running = [] } = {}) {
   return out;
 }
 
-// 結果が付いたか：人でもマネージャでもボード自身でもない者（タスクエージェント）が about に置いたか
-export const STAFF = new Set(["manager", "board"]);
+// 結果が付いたか：人でも清書係でもマネージャでもボード自身でもない者（タスクエージェント）が about に置いたか
+export const STAFF = new Set(["scribe", "manager", "board"]);
 export function hasAiAnswer(board, id) {
   return board.list().some((q) => q.about === id && !isPerson(q.by) && !STAFF.has(q.by));
 }

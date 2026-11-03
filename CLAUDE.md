@@ -16,7 +16,7 @@
 
 ## 構成
 - dyve が自前で持つのはボードだけ。エージェントはどれも外の Claude Code で、MCP の口からボードを読み書きする
-- 違いはどのディレクトリで、どの定義を読んで起きるかだけ。マネージャは `agents/manager.md`、控室は `skills/backroom/SKILL.md`
+- 違いはどのディレクトリで、どの定義を読んで起きるかだけ。清書係は `agents/scribe.md`（起こしっぱなし）、マネージャは `agents/manager.md`、控室は `skills/backroom/SKILL.md`
 - 型は定義しない。エージェントは汎用なので、流し込んだことをそのまま頼む
 - view（Web Components）を書くのは本体だけ。エージェントがその場でコードを流し込むことはしない
 
