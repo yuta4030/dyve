@@ -7,6 +7,7 @@ import { Store } from "../src/store.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
 import { claudeArgs } from "../src/agents.js";
+import { unwrapData } from "../src/mcp.js";
 
 async function withServer(fn) {
   const store = new Store();
@@ -67,6 +68,20 @@ test("MCP の口：初期化・道具の一覧・書き込みは名乗った立�
     const view = JSON.parse(read.result.content[0].text);
     assert.equal(view.seq, 2);
     assert.deepEqual(view.panels.map((p) => p.id), ["p2"]);
+  });
+});
+
+test("MCP の data：二重にくるまれた文字列はほどき、ほかはそのまま", async () => {
+  assert.equal(unwrapData('"# 見出し\\n本文"'), "# 見出し\n本文");
+  assert.equal(unwrapData(JSON.stringify(JSON.stringify("二重"))), "二重");
+  assert.equal(unwrapData("「引用」はそのまま"), "「引用」はそのまま");
+  assert.equal(unwrapData('"閉じていない'), '"閉じていない');
+  assert.equal(unwrapData('"a" と "b"'), '"a" と "b"');
+  assert.deepEqual(unwrapData(["a"]), ["a"]);
+  assert.equal(unwrapData("[1, 2]"), "[1, 2]");
+  await withServer(async ({ store, base }) => {
+    await post(`${base}/mcp?as=${encodeURIComponent("アリス")}`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "panel_add", arguments: { view: "md", data: '"# dyve\\n本文"', reason: "x" } } });
+    assert.equal(store.board.list()[0].data, "# dyve\n本文");
   });
 });
 

@@ -8,7 +8,10 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
 const panelFields = {
   view: { type: "string", description: "描き方：本体の say（発言）, text（文字列）, list（文字列の配列）, table（{columns, rows}）, task（仕事）, summary（いまの要点：{points, decided, open}）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える" },
-  data: { description: "中身。view に合う JSON" },
+  data: {
+    type: ["string", "array", "object", "number", "boolean", "null"],
+    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は配列、table は {columns, rows}、task は {text, to?}、summary は {points, decided, open}",
+  },
   about: { type: "string", description: "どのパネルについてのものか（関係する場所に置く）" },
   state: { type: "string", enum: ["task", "proposal", "done"], description: "仕事・提案・済み" },
   source: { type: "object", description: "データを shell コマンドの結果から流し込む：{ shell, every? }（every は秒、5 以上）。AI が置いたコマンドは、人が許可するまで走らない" },
@@ -60,6 +63,20 @@ export function boardView(store, waker, { since, about } = {}) {
   };
 }
 
+// エージェントは文字列を JSON の文字列リテラルのまま（"\"…\""）渡してくることがある。丸ごと JSON の文字列として読めるときだけほどく
+export function unwrapData(data) {
+  for (let i = 0; i < 3 && typeof data === "string" && /^\s*"[\s\S]*"\s*$/.test(data); i++) {
+    try {
+      const v = JSON.parse(data);
+      if (typeof v !== "string") break;
+      data = v;
+    } catch {
+      break;
+    }
+  }
+  return data;
+}
+
 function call(store, waker, as, name, args = {}) {
   const { reason: why, ...rest } = args;
   switch (name) {
@@ -70,6 +87,7 @@ function call(store, waker, as, name, args = {}) {
     case "panel_add":
     case "panel_edit":
     case "panel_drop": {
+      if ("data" in rest) rest.data = unwrapData(rest.data);
       const r = store.apply({ by: as, type: name.slice(6), panel: rest, reason: why });
       return r.ok ? { ok: true, seq: r.op.seq, id: r.op.panel.id } : r;
     }
