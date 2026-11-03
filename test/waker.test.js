@@ -97,6 +97,16 @@ test("取り下げられたら止め、結果を置かずに終わったらそ�
   w.stop();
 });
 
+test("data.write が付いた仕事は開発として起こす", () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "直す", write: true } }, reason: "x" });
+  store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる" } }, reason: "x" });
+  assert.deepEqual(f.jobs.map((j) => j.role), ["dev", "task"]);
+  w.stop();
+});
+
 test("一度に起こすのは slots まで", () => {
   const store = new Store();
   const f = fakeSpawn();

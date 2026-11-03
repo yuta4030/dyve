@@ -213,7 +213,9 @@ export class Waker {
       const name = this._pickName(t.data?.to);
       if (!name) continue;
       this.tried.set(t.id, t.rev);
-      const handle = this.spawn({ role: "task", name, taskId: t.id, prompt: taskPrompt(board, t, name) });
+      // data.write が付いた仕事は開発：書ける道具で、仕事ごとの worktree の中で働く
+      const role = t.data?.write === true ? "dev" : "task";
+      const handle = this.spawn({ role, name, taskId: t.id, prompt: taskPrompt(board, t, name) });
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
       handle.done.then((res) => {

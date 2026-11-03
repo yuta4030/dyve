@@ -34,6 +34,20 @@ open http://127.0.0.1:4740/                    # 画面
 
 `node bin/dyve.js export` で、ボードをそのまま Markdown に書き出す（AI は使わない）。画面の「Markdown に書き出す」も同じ。
 
+## dyve で dyve を開発する
+
+使う dyve と作る dyve を分ける。取り込んだ変更が壊れていても、使っているボードは落ちない。
+
+```
+cd ~/code/dyve
+node bin/dyve.js app                                   # 使う dyve を ~/.dyve/app に切り出す（いまのコミット）
+node ~/.dyve/app/bin/dyve.js serve --room ~/code/dyve  # 使う dyve で、作る側を部屋にして立てる
+```
+
+- 「直して」「作って」と話すと、マネージャが開発の仕事（`data.write: true`）として取り次ぐ
+- 開発の仕事は、部屋のいまの HEAD から切り出した worktree（`~/.dyve/work/<仕事>-<時刻>`）とブランチ（`dyve/<仕事>-<時刻>`）の中で書き、`node --test` を走らせてコミットし、結果を提案として置く。push はしない
+- 取り込むかは人が決める（いまは手で `git merge dyve/…`）。取り込んだら `node bin/dyve.js app` で使う側を更新して、立て直す
+
 `--data` と同じディレクトリの `*.jsonl` が一枚ずつのボードになる。画面の dyve 設定から、新しいボードにしたり（いまのボードの操作ログは残る）、前のボードに切り替えたりできる。切り替えると、前のボードの清書係・マネージャ・控室は止まる。
 
 ## Claude Code のプラグインとして入れる

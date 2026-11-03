@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { Store } from "../src/store.js";
 import { Desk } from "../src/desk.js";
 import { Waker } from "../src/waker.js";
-import { claudeSpawner, claudeSession } from "../src/agents.js";
+import { claudeSpawner, claudeSession, updateApp } from "../src/agents.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
 
@@ -15,7 +15,8 @@ const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
   dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--scribe-pause MS] [--slots N]
               [--scribe-model M] [--manager-model M] [--task-model M]
-  dyve export [--data FILE] [--out FILE]`;
+  dyve export [--data FILE] [--out FILE]
+  dyve app [--room DIR] [--ref REF] [--app DIR]   使う dyve を作る側のコミットから切り出す・更新する`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -41,6 +42,8 @@ try {
       slots: { type: "string", default: "3" },
       title: { type: "string", default: "ボード" },
       out: { type: "string" },
+      ref: { type: "string", default: "HEAD" },
+      app: { type: "string", default: path.join(HOME, "app") },
     },
   }).values;
 } catch (e) {
@@ -77,6 +80,14 @@ if (cmd === "serve") {
   };
   process.on("SIGINT", quit);
   process.on("SIGTERM", quit);
+} else if (cmd === "app") {
+  const room = path.resolve(args.room), app = path.resolve(args.app);
+  try {
+    const r = updateApp({ room, app, ref: args.ref });
+    process.stdout.write(`使う dyve：${app}（${r.commit.slice(0, 7)}${r.created ? "、新しく作った" : "、更新した"}）\n起動：node ${path.join(app, "bin", "dyve.js")} serve --room ${room}\n`);
+  } catch (e) {
+    die(String(e.stderr || e.message).trim());
+  }
 } else if (cmd === "export") {
   const file = path.resolve(args.data);
   if (!fs.existsSync(file)) die(`操作ログがない：${file}`);
