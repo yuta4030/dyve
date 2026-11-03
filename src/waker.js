@@ -319,5 +319,6 @@ export function taskPrompt(board, task, name) {
     `仕事：${text}`,
     src ? `元の発言（${src.id}）：${typeof src.data === "string" ? src.data : JSON.stringify(src.data)}` : "",
     `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
+    "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",
   ].filter(Boolean).join("\n");
 }
