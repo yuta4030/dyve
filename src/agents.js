@@ -54,21 +54,54 @@ export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = 
 }
 
 // 開発の仕事の作業場：部屋（git リポジトリ）のいまの HEAD から、仕事ごとのブランチと worktree を切り出す。
+// 名前は「ボード名-仕事の id-時刻」（id はボードごとに p1 から振られるので、ボード名で分ける）。
 // 同じ仕事でもう一度起こされたら、同じ作業場を使い続ける
-export function workspace({ room, workDir, taskId, now = new Date() }) {
-  const git = (...a) => execFileSync("git", ["-C", room, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-  const top = git("rev-parse", "--show-toplevel");
+const gitIn = (dir) => (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+function findWorkspace(room, workDir, board, taskId) {
+  const git = gitIn(room);
   const known = git("worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice(9));
-  const mine = known.find((p) => path.basename(p).startsWith(`${taskId}-`) && path.dirname(p) === path.resolve(workDir));
-  if (mine) return { dir: mine, branch: git("-C", mine, "rev-parse", "--abbrev-ref", "HEAD"), base: null, top };
+  const dir = known.find((p) => path.basename(p).startsWith(`${board}-${taskId}-`) && path.dirname(p) === path.resolve(workDir));
+  return dir ? { dir, branch: gitIn(dir)("rev-parse", "--abbrev-ref", "HEAD") } : null;
+}
+export function workspace({ room, workDir, taskId, board = "board", now = new Date() }) {
+  const git = gitIn(room);
+  const top = git("rev-parse", "--show-toplevel");
+  const mine = findWorkspace(room, workDir, board, taskId);
+  if (mine) return { ...mine, base: null, top };
   const stamp = now.toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
-  const name = `${taskId}-${stamp}`;
+  const name = `${board}-${taskId}-${stamp}`;
   const dir = path.join(path.resolve(workDir), name);
   const branch = `dyve/${name}`;
   const base = git("rev-parse", "--abbrev-ref", "HEAD");
   fs.mkdirSync(path.resolve(workDir), { recursive: true });
   git("worktree", "add", "-b", branch, dir, "HEAD");
   return { dir, branch, base, top };
+}
+
+// 取り込む：人が開発の提案を受け入れたら、その仕事のブランチを部屋のいまのブランチにマージコミットで取り込む
+// （git revert -m 1 で戻せる）。ぶつかったら取りやめて元に戻す。取り込めたら作業場とブランチを片付ける
+export function integrate({ room, workDir, board = "board", taskId }) {
+  const git = gitIn(room);
+  const ws = findWorkspace(room, workDir, board, taskId);
+  if (!ws) throw new Error(`仕事 ${taskId} の作業場が見つからない`);
+  if (gitIn(ws.dir)("status", "--porcelain")) throw new Error(`作業場にコミットしていない変更が残っている（${ws.dir}）`);
+  if (git("rev-list", "--count", `HEAD..${ws.branch}`) === "0") throw new Error(`${ws.branch} に取り込むものがない`);
+  const into = git("rev-parse", "--abbrev-ref", "HEAD");
+  try {
+    git("merge", "--no-ff", "-m", `取り込み：${ws.branch}`, ws.branch);
+  } catch (e) {
+    try { git("merge", "--abort"); } catch {}
+    throw new Error(`${ws.branch} を ${into} に取り込めなかった（ぶつかったか、手元の変更と重なった）。元に戻した`);
+  }
+  const commit = git("rev-parse", "--short", "HEAD");
+  let cleaned = true;
+  try {
+    git("worktree", "remove", ws.dir);
+    git("branch", "-d", ws.branch);
+  } catch {
+    cleaned = false;
+  }
+  return { branch: ws.branch, into, commit, cleaned };
 }
 
 // 使う dyve：作る側（部屋）とは別の置き場に、ある時点のコミットを切り出して動かす。
@@ -126,7 +159,7 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
     let cwd = inRoom(job.role) ? room : staff;
     if (job.role === "dev") {
       try {
-        const ws = workspace({ room, workDir, taskId: job.taskId });
+        const ws = workspace({ room, workDir, taskId: job.taskId, board: job.board });
         cwd = ws.dir;
         job = { ...job, prompt: job.prompt + "\n" + devNote(ws) };
       } catch (e) {

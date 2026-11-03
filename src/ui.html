@@ -199,6 +199,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
           <button class="ib" id="seenAll"></button>
           <a class="ib" id="export" href="/api/export.md"></a>
           <button class="ib" id="newBoard"></button>
+          <button class="ib" id="restart"></button>
           <label class="pick" id="boardPick"><span></span><select id="boards"></select></label>
         </div>
         <div id="toolsMore">
@@ -229,6 +230,8 @@ const L = {
   newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
   boards: "ボードを切り替える", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
   closed: "閉じたもの：", reopen: (n) => `＋ ${n}`,
+  restart: "更新して再起動（取り込んだ変更を使っている dyve に反映する）", restartAsk: "使っている dyve を更新して立て直しますか（走っているエージェントは止まります）",
+  restarting: "立て直しています…",
   idle: "待機中", scribeBusy: "直しています", managerBusy: "整えています", managerWait: "間があいたら整えます", working: "動いています",
   initial: { scribe: "清", manager: "M", "アリス": "A", "ボブ": "B", "キャロル": "C", "デイブ": "D", "エレン": "E", "フランク": "F" },
   quota: { five_hour: "5 時間枠", seven_day: "週" },
@@ -271,6 +274,7 @@ const ICON = {
   newBoard: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>',
   reset: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 17.5a3.5 3.5 0 1 0 1-2.5M14 13v2.5h2.5"/></svg>',
   boards: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
+  restart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
 const S = { panels: [], marks: {}, live: null, names: [], title: "", seen: {}, unfold: new Set() };
@@ -769,6 +773,18 @@ async function boardsDo(body) {
   if (!r.ok) $("#err").textContent = L.refused(r.message);
 }
 $("#boards").onchange = (e) => boardsDo({ action: "open", name: e.target.value });
+// 更新して再起動：立ち直ったら、新しい画面を読み直す
+$("#restart").onclick = async () => {
+  if (!confirm(L.restartAsk)) return;
+  const r = await (await fetch("/api/restart", { method: "POST" })).json().catch(() => ({ ok: false, message: "" }));
+  if (!r.ok) { $("#err").textContent = L.refused(r.message); return; }
+  $("#err").textContent = L.restarting;
+  await new Promise((ok) => setTimeout(ok, 800));
+  for (let i = 0; i < 60; i++) {
+    try { if ((await fetch("/api/board")).ok) return location.reload(); } catch {}
+    await new Promise((ok) => setTimeout(ok, 500));
+  }
+};
 $("#newBoard").onclick = () => { if (confirm(L.newBoardAsk)) boardsDo({ action: "new" }); };
 $("#seenAll").onclick = () => { for (const p of S.panels) if (p.aiSeq) S.seen[p.id] = p.aiSeq; saveSeen(); render(); };
 
@@ -848,6 +864,7 @@ const iconBtn = (id, icon, label) => { const b = $(id); b.innerHTML = icon; b.ti
 iconBtn("#seenAll", ICON.seen, L.seenAll);
 iconBtn("#export", ICON.export, L.export);
 iconBtn("#newBoard", ICON.newBoard, L.newBoard);
+iconBtn("#restart", ICON.restart, L.restart);
 $("#resetLayout").innerHTML = `${ICON.reset} ${esc(L.resetLayout)}`;
 $("#boardPick span").innerHTML = ICON.boards;
 $("#boardPick").title = L.boards;

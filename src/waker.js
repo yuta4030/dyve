@@ -1,5 +1,6 @@
 // 起こし係：発言が来たら清書係に渡し、間があいたらマネージャを起こし、仕事が置かれたら控室のエージェントを起こす。
 // 同じ仕事を同時に二つ走らせない。清書係もマネージャも一度に一人だけ。
+import path from "node:path";
 import { isPerson, hasAiAnswer, STAFF } from "./board.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
@@ -14,8 +15,11 @@ export const NAMES = ["アリス", "ボブ", "キャロル", "デイブ", "エ�
 
 export class Waker {
   // session：清書係の会話を開く関数（なければ清書係を置かない）
-  constructor({ store, spawn, session = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES }) {
+  // integrate：開発の提案を人が受け入れたら呼ぶ（{ board, taskId } -> { branch, into, commit, cleaned }）
+  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES }) {
     this.store = store;
+    this.integrate = integrate;
+    this.board = store.file ? path.basename(store.file, ".jsonl") : "board";
     this.spawn = spawn;
     this.session = session;
     this.pause = pause;
@@ -90,6 +94,7 @@ export class Waker {
   }
 
   _onOp(op) {
+    if (this.integrate && isPerson(op.by) && op.type === "edit" && op.panel.state === "done") this._accepted(op.panel.id);
     if (op.type === "add" && op.panel.view === "say" && isPerson(op.by)) {
       if (this.session) this._scheduleScribe();
       this._schedule();
@@ -99,6 +104,21 @@ export class Waker {
       r.handle.kill(); // 人かマネージャが仕事を取り下げた
     }
     this._fill();
+  }
+
+  // 人が提案を受け入れた。それが開発の仕事の提案なら、ブランチを取り込む
+  _accepted(id) {
+    const board = this.store.board;
+    const prev = board.history(id).slice(0, -1).reverse().find((o) => "state" in o.panel)?.panel.state;
+    if (prev !== "proposal") return;
+    let t = board.get(id);
+    while (t && !(t.view === "task" && t.data?.write === true)) t = t.about ? board.get(t.about) : null;
+    if (!t) return;
+    const note = (data) => this.store.apply({ by: "board", type: "add", panel: { view: "text", about: id, data }, reason: "受け入れられた開発の提案を取り込んだ結果" });
+    Promise.resolve()
+      .then(() => this.integrate({ board: this.board, taskId: t.id }))
+      .then((r) => note(`取り込みました：${r.branch} → ${r.into}（${r.commit}）。使っている dyve に反映するには、dyve 設定の「更新して再起動」${r.cleaned ? "" : "。作業場は片付けられなかったので残っています"}`))
+      .catch((e) => note(`取り込めませんでした：${e.message}`));
   }
 
   _says(since) {
@@ -215,7 +235,7 @@ export class Waker {
       this.tried.set(t.id, t.rev);
       // data.write が付いた仕事は開発：書ける道具で、仕事ごとの worktree の中で働く
       const role = t.data?.write === true ? "dev" : "task";
-      const handle = this.spawn({ role, name, taskId: t.id, prompt: taskPrompt(board, t, name) });
+      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name) });
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
       handle.done.then((res) => {

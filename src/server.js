@@ -11,7 +11,8 @@ const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 // desk：ボードを切り替えるときに使う（なければ一枚だけ）。{ current(), list(), open(name), create() }
 // open・create は新しい { store, waker } を返す。前のボードの操作ログはそのまま残る
-export function createServer({ store, waker = null, title = "ボード", desk = null }) {
+// restart：使う dyve を更新して立て直す（{ commit } を返し、そのあと落ちる。立て直すのは見張り役）
+export function createServer({ store, waker = null, title = "ボード", desk = null, restart = null }) {
   const clients = new Set();
   const send = (event, data) => {
     const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -78,6 +79,14 @@ export function createServer({ store, waker = null, title = "ボード", desk = 
         use(next);
         send("board", { current: desk.current() });
         return json(200, { ok: true, current: desk.current() });
+      }
+      if (url.pathname === "/api/restart" && req.method === "POST") {
+        // 更新と再起動は人だけ（画面から）
+        if (!restart) return json(404, { ok: false, code: "not_found", message: "再起動できない起動のしかた" });
+        const r = restart.prepare();
+        json(200, { ok: true, ...r });
+        setTimeout(() => restart.go(), 200);
+        return;
       }
       if (url.pathname === "/mcp") {
         if (req.method !== "POST") {
