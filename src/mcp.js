@@ -3,7 +3,7 @@
 import { isPerson, marks } from "./board.js";
 import { legend, boardPng, changeLayout, layoutPanel } from "./view.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
