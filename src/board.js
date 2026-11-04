@@ -12,7 +12,9 @@ export const CODES = {
   conflict: "あいだに別の変更が入った",
   invalid: "操作の形が正しくない",
 };
-const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to"];
+const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to", "into"];
+// into：清書係が一つの考えにまとめた発言の合流先。元の発言は消さず、印を外せば分け直せる
+// view layout：タイルの置き場所を持つパネル。ボードに一枚だけで、固定（locked）は人だけが決める
 // to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
 const badTo = (to) => (to == null || (typeof to === "string" && to.trim() && to.length <= 40) ? null : "to は相手の名前");
 
@@ -29,6 +31,41 @@ export function sourceApproved(board, id) {
   let ok = false;
   for (const op of board.history(id)) if ("source" in op.panel) ok = isPerson(op.by) && op.panel.source != null;
   return ok;
+}
+
+// タイルの名前からパネルの id：g:<ボード>/<id> か panel:<id>
+export const panelOfKey = (k) => (k.startsWith("g:") ? k.slice(k.lastIndexOf("/") + 1) : k.startsWith("panel:") ? k.slice(6) : null);
+const tileLocked = (data, id) => (data.locked || []).some((k) => panelOfKey(k) === id);
+// 固定：人が固定したタイルと、ピン留めしたパネル。その中のものも動かない
+export function fixedTile(panels, data, k) {
+  if ((data.locked || []).includes(k)) return true;
+  return fixedPanel(panels, data, panelOfKey(k));
+}
+export function fixedPanel(panels, data, id) {
+  const seen = new Set();
+  for (let p = panels.get(id); p && !seen.has(p.id); p = panels.get(p.about)) {
+    seen.add(p.id);
+    if (p.pinned || tileLocked(data, p.id)) return true;
+  }
+  return false;
+}
+const has = (list, k) => (list || []).includes(k);
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// AI は固定されたものを変えられず、固定そのものも変えられない（そのほかの見た目はいつでも変えてよい）
+function badLayoutEdit(cur, body, panels) {
+  if (Object.keys(body).some((k) => k !== "id" && k !== "data")) return { code: "forbidden", message: "置き場所のパネルで変えられるのは data だけ" };
+  const old = cur.data || {}, next = body.data || {};
+  if (!same(next.locked || [], old.locked || [])) return { code: "forbidden", message: "固定は人だけ" };
+  const keys = new Set([...Object.keys(old.pos || {}), ...Object.keys(next.pos || {}), ...(old.extra || []), ...(next.extra || [])]);
+  for (const k of keys) {
+    if (!fixedTile(panels, old, k)) continue;
+    const moved = !same(old.pos?.[k], next.pos?.[k]) || !same(old.zoom?.[k], next.zoom?.[k]);
+    if (moved || has(old.min, k) !== has(next.min, k) || has(old.hidden, k) !== has(next.hidden, k) || has(old.extra, k) !== has(next.extra, k)) return { code: "pinned", message: `${k} は人が固定している` };
+  }
+  const a = old.inner || {}, z = next.inner || {};
+  for (const f of ["tpos", "sizes"]) for (const id of new Set([...Object.keys(a[f] || {}), ...Object.keys(z[f] || {})])) if (fixedPanel(panels, old, id) && !same(a[f]?.[id], z[f]?.[id])) return { code: "pinned", message: `${id} は人が固定している` };
+  for (const f of ["min", "unfold"]) for (const id of new Set([...(a[f] || []), ...(z[f] || [])])) if (fixedPanel(panels, old, id) && has(a[f], id) !== has(z[f], id)) return { code: "pinned", message: `${id} は人が固定している` };
+  return null;
 }
 
 const refuse = (code, message) => ({ ok: false, code, message: message || CODES[code] });
@@ -66,6 +103,8 @@ export class Board {
     let body;
     if (type === "add") {
       if (typeof panel.view !== "string" || !panel.view) return refuse("invalid", "view がない");
+      if (panel.view === "layout" && !person) return refuse("forbidden", "置き場所のパネルは画面が作る");
+      if (panel.view === "layout" && this.list().some((p) => p.view === "layout")) return refuse("invalid", "置き場所のパネルは一枚だけ");
       body = { id: this._newId(), by, view: panel.view, data: panel.data ?? null, pinned: false };
       if (panel.about != null) {
         if (!this.panels.has(panel.about)) return refuse("not_found", `about のパネル ${panel.about} がない`);
@@ -101,6 +140,14 @@ export class Board {
         for (const k of FIELDS) if (k in panel) body[k] = panel[k];
         if (Object.keys(body).length === 1) return refuse("invalid", "変えるものがない");
         if (!person && cur.pinned) return refuse("pinned");
+        if (!person && cur.view === "layout") {
+          const bad = badLayoutEdit(cur, body, this.panels);
+          if (bad) return refuse(bad.code, bad.message);
+        }
+        if ("into" in body && body.into != null) {
+          const bad = this._badInto(cur, body.into, person);
+          if (bad) return bad;
+        }
         if ("pinned" in body) {
           if (!person) return refuse("forbidden", "ピン留めは人だけ");
           body.pinned = !!body.pinned;
@@ -130,6 +177,16 @@ export class Board {
     return "p" + (this.seq + 1).toString(36);
   }
 
+  _badInto(cur, into, person) {
+    const head = this.panels.get(into);
+    if (!head) return refuse("not_found", `合流先のパネル ${into} がない`);
+    if (cur.view !== "say" || head.view !== "say") return refuse("invalid", "合流できるのは発言だけ");
+    if (head.id === cur.id || head.into || this.list().some((p) => p.into === cur.id)) return refuse("invalid", "合流は一段だけ");
+    if (!person && head.pinned) return refuse("pinned");
+    if (!person && (cur.to || head.to)) return refuse("invalid", "宛てた発言は合流しない");
+    return null;
+  }
+
   _wouldLoop(id, about) {
     for (let cur = about; cur; cur = this.panels.get(cur)?.about) if (cur === id) return true;
     return false;
@@ -146,6 +203,7 @@ export class Board {
       if (next.state == null) delete next.state;
       if (next.source == null) delete next.source;
       if (next.to == null) delete next.to;
+      if (next.into == null) delete next.into;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
       this.panels.set(p.id, next);
     } else if (op.type === "drop") {

@@ -3,6 +3,7 @@
 import path from "node:path";
 import { isPerson, hasAiAnswer, STAFF } from "./board.js";
 import { NAMES } from "./crew.js";
+import { wordLine } from "./words.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
 // 毎回起こし直すと前置きの一部（約 7 千トークン）が毎回キャッシュに書き直しになるので、清書係もマネージャも会話を続ける。
@@ -10,6 +11,7 @@ import { NAMES } from "./crew.js";
 const TURNS = { scribe: 50, manager: 20 };
 const IDLE = 55 * 60 * 1000;
 const CONTEXT = 5;
+const NEAR = 3;
 const SUMMARY_MAX = 15;
 
 export { NAMES };
@@ -17,8 +19,10 @@ export { NAMES };
 export class Waker {
   // session：清書係の会話を開く関数（なければ清書係を置かない）
   // integrate：開発の提案を人が受け入れたら呼ぶ（{ board, taskId } -> { branch, into, commit, cleaned }）
-  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {}, calls = {}, teams = {} }) {
+  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {}, calls = {}, teams = {}, words = null }) {
     this.store = store;
+    this.words = words; // 辞書（全部のボードで共通）
+    this.wordsSeen = 0;
     this.integrate = integrate;
     this.board = store.file ? path.basename(store.file, ".jsonl") : "board";
     this.spawn = spawn;
@@ -147,19 +151,30 @@ export class Waker {
     const since = this.scribeCutoff;
     this.scribeCutoff = this.store.board.seq;
     // 人が手を入れた発言は直さない
-    const fresh = this._says(since).filter((p) => p.rev === p.seq && !p.pinned).slice(-10);
+    const fresh = this._says(since).filter((p) => p.rev === p.seq && !p.pinned && !p.into).slice(-10);
     if (!fresh.length) return this._scribeDone();
     const { c, first } = this._conv("scribe");
-    const before = first ? this.store.board.list().filter((p) => p.view === "say" && isPerson(p.by) && p.seq <= since).slice(-CONTEXT) : [];
+    // 直前の発言はいつも渡す（一つの考えならつなげるので、いまの文と rev が要る）
+    const before = this.store.board.list().filter((p) => p.view === "say" && isPerson(p.by) && p.seq <= since && !p.into).slice(first ? -CONTEXT : -NEAR);
+    const words = this._wordsFor(first);
     this.scribeBusy = true;
     this._changed();
-    const res = await c.s.send(scribePrompt(fresh, before));
+    const res = await c.s.send(scribePrompt(fresh, before, words));
     this._count(res);
     if (c.s.quota) this.quota = c.s.quota;
     c.turns += fresh.length;
     c.lastAt = Date.now();
     this.scribeBusy = false;
     this._scribeDone();
+  }
+
+  // 辞書：会話の頭では全部、あとは変わった分だけ（前置きに入れるとキャッシュが外れる）
+  _wordsFor(first) {
+    if (!this.words) return [];
+    const from = first ? 0 : this.wordsSeen;
+    this.wordsSeen = this.words.seq;
+    if (first) return this.words.list().map(wordLine);
+    return this.words.log.slice(from).map((o) => (o.type === "add" ? wordLine(o) : `- ${o.heard} は直さなくなった`));
   }
 
   // 役ごとの会話。死んでいたり、伸びすぎたり、あきすぎたりしたら起こし直す
@@ -332,10 +347,12 @@ function lastTaskOf(board, name) {
 }
 
 // 清書係への一通。新しい発言だけを直させ、直前の発言は文脈として渡す（会話の頭のときだけ）
-export function scribePrompt(fresh, before = []) {
+export function scribePrompt(fresh, before = [], words = []) {
   return [
-    before.length ? "文脈（前の発言。直さない）：" : "",
-    ...before.map((p) => `- ${p.id}：${textOf(p.data)}`),
+    words.length ? "辞書（よく聞き違える言葉。左のように聞こえたら右の書き方に）：" : "",
+    ...words,
+    before.length ? "文脈（前の発言。一つの考えならここへつなげる）：" : "",
+    ...before.map((p) => `- ${p.id}（rev ${p.rev}）：${textOf(p.data)}`),
     "新しい発言（直すものだけ panel_edit。rev を付ける）：",
     ...fresh.map((p) => `- ${p.id}（rev ${p.rev}）：${textOf(p.data)}`),
   ].filter(Boolean).join("\n");
@@ -350,8 +367,9 @@ export function managerPrompt(since, board = null, running = []) {
   const summary = all.filter((p) => p.by === "manager" && p.view === "summary").at(-1);
   const busy = new Set(running);
   const tasks = all.filter((p) => p.state === "task" || (p.view === "task" && p.rev > since));
-  const says = all.filter((p) => p.view === "say" && isPerson(p.by) && p.seq > since);
-  const placed = all.filter((p) => p.rev > since && !isPerson(p.by) && !STAFF.has(p.by) && p.by !== "scribe");
+  // 合流した発言は先頭だけ読む。先頭が古くても、新しい発言が合流していれば読み直す
+  const says = all.filter((p) => p.view === "say" && isPerson(p.by) && !p.into && (p.seq > since || all.some((q) => q.into === p.id && q.seq > since)));
+  const placed = all.filter((p) => p.rev > since && p.view !== "layout" && !isPerson(p.by) && !STAFF.has(p.by) && p.by !== "scribe");
   const lines = [head, ""];
   lines.push(summary ? `## いまの要点（${summary.id}、rev ${summary.rev}）` : "## いまの要点（まだない）");
   if (summary) {

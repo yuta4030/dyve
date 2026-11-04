@@ -12,7 +12,9 @@ import { ensurePanels, offViews } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
 import { loadCrew, readConfig, ensureCrew, namesOf, initialsOf, callsOf, teamsOf, checkName } from "../src/crew.js";
-import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT } from "../src/agents.js";
+import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT, runningMeta, commitOf } from "../src/agents.js";
+import { Words } from "../src/words.js";
+import { findBrowser, screenshot } from "../src/shot.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
 
@@ -148,13 +150,16 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
     names,
   };
   const spawn = claudeSpawner(how), session = claudeSession(how);
+  const words = new Words(path.join(home, "words.jsonl")); // 辞書は全部のボードで共通
+  const browser = findBrowser(conf.browser ?? process.env.DYVE_BROWSER ?? null);
+  const startCommit = commitOf(ROOT), startedAt = new Date().toISOString();
   const workDir = path.join(home, "work");
   const rooms = crew.members.map((a) => a.room).filter(Boolean);
   const merge = ({ board, taskId }) => integrate({ room: how.room, rooms, workDir, board, taskId });
   // ボードを切り替えるたびに、そのボードの起こし係を作り直す（前のボードの会話は止める）
   const wake = (store) => args["no-agents"]
     ? null
-    : new Waker({ store, pause, scribePause, slots: Number(args.slots), spawn, session, integrate: merge, names, initials: initialsOf(crew, names), calls: callsOf(crew, names), teams: teamsOf(crew, names) });
+    : new Waker({ store, pause, scribePause, slots: Number(args.slots), spawn, session, integrate: merge, names, initials: initialsOf(crew, names), calls: callsOf(crew, names), teams: teamsOf(crew, names), words });
   // 流し込み係：許可された shell コマンドを部屋で走らせる
   const feed = (store) => new Feeds({ store, room: how.room, offView: (v) => offViews(panels).has(v) });
   const desk = new Desk({ file: path.resolve(args.data), wake, feed });
@@ -172,7 +177,10 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
       process.exit(RESTART);
     },
   };
-  const server = createServer({ store: desk.store, waker: desk.waker, feeds: desk.feeds, title: args.title, desk, restart, panels });
+  const server = createServer({ store: desk.store, waker: desk.waker, feeds: desk.feeds, title: args.title, desk, restart, panels, words,
+    // Windows のブラウザから WSL へは localhost で届く
+    shoot: browser ? (id, size = {}) => screenshot({ browser, url: `http://localhost:${port}/?shot=${encodeURIComponent(id)}`, ...size }) : null,
+    meta: () => runningMeta({ room: how.room, startCommit, startedAt, browser }) });
   server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ボードはもう立っています（${boardUrl}）。一つだけ立てて、そこへつないでください` : e.message));
   server.listen(port, "127.0.0.1", () => {
     process.stdout.write(`ボード：${boardUrl}/\nMCP：${boardUrl}/mcp\n操作ログ：${desk.store.file}（${desk.store.board.seq} 件）\n`);

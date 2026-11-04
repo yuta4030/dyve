@@ -17,7 +17,7 @@ const TEAM_NAME = /^[A-Za-z0-9][\w.-]{0,39}$/;
 // 書ける項目と型。path は ~ と config.json からの相対パスをほどく
 // prompt：指示として読ませるファイル（育てている CLAUDE.md など）。一つでも配列でも
 const PERSONAL = {
-  top: { port: "number", data: "path", room: "path", claude: "string", slots: "number", agents: "path", task: "object", scribe: "object", manager: "object", team: "array", teams: "array" },
+  top: { port: "number", data: "path", room: "path", claude: "string", browser: "string", slots: "number", agents: "path", task: "object", scribe: "object", manager: "object", team: "array", teams: "array" },
   task: { model: "string", prompt: "paths" },
   staff: { model: "string", pause: "number", cwd: "path", mode: "mode", prompt: "paths" },
   member: { name: "string", initial: "string", model: "string", room: "path", mode: "mode", prompt: "paths" },
