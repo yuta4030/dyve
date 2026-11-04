@@ -2,6 +2,7 @@
 // 同じ仕事を同時に二つ走らせない。清書係もマネージャも一度に一人だけ。
 import path from "node:path";
 import { isPerson, hasAiAnswer, STAFF } from "./board.js";
+import { NAMES } from "./crew.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
 // 毎回起こし直すと前置きの一部（約 7 千トークン）が毎回キャッシュに書き直しになるので、清書係もマネージャも会話を続ける。
@@ -11,12 +12,12 @@ const IDLE = 55 * 60 * 1000;
 const CONTEXT = 5;
 const SUMMARY_MAX = 15;
 
-export const NAMES = ["アリス", "ボブ", "キャロル", "デイブ", "エレン", "フランク"];
+export { NAMES };
 
 export class Waker {
   // session：清書係の会話を開く関数（なければ清書係を置かない）
   // integrate：開発の提案を人が受け入れたら呼ぶ（{ board, taskId } -> { branch, into, commit, cleaned }）
-  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES }) {
+  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {} }) {
     this.store = store;
     this.integrate = integrate;
     this.board = store.file ? path.basename(store.file, ".jsonl") : "board";
@@ -33,6 +34,7 @@ export class Waker {
     this.usage = { runs: 0, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, costUsd: 0 };
     this.slots = slots;
     this.names = names;
+    this.initials = initials; // 名前 -> 画面のアイコンの頭文字
     this.manager = null; // { since, startedAt, handle }
     this.again = false;
     this.timer = null;

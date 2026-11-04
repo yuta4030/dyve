@@ -3,6 +3,7 @@ import { spawn as nodeSpawn, execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { NAMES, agentOf } from "./crew.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -22,7 +23,7 @@ const TOOLS = {
   manager: ["mcp__board"],
   task: READ,
   dev: [...READ, "Edit", "Write", "Bash(node --test:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
-  // パネルの仕事：アリスたちが利用者のパネル置き場（~/.dyve/panels）で view を書く。書けるのはその中だけ
+  // パネルの仕事：控室のエージェントが利用者のパネル置き場（~/.dyve/panels）で view を書く。書けるのはその中だけ
   panels: [...READ, "Edit", "Write", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
 };
 const DENY_PANELS = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git reset:*)", "Bash(rm:*)"];
@@ -31,25 +32,44 @@ const DENY = { panels: DENY_PANELS, dev: ["Bash(git push:*)", "Bash(git remote:*
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
 export const inRoom = (role) => role === "task" || role === "dev" || role === "panels";
 
-// 開発とパネルの仕事は控室と同じモデル（--task-model）で起こす
-const modelOf = (models, role) => models[role] ?? (role === "dev" || role === "panels" ? models.task : undefined);
+// 控室（調べもの・開発・パネル）は --task-model、なければ置き場のその人の model。清書係とマネージャは models に決まったものが入っている
+const modelOf = (models, role, crew = null, name = null) => inRoom(role) ? models.task ?? agentOf(crew, name)?.model ?? undefined : models[role];
+// 起きる場所：控室はその人の room（なければ部屋）、清書係とマネージャは置き場の cwd（なければ作業場）
+const roomOf = (crew, name, room) => agentOf(crew, name)?.room ?? room;
+const staffOf = (crew, role, staff) => crew?.[role]?.cwd ?? staff;
 
 export function readDef(file) {
   const text = fs.readFileSync(file, "utf8");
   return text.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
 }
 
+// 前置き：dyve の定義に、利用者の置き場（~/.dyve/agents）の指示を足す（mode: replace なら差し替える）。
+// {{names}} は控室の名前の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
+export function systemPrompt(role, name, { room = null, crew = null, names = NAMES } = {}) {
+  const fill = (s) => s.replaceAll("{{names}}", names.join("、"));
+  const tune = inRoom(role) ? agentOf(crew, name) : crew?.[role];
+  let text = fill(readDef(DEFS[role]));
+  if (tune?.body) text = tune.mode === "replace" ? fill(tune.body) : `${text}\n\n## 利用者からの指示\n${fill(tune.body)}`;
+  if (role === "manager" && room) {
+    text += `\n\n## 控室の部屋\n控室のエージェントはリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`;
+    const own = names.map((n) => [n, agentOf(crew, n)?.room]).filter(([, r]) => r && r !== room);
+    if (own.length) text += `\nただし次の人は別の場所で働きます。その場所の仕事は、data.to にその人の名前を入れて頼みます。\n${own.map(([n, r]) => `- ${n}：${r}`).join("\n")}`;
+  }
+  return text;
+}
+
 // 前置き（system prompt・道具）は役ごとに固定し、変わるもの（名前・seq・発言）は指示の側に置く。キャッシュを効かせるため
 // models：役割ごとのモデル（{ scribe, manager, task }）。指定がなければ claude の既定
 // room：控室が働くディレクトリ。マネージャは空の作業場で起きるので、依頼に書けるよう前置きで教える（起動中は変わらないのでキャッシュは外れない）
-export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = null } = {}) {
+// crew・names：利用者の置き場から読んだ配役と、控室の名前の並び
+export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = null, crew = null, names = NAMES } = {}) {
   const mcp = { mcpServers: { board: { type: "http", url: `${boardUrl}/mcp?as=${encodeURIComponent(job.name)}` } } };
   return [
     ...(stream ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["-p", job.prompt, "--output-format", "json"]),
     "--mcp-config", JSON.stringify(mcp),
     "--strict-mcp-config",
-    "--append-system-prompt", readDef(DEFS[job.role]) + (job.role === "manager" && room ? `\n\n## 控室の部屋\n控室のエージェントはリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。` : ""),
-    ...(modelOf(models, job.role) ? ["--model", modelOf(models, job.role)] : []),
+    "--append-system-prompt", systemPrompt(job.role, job.name, { room, crew, names }),
+    ...(modelOf(models, job.role, crew, job.name) ? ["--model", modelOf(models, job.role, crew, job.name)] : []),
     // 部屋の git status などを前置きから外し、リポジトリを触っても前置きのキャッシュが外れないようにする
     ...(inRoom(job.role) ? ["--exclude-dynamic-system-prompt-sections"] : []),
     ...(DENY[job.role] ? ["--disallowedTools", ...DENY[job.role]] : []),
@@ -92,10 +112,22 @@ export function workspace({ room, workDir, taskId, board = "board", now = new Da
 
 // 取り込む：人が開発の提案を受け入れたら、その仕事のブランチを部屋のいまのブランチにマージコミットで取り込む
 // （git revert -m 1 で戻せる）。ぶつかったら取りやめて元に戻す。取り込めたら作業場とブランチを片付ける
-export function integrate({ room, workDir, board = "board", taskId }) {
-  const git = gitIn(room);
-  const ws = findWorkspace(room, workDir, board, taskId);
+// rooms：控室のエージェントが別の部屋（置き場の room）で働くとき、その部屋も探す。見つかった部屋に取り込む
+export function integrate({ room, rooms = [room], workDir, board = "board", taskId }) {
+  let ws = null;
+  for (const r of new Set([room, ...rooms])) {
+    try {
+      ws = findWorkspace(r, workDir, board, taskId);
+    } catch {
+      continue; // git でない部屋（調べもの用）は飛ばす
+    }
+    if (ws) {
+      room = r;
+      break;
+    }
+  }
   if (!ws) throw new Error(`仕事 ${taskId} の作業場が見つからない`);
+  const git = gitIn(room);
   if (gitIn(ws.dir)("status", "--porcelain")) throw new Error(`作業場にコミットしていない変更が残っている（${ws.dir}）`);
   if (git("rev-list", "--count", `HEAD..${ws.branch}`) === "0") throw new Error(`${ws.branch} に取り込むものがない`);
   const into = git("rev-parse", "--abbrev-ref", "HEAD");
@@ -204,25 +236,26 @@ function logStream(logDir, job, cmd, cwd, model) {
 // job: { role, name, prompt } -> { done: Promise<{code, error?, usage?}>, kill() }
 // staff：清書係とマネージャが起きる作業場
 // workDir：開発の worktree を置くところ。panels：利用者のパネル置き場
-export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = room, workDir = path.join(staff, "..", "work"), panels = path.join(staff, "..", "panels"), boardUrl, logDir = null, models = {} }) {
+export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = room, workDir = path.join(staff, "..", "work"), panels = path.join(staff, "..", "panels"), boardUrl, logDir = null, models = {}, crew = null, names = NAMES }) {
   return (job) => {
-    let cwd = inRoom(job.role) ? room : staff;
+    const mine = roomOf(crew, job.name, room);
+    let cwd = inRoom(job.role) ? mine : staffOf(crew, job.role, staff);
     if (job.role === "panels") {
       cwd = panels;
       job = { ...job, prompt: job.prompt + "\n" + panelsNote(panels) };
     }
     if (job.role === "dev") {
       try {
-        const ws = workspace({ room, workDir, taskId: job.taskId, board: job.board });
+        const ws = workspace({ room: mine, workDir, taskId: job.taskId, board: job.board });
         cwd = ws.dir;
         job = { ...job, prompt: job.prompt + "\n" + devNote(ws) };
       } catch (e) {
         return { done: Promise.resolve({ code: -1, error: `作業場を作れませんでした：${String(e.stderr || e.message).trim().split("\n").at(-1)}` }), kill: () => {} };
       }
     }
-    const args = claudeArgs(job, boardUrl, models, { room });
+    const args = claudeArgs(job, boardUrl, models, { room, crew, names });
     fs.mkdirSync(cwd, { recursive: true });
-    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role));
+    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role, crew, job.name));
     let child;
     const done = new Promise((resolve) => {
       try {
@@ -252,12 +285,12 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
 // 起こしっぱなしの会話（清書係）。一本のプロセスに発言を流し込み、前の発言は会話に残る
 // job: { role, name } -> { send(text) -> Promise<{code, error?, usage?}>, kill(), alive, quota }
 // quota：claude が流してくる利用枠（{ five_hour: { utilization, resetsAt }, seven_day: … }）のいちばん新しいもの
-export function claudeSession({ cmd = "claude", room = process.cwd(), staff = room, boardUrl, logDir = null, models = {} }) {
+export function claudeSession({ cmd = "claude", room = process.cwd(), staff = room, boardUrl, logDir = null, models = {}, crew = null, names = NAMES }) {
   return (job) => {
-    const args = claudeArgs(job, boardUrl, models, { stream: true, room });
-    const cwd = inRoom(job.role) ? room : staff;
+    const args = claudeArgs(job, boardUrl, models, { stream: true, room, crew, names });
+    const cwd = inRoom(job.role) ? roomOf(crew, job.name, room) : staffOf(crew, job.role, staff);
     fs.mkdirSync(cwd, { recursive: true });
-    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role));
+    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role, crew, job.name));
     const s = { alive: true };
     let pending = null, buf = "", cost = 0, child;
     const finish = (r) => { const p = pending; pending = null; p?.(r); };

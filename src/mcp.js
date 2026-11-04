@@ -60,6 +60,7 @@ export function boardView(store, waker, { since, about } = {}) {
     marks: marks(board, { running: waker?.runningTasks() ?? [] }),
     live: waker?.status() ?? null,
     names: waker?.names ?? [],
+    initials: waker?.initials ?? {},
   };
 }
 

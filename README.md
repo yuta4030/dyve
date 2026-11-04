@@ -36,6 +36,9 @@ open http://127.0.0.1:4740/        # 画面
 | `--port` | 4740 | ボードのポート |
 | `--data` | `~/.dyve/board.jsonl` | 操作ログ。エージェントのログは同じ場所の `logs/` |
 | `--room` | いまのディレクトリ | 控室のエージェントが働くディレクトリ |
+| `--config` | `~/.dyve/config.json` | 設定（下の「エージェントを自分好みにする」） |
+| `--agents` | `~/.dyve/agents` | エージェントの指示の置き場 |
+| `--names` | 設定の team／アリス…フランク | 控室のエージェントの名前をカンマで（例：`--names マイ,ケン`） |
 | `--pause` | 4000 | 最後の発言からマネージャを起こすまでの間（ミリ秒）。清書係が走っていれば、終わってから起こす |
 | `--scribe-pause` | 1000 | 発言から清書係に渡すまでの間（ミリ秒） |
 | `--slots` | 3 | 同時に働くタスクエージェントの数 |
@@ -44,6 +47,37 @@ open http://127.0.0.1:4740/        # 画面
 | `--task-model` | claude の既定 | 控室のタスクエージェントのモデル（例：`opus`） |
 | `--claude` | `claude` | Claude Code のコマンド |
 | `--no-agents` | | エージェントを起こさない（画面だけ） |
+
+どのオプションも、コマンド ＞ 設定（config.json）＞ 既定 の順に決まる。
+
+## エージェントを自分好みにする
+
+設定は `~/.dyve/config.json`（`--config` で変えられる）、指示の本文は `~/.dyve/agents/<名前>.md`（`--agents`）。依存を持たないので、設定は JSON、指示はただの Markdown。
+どちらも置かなければ既定のまま。置き場は初めて立てたときに README つきで作られる。変えたら立て直すと効く。
+
+```json
+{
+  "room": "~/code/myrepo",
+  "slots": 3,
+  "task":    { "model": "opus", "prompt": "~/notes/research.md" },
+  "scribe":  { "model": "haiku", "pause": 1000, "prompt": "~/notes/words.md" },
+  "manager": { "model": "sonnet", "pause": 4000, "cwd": "~/.dyve/staff", "prompt": "~/notes/CLAUDE.md" },
+  "team": [
+    { "name": "マイ", "initial": "M", "model": "opus", "room": "~/code/docs" },
+    { "name": "ケン" }
+  ]
+}
+```
+
+- 上の段：`port`・`data`・`room`・`claude`・`slots`・`agents` はコマンドのオプションと同じ
+- `task`：控室の全員。`model`（`--task-model` と同じ）・`prompt`
+- `scribe`・`manager`：`model`・`pause`（ミリ秒）・`cwd`（起きるディレクトリ）・`mode`・`prompt`
+- `team`：控室の顔ぶれ。並んだ順に仕事を受け、書くと既定の六人の代わりになる。`name`（要る）・`initial`（アイコンの頭文字）・`model`・`room`（働くディレクトリ）・`mode`・`prompt`
+- `prompt`：指示として読ませるファイル（育てている CLAUDE.md など）。一つなら文字列、いくつもなら配列
+- 指示の本文は、`prompt` のファイル、置き場の `<名前>.md`（`scribe.md`・`manager.md`・`マイ.md`）の順につなぎ、dyve の既定の指示の後ろに足す。`mode: "replace"` なら差し替える。`{{names}}` は控室の名前の並びになる
+- パスの `~` はホーム、相対パスは config.json のあるところから
+- `room` が別の人の開発の仕事は、その部屋から worktree を切り出し、受け入れたらその部屋に取り込む
+- エージェントは普通の Claude Code として起きるので、`~/.claude/CLAUDE.md` や、働くリポジトリの CLAUDE.md はいままでどおり読まれる
 
 `dyve export` で、ボードをそのまま Markdown に書き出す（AI は使わない）。画面の「Markdown に書き出す」も同じ。
 
@@ -100,7 +134,8 @@ Op    { seq, at, by, type: add | edit | drop, panel, reason? }
 - **印**はデータに持たず導く。未着手＝結果の付いていない仕事、受け入れ待ち＝提案、知らせ＝人が最後に見たあとに AI が置いた・変えたパネル
 - **MCP の口**（`POST /mcp?as=<名前>`）：エージェントが人と同じ操作でボードを読み書きする。道具は `board_read`・`panel_add`・`panel_edit`・`panel_drop`・`panel_history`
 - **起こし係**（`src/waker.js`）：発言を起こしっぱなしの清書係に流し込み、間があいたらマネージャを一人だけ起こし（読むものは指示に入れて渡す）、仕事が置かれたら名前のあるエージェントを起こす。同じ仕事を同時に二つ走らせない。使ったトークンと費用を数える
-- **キャッシュ**：前置き（system prompt・道具・定義）は役ごとに固定し、変わるものは指示の側に置く。清書係とマネージャは空の作業場（`~/.dyve/staff`）で、控室は `--room` で `--exclude-dynamic-system-prompt-sections` を付けて起こす
+- **配役**（`src/crew.js`）：設定（`~/.dyve/config.json`）と指示の置き場（`~/.dyve/agents`）を立てるときに一度読み、名前・起きる場所・モデル・指示を決める。前置きは dyve の定義に利用者の指示を足したもの
+- **キャッシュ**：前置き（system prompt・道具・定義）は役ごとに固定し、変わるものは指示の側に置く。清書係とマネージャは空の作業場（`~/.dyve/staff`、設定の `cwd` で変えられる）で、控室は `--room`（設定の `room`）で `--exclude-dynamic-system-prompt-sections` を付けて起こす
 - **画面**（`src/ui.html`）：パネルの JSON を view（Web Components）に流し込んで描く。view は `say`・`text`・`list`・`table`・`task`・`topic`・`summary`。画面は全部タイル（トーク・いまの要点・状況・残量・話題・dyve 設定）で、置き場所・大きさ・中身の拡大縮小・固定・閉じる・ます目の細かさは見る人が決めてブラウザに覚える。人の発言はトーク、`summary` は要点、それ以外は話題の欄に話題ごと（話題がなければ元の発言ごと）に、最近動いた順で並べる。宛てた相手の短い返事はトークの発言の下にも出す。アイコンは状況・トーク・宛先で同じもの（`ini()`）を使う。残量は claude が流してくる利用枠（5 時間枠・週）から出す
 
 ### 立場ごとにできること
