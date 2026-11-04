@@ -178,8 +178,11 @@ dv-panel .fold { color: var(--mute); }
 .hl { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius); }
 
 dv-panel { display: block; position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
-dv-panel .meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mute); min-height: 22px; }
+dv-panel .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 12px; color: var(--mute); min-height: 22px; }
 dv-panel .meta .who { font-weight: 600; }
+/* 狭いパネルでも見出しの字を縦に割らない。入りきらない分は次の行へ回す */
+dv-panel .meta > :not(.topic-title), dv-panel .meta .tools > * { white-space: nowrap; }
+dv-panel .meta .tools { flex-wrap: wrap; justify-content: flex-end; }
 dv-panel .meta .tools { margin-left: auto; display: flex; gap: 2px; opacity: .35; transition: opacity .15s; }
 dv-panel:hover > .meta .tools, dv-panel:focus-within > .meta .tools { opacity: 1; }
 @media (hover: none) { dv-panel .meta .tools { opacity: 1; } }
@@ -516,7 +519,7 @@ function panelEl(p, kids) {
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
   const head = p.view === "topic"
-    ? `<span class="who" title="${esc(who(p.by))}">${esc(L.tile.results)}</span><span class="topic-title" title="${esc(topicTitle(p))}">${esc(topicTitle(p))}</span>`
+    ? `<span class="topic-title" title="${esc(`${topicTitle(p)}（${who(p.by)}）`)}">${esc(topicTitle(p))}</span>`
     : `<span class="who">${esc(who(p.by))}</span>`;
   el.innerHTML = `<div class="meta">${head}${tags.join("")}
     ${p.state === "proposal" ? `<button data-act="accept">${L.accept}</button>` : ""}
