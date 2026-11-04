@@ -27,8 +27,10 @@ a { color: var(--accent); }
 .empty { color: var(--mute); text-align: center; margin: 8% 8px 0; font-size: 14px; }
 
 /* ── 画面は全部タイル。並べ方と大きさは見る人が決め、ブラウザに覚える ── */
-#grid { --cols: 24; height: 100%; overflow-y: auto; padding: var(--gap); display: grid; gap: var(--gap);
-        grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: var(--row); }
+/* ダッシュボードは上下左右に広がるキャンバス。一画面がます目の細かさ（--cols）の列ぶん。並べたものの外にも一画面ぶんの余白を持ち、そこへ動かせば広がる */
+#grid { --cols: 24; --colw: 40px; --span: 24; --rows: 40; position: relative; height: 100%; overflow: auto; padding: var(--gap); display: grid; gap: var(--gap);
+        grid-template-columns: repeat(var(--span), var(--colw)); grid-template-rows: repeat(var(--rows), var(--row));
+        grid-auto-columns: var(--colw); grid-auto-rows: var(--row); }
 /* 動かしているあいだだけ、ます目を薄く見せる */
 #grid.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) - 1px); background-attachment: local; }
 .tile { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
@@ -69,9 +71,22 @@ a { color: var(--accent); }
          opacity: .5; border-bottom-right-radius: var(--radius); }
 .sizer:hover { opacity: 1; }
 @media (max-width: 760px) {
-  #grid { grid-template-columns: minmax(0, 1fr); }
+  #grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-columns: auto; overflow-x: hidden; }
   .tile { grid-column: 1 / -1 !important; grid-row: span var(--h) !important; }
+  #map { display: none !important; }
 }
+/* 全体マップ：右下に小さく。タイルの置き場所といま見ているところを描き、押すとそこへ行く */
+#map { position: fixed; right: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 6px;
+       background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line); border-radius: 8px;
+       box-shadow: 0 4px 16px rgb(0 0 0 / .25); opacity: .75; transition: opacity .15s; }
+#map:hover, #map:focus-within { opacity: 1; }
+#map .world { position: relative; width: 168px; height: 110px; cursor: pointer; touch-action: none; }
+#map .world > span { position: absolute; border-radius: 2px; background: color-mix(in srgb, var(--mute) 45%, transparent); }
+#map .world > span.tools { background: color-mix(in srgb, var(--ink) 55%, transparent); }
+#map .world > span.badge { background: var(--accent); }
+#map .world > .view { background: none; border: 1.5px solid var(--accent); border-radius: 3px; pointer-events: none; }
+#map .bar { display: flex; justify-content: flex-end; }
+#map .bar button { min-height: 22px; padding: 0 6px; font-size: 11px; }
 
 /* トーク：発言の流れと入力 */
 .tile[data-tile="talk"] .tile-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
@@ -172,7 +187,7 @@ dv-panel .kids { display: flex; flex-direction: column; gap: 8px; margin-top: 8p
 dv-panel .kids:empty { display: none; }
 /* 話題の中もタイルと同じます目：見出しをつまんで好きな場所へ、右下の角で大きさ。重なったら動かした方を優先して下へずらす。
    大きさを決めていないパネルは中身の高さだけ占める。置き場所は見る人のブラウザに覚える */
-dv-panel .kids.free { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: var(--row); gap: var(--gap); }
+dv-panel .kids.free { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: var(--row); gap: var(--gap); }
 dv-panel .kids.free.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) / -2); }
 .kids.free > .cell { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .kids.free > .cell.auto { align-self: start; }
@@ -261,6 +276,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
     </div>
   </section>
 </main>
+<nav id="map"><div class="world"></div><div class="bar"><button class="icon" id="toTools"></button></div></nav>
 <script type="module">
 // 画面の言葉はここにまとめる
 const L = {
@@ -302,6 +318,7 @@ const L = {
   refused: (m) => `できませんでした：${m}`,
   resetSize: "大きさを戻す", resetPos: "並べ直す", minimize: "最小化", restore: "元に戻す",
   toTile: "タイルに出す", gone: "このパネルはもうありません",
+  map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のタイルへ行く",
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
   every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
   viewError: (m) => `この view で描けませんでした：${m}`,
@@ -745,6 +762,7 @@ function render() {
   }
   const pending = S.panels.some((p) => !isPerson(p.by) && p !== sum && markOf(p));
   $('.tile[data-tile="results"] .badge').textContent = pending ? "●" : "";
+  drawMapSoon();
 }
 
 // 状況：清書係・マネージャ・控室の全員を頭文字で並べ、動いている人の輪を回す
@@ -829,10 +847,41 @@ function stack(pos, order) {
   return pos;
 }
 const byPlace = (pos) => (a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x;
-function place(pos) {
+// ── キャンバス：上下左右に広がる。CANVAS.ox・oy はます目の一列目・一行目にあたる置き場所（左や上へ広げると 1 より小さくなる）──
+// 並べたものの外に一画面ぶんの余白を足して決め、そこへ動かせばさらに広がる。広がっても見ているところは動かさない
+const CANVAS = { ox: 1, oy: 1, sx: 0, sy: 0, homed: false };
+const narrow = () => matchMedia("(max-width: 760px)").matches;
+// ます目の寸法。一画面（パディングの内側）がちょうど dens() 列になる幅を一列とする
+function metrics() {
+  const cs = getComputedStyle(grid);
+  const gap = parseFloat(cs.columnGap) || 0, row = parseFloat(cs.gridAutoRows) || 18;
+  const padL = parseFloat(cs.paddingLeft) || 0, padT = parseFloat(cs.paddingTop) || 0;
+  const colW = Math.max(8, (grid.clientWidth - padL - (parseFloat(cs.paddingRight) || 0) - gap * (dens() - 1)) / dens());
+  return { gap, row, padL, padT, colW, sx: colW + gap, sy: row + gap };
+}
+// 広さを決める。drag のあいだは左と上を動かさず（動かすと指の下がずれる）、右と下は広げるだけ
+function frame(pos, during = false) {
+  const m = metrics();
+  const shown = allTiles().filter((k) => !tileOf(k).hidden).map((k) => pos[k]);
+  const vr = Math.max(4, Math.floor(grid.clientHeight / m.sy));
+  const x0 = Math.min(1, ...shown.map((p) => p.x)), y0 = Math.min(1, ...shown.map((p) => p.y));
+  const x1 = Math.max(dens() + 1, ...shown.map((p) => p.x + p.w)), y1 = Math.max(vr + 1, ...shown.map((p) => p.y + p.h));
+  const ox = during ? CANVAS.ox : x0 - dens(), oy = during ? CANVAS.oy : y0 - vr;
+  let span = x1 + dens() - ox, rows = y1 + vr - oy;
+  if (during) { span = Math.max(span, Number(grid.style.getPropertyValue("--span")) || 0); rows = Math.max(rows, Number(grid.style.getPropertyValue("--rows")) || 0); }
+  grid.style.setProperty("--colw", `${m.colW}px`);
+  grid.style.setProperty("--span", String(span));
+  grid.style.setProperty("--rows", String(rows));
+  return { m, ox, oy };
+}
+function place(pos, during = false) {
+  // いま見ている左上（置き場所で）を覚えておき、広さが変わったあとも同じところを見せる。はじめは (1, 1) を左上に
+  const view = CANVAS.homed ? { x: grid.scrollLeft / CANVAS.sx + CANVAS.ox, y: grid.scrollTop / CANVAS.sy + CANVAS.oy } : { x: 1, y: 1 };
+  const { m, ox, oy } = frame(pos, during);
+  Object.assign(CANVAS, { ox, oy, sx: m.sx, sy: m.sy });
   for (const k of allTiles()) {
     const p = pos[k], t = tileOf(k);
-    Object.assign(t.style, { gridColumn: `${p.x} / span ${p.w}`, gridRow: `${p.y} / span ${p.h}`, order: String(p.y * 100 + p.x) });
+    Object.assign(t.style, { gridColumn: `${p.x - ox + 1} / span ${p.w}`, gridRow: `${p.y - oy + 1} / span ${p.h}`, order: String((p.y - oy) * 10000 + (p.x - ox)) });
     t.style.setProperty("--h", String(p.h));
     $(".tile-body", t).style.zoom = String(zoomOf(k));
     t.classList.toggle("locked", isLocked(k));
@@ -851,6 +900,12 @@ function place(pos) {
     lk.innerHTML = `${ICON.pin} ${esc(isLocked(k) ? L.lockOff : L.lockOn)}`;
     for (const b of $$('[data-ctl="smaller"], [data-ctl="larger"], .zoom', t)) b.disabled = isLocked(k);
   }
+  if (!during && !narrow()) {
+    grid.scrollLeft = Math.round((view.x - ox) * m.sx);
+    grid.scrollTop = Math.round((view.y - oy) * m.sy);
+    CANVAS.homed = true;
+  }
+  drawMapSoon();
 }
 // 閉じたタイル：人が閉じたもの（dyve 設定は閉じられない）。空のあいだの話題の欄は閉じたことにしない
 const userHidden = (k) => k !== "tools" && (LAYOUT.hidden || []).includes(k);
@@ -873,51 +928,68 @@ function applyLayout(appear = null) {
 function setDensity(next) {
   const r = next / dens();
   if (r === 1) return;
-  const scale = (p) => ({ x: Math.max(1, Math.round((p.x - 1) * r) + 1), y: Math.max(1, Math.round((p.y - 1) * r) + 1), w: Math.max(2, Math.round(p.w * r)), h: Math.max(2, Math.round(p.h * r)) });
+  const scale = (p) => ({ x: Math.round((p.x - 1) * r) + 1, y: Math.round((p.y - 1) * r) + 1, w: Math.max(2, Math.round(p.w * r)), h: Math.max(2, Math.round(p.h * r)) });
   LAYOUT.pos = Object.fromEntries(allTiles().map((k) => [k, scale(baseOf(k))]));
   LAYOUT.density = next;
   saveLayout();
   // 話題の中も同じ割合で（大きさを決めていないものの高さは測り直す）
   for (const [id, t] of Object.entries(TPOS)) {
     const s = scale({ ...t, h: t.h || 2 });
-    TPOS[id] = { x: s.x, y: s.y, w: s.w, ...(t.h ? { h: s.h } : {}) };
+    TPOS[id] = { x: Math.max(1, s.x), y: Math.max(1, s.y), w: s.w, ...(t.h ? { h: s.h } : {}) };
   }
   put("tpos", TPOS);
+  CANVAS.homed = false;
   applyLayout();
   relayoutFree();
 }
-// ます目の大きさ（いまの幅で測る）
+// 指の下の置き場所（キャンバスの上で。スクロールと広がりを差し引く）
 function cells() {
-  const cs = getComputedStyle(grid), r = grid.getBoundingClientRect();
-  const gap = parseFloat(cs.columnGap) || 0, rowH = parseFloat(cs.gridAutoRows) || 44;
-  const cols = cs.gridTemplateColumns.split(" ").length;
-  const padL = parseFloat(cs.paddingLeft), padT = parseFloat(cs.paddingTop);
-  const colW = (grid.clientWidth - padL - parseFloat(cs.paddingRight) - gap * (cols - 1)) / cols;
-  return { cols, colW, rowH, gap, at: (cx, cy) => ({
-    x: Math.floor((cx - r.left - padL) / (colW + gap)) + 1,
-    y: Math.floor((cy - r.top - padT + grid.scrollTop) / (rowH + gap)) + 1,
+  const m = metrics(), r = grid.getBoundingClientRect();
+  return { cols: narrow() ? 1 : dens(), at: (cx, cy) => ({
+    x: Math.floor((cx - r.left - m.padL + grid.scrollLeft) / m.sx) + CANVAS.ox,
+    y: Math.floor((cy - r.top - m.padT + grid.scrollTop) / m.sy) + CANVAS.oy,
   }) };
 }
 // つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）。タイルと話題の中で共通
 // 4px 動くまでは動かしたことにしない（見出しを押しただけのときは、ます目も出さない）
-function dragCells(e, { handle, k, start, at, step, arrange, place, onStart, onEnd }) {
+// scroller の端に指を寄せると、そちらへ送る（人が動かしているあいだだけ）
+function dragCells(e, { handle, k, start, at, step, arrange, place, onStart, onEnd, scroller = null }) {
   e.preventDefault();
   handle.setPointerCapture(e.pointerId);
   const p0 = start[k], a0 = at(e.clientX, e.clientY), px = e.clientX, py = e.clientY;
-  let last = start, moved = false;
-  const move = (ev) => {
-    if (!moved) {
-      if (Math.hypot(ev.clientX - px, ev.clientY - py) < 4) return;
-      moved = true;
-      onStart();
-    }
+  let last = start, moved = false, ptr = null, raf = 0;
+  const apply = (ev) => {
     const a = at(ev.clientX, ev.clientY);
     const pos = Object.fromEntries(Object.entries(start).map(([x, p]) => [x, { ...p }]));
     pos[k] = step(p0, a.x - a0.x, a.y - a0.y);
     last = arrange(pos, k);
     place(last);
   };
+  const edge = () => {
+    raf = 0;
+    if (!scroller || !ptr) return;
+    const r = scroller.getBoundingClientRect(), E = 32, V = 14;
+    const vx = ptr.clientX < r.left + E ? -V : ptr.clientX > r.right - E ? V : 0;
+    const vy = ptr.clientY < r.top + E ? -V : ptr.clientY > r.bottom - E ? V : 0;
+    if (!vx && !vy) return;
+    const l = scroller.scrollLeft, t = scroller.scrollTop;
+    scroller.scrollBy(vx, vy);
+    if (scroller.scrollLeft !== l || scroller.scrollTop !== t) apply(ptr);
+    raf = requestAnimationFrame(edge);
+  };
+  const move = (ev) => {
+    if (!moved) {
+      if (Math.hypot(ev.clientX - px, ev.clientY - py) < 4) return;
+      moved = true;
+      onStart();
+    }
+    ptr = { clientX: ev.clientX, clientY: ev.clientY };
+    apply(ev);
+    if (!raf) raf = requestAnimationFrame(edge);
+  };
   const up = () => {
+    ptr = null;
+    cancelAnimationFrame(raf);
     handle.removeEventListener("pointermove", move);
     handle.removeEventListener("pointerup", up);
     handle.removeEventListener("pointercancel", up);
@@ -931,7 +1003,8 @@ function drag(e, k, handle, step) {
   const c = cells();
   if (c.cols === 1) return;
   dragCells(e, {
-    handle, k, step, at: c.at, place,
+    handle, k, step, at: c.at, scroller: grid,
+    place: (pos) => place(pos, true),
     start: Object.fromEntries(allTiles().map((x) => [x, posOf(x)])),
     arrange: (pos, m) => settle(pos, m),
     onStart: () => { grid.classList.add("editing"); tileOf(k).classList.add("dragging"); },
@@ -941,6 +1014,7 @@ function drag(e, k, handle, step) {
       if (!moved) return;
       LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, keepSize(x, last[x])]));
       saveLayout();
+      applyLayout();
     },
   });
 }
@@ -983,11 +1057,11 @@ function setupTile(k) {
 
   head.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.target.closest(".ctl") || isLocked(k)) return;
-    drag(e, k, head, (p, dx, dy) => ({ ...p, x: clamp(p.x + dx, 1, dens() + 1 - p.w), y: Math.max(1, p.y + dy) }));
+    drag(e, k, head, (p, dx, dy) => ({ ...p, x: Math.max(CANVAS.ox, p.x + dx), y: Math.max(CANVAS.oy, p.y + dy) }));
   });
   sizer.addEventListener("pointerdown", (e) => {
     if (isLocked(k)) return;
-    drag(e, k, sizer, (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, dens() + 1 - p.x), h: clamp(p.h + dy, 2, 400) }));
+    drag(e, k, sizer, (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, 400), h: clamp(p.h + dy, 2, 400) }));
   });
   const onCtl = (e) => {
     const c = e.target.closest("button")?.dataset.ctl;
@@ -1059,8 +1133,61 @@ $("#closed").addEventListener("click", (e) => {
 });
 $("#density").innerHTML = Object.keys(DENSITY).map((n) => `<option value="${n}">${esc(L.densities[n])}</option>`).join("");
 $("#density").onchange = (e) => setDensity(Number(e.target.value));
-$("#resetLayout").onclick = () => { for (const k of Object.keys(LAYOUT)) delete LAYOUT[k]; saveLayout(); applyLayout(); };
+$("#resetLayout").onclick = () => { for (const k of Object.keys(LAYOUT)) delete LAYOUT[k]; saveLayout(); CANVAS.homed = false; applyLayout(); };
+
+// ── 全体マップ：右下に小さく。タイルの置き場所といま見ているところ（枠）を描く。押す・なぞるとそこへ行く ──
+const world = $("#map .world");
+world.title = L.map;
+$("#toTools").innerHTML = `${ICON.gear} ${esc(L.toTools)}`;
+$("#toTools").title = L.toToolsTitle;
+let MAPF = null, mapRaf = 0;
+function drawMap() {
+  mapRaf = 0;
+  if (narrow()) return;
+  const W = world.clientWidth, H = world.clientHeight;
+  const rects = allTiles().map((k) => [k, tileOf(k)]).filter(([, t]) => t && !t.hidden)
+    .map(([k, t]) => ({ k, t, x: t.offsetLeft, y: t.offsetTop, w: t.offsetWidth, h: t.offsetHeight }));
+  const v = { x: grid.scrollLeft, y: grid.scrollTop, w: grid.clientWidth, h: grid.clientHeight };
+  const all = [...rects, v];
+  const x0 = Math.min(...all.map((r) => r.x)), y0 = Math.min(...all.map((r) => r.y));
+  const x1 = Math.max(...all.map((r) => r.x + r.w)), y1 = Math.max(...all.map((r) => r.y + r.h));
+  const s = Math.min(W / (x1 - x0 || 1), H / (y1 - y0 || 1));
+  const mx = (W - (x1 - x0) * s) / 2, my = (H - (y1 - y0) * s) / 2;
+  MAPF = { x0, y0, s, mx, my };
+  const at = (r) => `left:${(mx + (r.x - x0) * s).toFixed(1)}px;top:${(my + (r.y - y0) * s).toFixed(1)}px;width:${Math.max(2, r.w * s).toFixed(1)}px;height:${Math.max(2, r.h * s).toFixed(1)}px`;
+  world.innerHTML = rects.map((r) => {
+    const cls = r.k === "tools" ? "tools" : $(".tile-head .badge", r.t)?.textContent ? "badge" : "";
+    return `<span class="${cls}" style="${at(r)}" title="${esc($(".tile-head h2", r.t)?.textContent || "")}"></span>`;
+  }).join("") + `<span class="view" style="${at(v)}"></span>`;
+}
+const drawMapSoon = () => { if (!mapRaf) mapRaf = requestAnimationFrame(drawMap); };
+grid.addEventListener("scroll", drawMapSoon, { passive: true });
+// マップの上の点を、画面のまん中に持ってくる
+const mapGo = (ev) => {
+  if (!MAPF) return;
+  const r = world.getBoundingClientRect();
+  const cx = (ev.clientX - r.left - MAPF.mx) / MAPF.s + MAPF.x0, cy = (ev.clientY - r.top - MAPF.my) / MAPF.s + MAPF.y0;
+  grid.scrollTo(cx - grid.clientWidth / 2, cy - grid.clientHeight / 2);
+};
+world.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  world.setPointerCapture(e.pointerId);
+  mapGo(e);
+  const mv = (ev) => mapGo(ev);
+  world.addEventListener("pointermove", mv);
+  world.addEventListener("pointerup", () => world.removeEventListener("pointermove", mv), { once: true });
+});
+// dyve 設定のタイルへ（どこにいても戻れる）
+$("#toTools").onclick = () => {
+  const t = tileOf("tools");
+  t.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+  t.classList.add("hl");
+  setTimeout(() => t.classList.remove("hl"), 1600);
+};
 applyLayout();
+// 窓の大きさが変わったら列の幅を測り直す（見ているところは保つ）
+addEventListener("resize", () => applyLayout());
 
 // 話題の欄のパネルの角をつまんで離したら、変わった大きさを覚える
 grid.addEventListener("pointerdown", (e) => {
@@ -1094,6 +1221,7 @@ grid.addEventListener("pointerdown", (e) => {
       : (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, g.cols + 1 - p.x), h: clamp(p.h + dy, 2, 400), auto: false }),
     arrange: (pos, m) => arrange(pos, g.cols, m),
     place: (pos) => placeFree(box, pos),
+    scroller: box.closest(".tile-body"),
     onStart: () => { box.classList.add("editing"); cell.classList.add("dragging"); },
     onEnd: (last, moved) => {
       box.classList.remove("editing");
