@@ -39,7 +39,9 @@ a { color: var(--accent); }
 .tile.dragging { opacity: .6; outline: 2px dashed var(--accent); }
 .tile-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 2px 8px 0 6px; min-height: 28px;
              font-size: 12px; color: var(--mute); cursor: grab; user-select: none; touch-action: none; }
-.tile-head h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.tile-head h2 { margin: 0; font-size: 12px; font-weight: 600; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tile-head h2[data-goto] { cursor: pointer; }
+.tile-head h2[data-goto]:hover { color: var(--ink); }
 .tile-head .grip { letter-spacing: -2px; opacity: .5; }
 .tile-head .badge { color: var(--accent); }
 .tile-head .ctl { margin-left: auto; display: flex; align-items: center; gap: 0; cursor: default; }
@@ -166,6 +168,10 @@ dv-topic p { margin: 2px 0 0; color: var(--mute); }
 .group > .src:hover { color: var(--ink); }
 .group > .items { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
 .group > .items > dv-panel { flex: none; width: 100%; max-width: 100%; min-width: 200px; min-height: 0; resize: both; overflow: auto; }
+/* 話題ひとつのタイル：タイルが枠になるので、パネルの枠と見出しのタイトルは出さない */
+.group.solo { margin: 0; }
+.group.solo > .items > dv-panel { border: none; background: none; padding: 0; resize: none; overflow: visible; }
+.group.solo > .items > dv-panel > .meta .topic-title { display: none; }
 iframe.uview { display: block; width: 100%; border: 0; background: transparent; }
 .src-line { margin: 2px 0 4px; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mute); overflow-wrap: anywhere; }
 /* 済みの仕事は畳む。見出しを押すと開く */
@@ -259,7 +265,6 @@ dv-panel.waiting { border: 3px double var(--warn); }
   <section class="tile" data-tile="summary"><div class="tile-body" id="summary"></div></section>
   <section class="tile" data-tile="status"><div class="tile-body"><div id="status" aria-live="polite"></div></div></section>
   <section class="tile" data-tile="quota"><div class="tile-body" id="quota"></div></section>
-  <section class="tile" data-tile="results"><div class="tile-body" id="board"></div></section>
   <section class="tile" data-tile="tools">
     <div class="tile-body">
       <div id="tools">
@@ -284,7 +289,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
 // 画面の言葉はここにまとめる
 const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
-  tile: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", results: "話題", tools: "dyve 設定" },
+  tile: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" },
   move: "ドラッグで好きな場所へ", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   locked: "固定中", lockOn: "固定する", lockOff: "固定を外す",
@@ -296,7 +301,6 @@ const L = {
   send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
-  emptyResults: "整えたもの・調べた結果が、ここに置かれます。",
   emptySummary: "話しはじめると、マネージャがここに要点をまとめます。",
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
   newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
@@ -329,11 +333,11 @@ const L = {
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
 // タイルの並びと大きさ（12 列の格子で、幅は列の数、高さは行の数）
-const TILES = ["talk", "summary", "status", "quota", "results", "tools"];
+const TILES = ["talk", "summary", "status", "quota", "tools"];
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
   talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
-  quota: { x: 10, y: 4, w: 3, h: 3 }, results: { x: 4, y: 7, w: 6, h: 9 }, tools: { x: 10, y: 7, w: 3, h: 3 },
+  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 3 },
 };
 // HOME は「ふつう」（24 列）のます目で書く。細かさを変えたら置き場所も同じ割合で直す
 const DENSITY = { 12: { row: 44, gap: 10 }, 24: { row: 18, gap: 8 }, 48: { row: 7, gap: 5 } };
@@ -530,7 +534,7 @@ function panelEl(p, kids) {
       ${p.view === "topic" && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
       ${done && !el.classList.contains("folded") ? `<button class="icon" data-act="fold">${L.unfold}</button>` : ""}
       ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
-      ${p.view !== "say" && !(LAYOUT.extra || []).includes(`panel:${p.id}`) ? `<button class="icon" data-act="tile">${L.toTile}</button>` : ""}
+      ${p.view !== "say" && !S.roots?.has(p.id) && !(LAYOUT.extra || []).includes(`panel:${p.id}`) ? `<button class="icon" data-act="tile">${L.toTile}</button>` : ""}
       ${minable ? `<button class="icon" data-act="min" aria-pressed="${MIN.has(p.id)}" title="${MIN.has(p.id) ? L.restore : L.minimize}" aria-label="${MIN.has(p.id) ? L.restore : L.minimize}">${MIN.has(p.id) ? ICON.restore : ICON.min}</button>` : ""}
       <button class="icon" data-act="pin" aria-pressed="${!!p.pinned}" title="${p.pinned ? L.unpin : L.pin}" aria-label="${p.pinned ? L.unpin : L.pin}">${ICON.pin}</button>
       <button class="icon" data-act="drop" title="${L.drop}" aria-label="${L.drop}">${ICON.drop}</button>
@@ -669,13 +673,15 @@ function render() {
   const kids = tree();
   const desc = (id) => kids(id).flatMap((k) => [k, ...desc(k.id)]);
   const top = kids(null);
+  const isSay = (p) => isPerson(p.by) && p.view === "say";
+  // 話題（と、発言から出たもの）はそれぞれ一枚のタイルになる。その根になっているパネル
+  S.roots = new Set(top.filter((p) => !isSay(p) && p.view !== "summary").map((p) => p.id));
 
   // トーク：いちばん下を見ていたときだけ追いかける
   const tl = $("#timeline");
   const follow = tl.scrollTop + tl.clientHeight >= tl.scrollHeight - 40;
   tl.innerHTML = "";
-  // トークに出すのは人の発言だけ（人が置いたほかのパネルは話題の欄へ）
-  const isSay = (p) => isPerson(p.by) && p.view === "say";
+  // トークに出すのは人の発言だけ（人が置いたほかのパネルは自分のタイルへ）
   const said = top.filter(isSay);
   if (!said.length) tl.innerHTML = `<p class="empty">${esc(L.emptyTalk)}</p>`;
   // 発言から出た仕事が束ねられている話題（data.from から導く）
@@ -724,48 +730,57 @@ function render() {
   if (sum) sb.append(panelEl(sum, kids));
   else sb.innerHTML = `<p class="empty">${esc(L.emptySummary)}</p>`;
 
-  // 話題の欄：話題ごと（なければ発言ごと）に群にして、新しい群を上に。読んでいる群の位置は動かさない
-  const main = $("#board");
-  let anchor = null;
-  if (main.scrollTop > 0) {
-    const g = $$(":scope > .group", main).find((g) => g.offsetTop + g.offsetHeight > main.scrollTop);
-    if (g) anchor = [g.dataset.key, g.offsetTop - main.scrollTop];
-  }
+  // 話題ごと（なければ発言ごと）に群にして、群をそれぞれ一枚のタイルにする（"g:<根の id>"）。
+  // 新しい群は、ほかのタイルを押しのけずに空いているところへ出る（最近動いたものから上に）
   const groups = [];
   for (const p of top) {
-    if (p === sum) continue;
+    if (p === sum || p.view === "summary") continue;
     if (!isSay(p)) groups.push({ key: p.id, src: null, items: [p] });
     else if (kids(p.id).length) groups.push({ key: p.id, src: p, items: kids(p.id) });
   }
-  // 群は動きのあった順（話題は長く生きるので、作った順ではなく中で最後に動いた時で並べる）
   const lastOf = (g) => Math.max(...g.items.flatMap((p) => [p, ...desc(p.id)]).map((p) => p.rev || 0), g.src?.rev || 0);
-  groups.sort((a, b) => lastOf(a) - lastOf(b));
-  main.innerHTML = "";
-  if (!groups.length) main.innerHTML = `<p class="empty">${esc(L.emptyResults)}</p>`;
-  // 話題の欄は、空のあいだは出さない。最初に何か置かれたら出す（ほかのタイルは押しのけない）
-  if (S.resultsEmpty !== !groups.length) {
-    const appear = S.resultsEmpty === true && groups.length > 0;
-    S.resultsEmpty = !groups.length;
-    applyLayout(appear ? "results" : null);
+  groups.sort((a, b) => lastOf(b) - lastOf(a));
+  const keys = groups.map((g) => gk(g.key));
+  let changed = false;
+  for (const t of $$(".tile", grid)) {
+    const k = t.dataset.tile;
+    if (!isGroupTile(k) || keys.includes(k)) continue;
+    t.remove();
+    // なくなった群の置き場所は忘れる（ほかのボードの群は、戻ったときのために覚えておく）
+    if (k.startsWith(gk("")) && LAYOUT.pos?.[k]) delete LAYOUT.pos[k];
+    changed = true;
   }
-  for (const g of groups.reverse()) {
+  S.groupTiles = keys;
+  for (const g of groups) {
+    const k = gk(g.key);
+    if (!tileOf(k)) { setupTile(k); changed = true; }
+    if (!LAYOUT.pos?.[k]) { LAYOUT.pos = { ...LAYOUT.pos, [k]: freeSpot(GROUP_SIZE()) }; changed = true; }
+  }
+  if (changed) { saveLayout(); applyLayout(); }
+  for (const g of groups) {
+    const t = tileOf(gk(g.key)), solo = !g.src && g.items.length === 1, root = g.items[0];
+    // 発言から出た群は、見出しがその発言。押すとトークの発言へ
+    const h2 = $(".tile-head h2", t);
+    h2.textContent = g.src ? `← ${textOf(g.src.data)}` : root.view === "topic" ? topicTitle(root) : `${who(root.by)}・${root.view}`;
+    h2.title = h2.textContent;
+    if (g.src) h2.dataset.goto = g.src.id; else delete h2.dataset.goto;
     const box = document.createElement("div");
-    box.className = "group";
+    box.className = `group${solo ? " solo" : ""}`;
     box.dataset.key = g.key;
-    if (g.src) box.innerHTML = `<button class="src" data-goto="${esc(g.src.id)}">← ${esc(textOf(g.src.data))}</button>`;
     const items = document.createElement("div");
     items.className = "items";
     for (const p of g.items) {
-      const el = panelEl(p, kids), sz = SIZES[p.id];
+      const el = panelEl(p, kids), sz = !solo && SIZES[p.id];
       if (sz) Object.assign(el.style, { width: `${sz[0]}px`, height: `${sz[1]}px` });
       items.append(el);
     }
     box.append(items);
-    main.append(box);
-  }
-  if (anchor) {
-    const g = $$(":scope > .group", main).find((x) => x.dataset.key === anchor[0]);
-    if (g) main.scrollTop = g.offsetTop - anchor[1];
+    const body = $(".tile-body", t);
+    body.innerHTML = "";
+    body.append(box);
+    // 知らせの印は、その群のタイルの見出しに
+    const ms = g.items.flatMap((p) => [p, ...desc(p.id)]).filter((p) => !isPerson(p.by)).map(markOf);
+    $(".tile-head .badge", t).textContent = ms.includes("waiting") ? L.markShort.waiting : ms.some(Boolean) ? L.markShort.notice : "";
   }
   // パネルから出したタイル
   for (const k of LAYOUT.extra || []) {
@@ -777,8 +792,6 @@ function render() {
     body.innerHTML = "";
     if (p) body.append(panelEl(p, kids)); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
   }
-  const pending = S.panels.some((p) => !isPerson(p.by) && p !== sum && markOf(p));
-  $('.tile[data-tile="results"] .badge').textContent = pending ? "●" : "";
   drawMapSoon();
 }
 
@@ -823,7 +836,12 @@ function reveal(el) {
   setTimeout(() => el.classList.remove("hl"), 1600);
 }
 const panelOf = (id) => $$("dv-panel").find((x) => x.dataset.id === id);
-const groupOf = (id) => $$("#board > .group").find((x) => x.dataset.key === id);
+// 群のタイル。閉じていたら、人が押したときだけ開き直して見せる
+const groupOf = (id) => {
+  const k = gk(id), t = tileOf(k);
+  if (t && userHidden(k)) { LAYOUT.hidden = LAYOUT.hidden.filter((x) => x !== k); saveLayout(); applyLayout(); }
+  return t;
+};
 
 // ── タイル：見出しをつまんで好きな場所へ、右下の角で大きさ、見出しの右で文字の大きさと固定 ──
 // 置き場所はます目で持つ。重なったら、動かしたタイルを優先して重なった方を下へずらす。固定したタイルは動かない
@@ -837,8 +855,21 @@ const minRows = () => { const d = DENSITY[dens()]; return Math.max(1, Math.ceil(
 const posOf = (k) => (isMin(k) ? { ...baseOf(k), h: minRows() } : baseOf(k));
 const keepSize = (k, p) => (isMin(k) ? { ...p, h: baseOf(k).h } : p);
 // タイル：決まった六つと、利用者がパネルから出したもの（"panel:<id>"）
-const allTiles = () => [...TILES, ...(LAYOUT.extra || [])];
+const allTiles = () => [...TILES, ...(LAYOUT.extra || []), ...(S.groupTiles || [])];
 const isPanelTile = (k) => k.startsWith("panel:");
+const isGroupTile = (k) => k.startsWith("g:");
+// 群のタイルの名前はボードごと（id はボードごとに p1 から振られるため）
+const gk = (id) => `g:${S.name || ""}/${id}`;
+// 群のタイルの大きさ（一画面の三分の一の幅）と、置き場所：一画面の幅の中で、上から空いているところ
+const GROUP_SIZE = () => ({ w: Math.round(dens() / 3), h: Math.round(dens() * 0.6) });
+function freeSpot({ w, h }) {
+  const taken = allTiles().filter((x) => tileOf(x) && !tileOf(x).hidden && (LAYOUT.pos?.[x] || HOME[x])).map(posOf);
+  for (let y = 1; ; y++) for (let x = 1; x + w <= dens() + 1; x++) {
+    const q = { x, y, w, h };
+    if (!taken.some((o) => overlap(q, o))) return q;
+  }
+}
+const tileName = (k) => L.tile[k] || $(`.tile[data-tile="${CSS.escape(k)}"] .tile-head h2`)?.textContent || k;
 const isLocked = (k) => (LAYOUT.locked || []).includes(k);
 const dens = () => (DENSITY[LAYOUT.density] ? LAYOUT.density : 24);
 const zoomOf = (k) => LAYOUT.zoom?.[k] || 1;
@@ -934,11 +965,11 @@ function applyLayout(appear = null) {
   // パネルから出したタイルを作る・消す
   for (const k of LAYOUT.extra || []) if (!tileOf(k)) setupTile(k);
   for (const t of $$(".tile", grid)) if (isPanelTile(t.dataset.tile) && !(LAYOUT.extra || []).includes(t.dataset.tile)) t.remove();
-  for (const k of TILES) tileOf(k).hidden = userHidden(k) || (k === "results" && S.resultsEmpty !== false);
+  for (const k of [...TILES, ...(S.groupTiles || [])]) if (tileOf(k)) tileOf(k).hidden = userHidden(k);
   const pos = Object.fromEntries(allTiles().map((k) => [k, posOf(k)]));
   place(settle(pos, null, appear));
-  const closed = TILES.filter(userHidden);
-  $("#closed").innerHTML = closed.length ? `<span>${esc(L.closed)}</span>` + closed.map((k) => `<button data-reopen="${k}">${esc(L.reopen(L.tile[k]))}</button>`).join("") : "";
+  const closed = [...TILES, ...(S.groupTiles || [])].filter(userHidden);
+  $("#closed").innerHTML = closed.length ? `<span>${esc(L.closed)}</span>` + closed.map((k) => `<button data-reopen="${esc(k)}">${esc(L.reopen(tileName(k)))}</button>`).join("") : "";
   $("#density").value = String(dens());
 }
 // 細かさを変えたら、置き場所・大きさを同じ割合で直す（見た目の大きさを保つ）
@@ -1029,6 +1060,7 @@ function drag(e, k, handle, step) {
       grid.classList.remove("editing");
       tileOf(k).classList.remove("dragging");
       if (!moved) return;
+      dragged = true;
       LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, keepSize(x, last[x])]));
       saveLayout();
       applyLayout();
@@ -1048,7 +1080,7 @@ function setupTile(k) {
   const head = document.createElement("div");
   head.className = "tile-head";
   head.title = L.move;
-  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k])}</h2><span class="badge"></span>
+  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k] || "")}</h2><span class="badge"></span>
     <span class="ctl">
       <span class="lockmark" title="${esc(L.locked)}" aria-label="${esc(L.locked)}">${ICON.pin}</span>
       <button class="icon" data-ctl="min" aria-pressed="false">${ICON.min}</button>
