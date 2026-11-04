@@ -7,7 +7,7 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
 const panelFields = {
-  view: { type: "string", description: "描き方：本体の say（発言）, text（文字列）, list（文字列の配列）, table（{columns, rows}）, task（仕事：{text, to?, from?}）, topic（観点：{title, note?}。仕事を束ねる）, summary（いまの要点：{points, decided, open}）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える" },
+  view: { type: "string", description: "描き方：本体の say（発言）, text（文字列）, list（文字列の配列）, table（{columns, rows}）, task（仕事：{text, to?, from?}）, topic（話題：{title, note?}。仕事を束ねる）, summary（いまの要点：{points, decided, open}）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える" },
   data: {
     type: ["string", "array", "object", "number", "boolean", "null"],
     description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は配列、table は {columns, rows}、task は {text, to?}、summary は {points, decided, open}",

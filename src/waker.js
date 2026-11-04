@@ -340,7 +340,7 @@ export function managerPrompt(since, board = null, running = []) {
     if (n > SUMMARY_MAX) lines.push(`（いま ${n} 項目あります。今回の書き換えで ${SUMMARY_MAX} 項目までに減らしてください。済んだ話・言い換えの重複・細かい感想から消します）`);
   }
   const topics = all.filter((p) => p.view === "topic");
-  lines.push("", "## 観点");
+  lines.push("", "## 話題");
   if (!topics.length) lines.push("（まだない）");
   for (const t of topics) {
     const n = all.filter((p) => p.about === t.id && p.view === "task").length;
@@ -348,7 +348,7 @@ export function managerPrompt(since, board = null, running = []) {
   }
   lines.push("", "## 仕事");
   if (!tasks.length) lines.push("（なし）");
-  for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}${board.get(t.about)?.view === "topic" ? `・観点 ${t.about}` : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
+  for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}${board.get(t.about)?.view === "topic" ? `・話題 ${t.about}` : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
   lines.push("", "## 新しい発言（清書済み）");
   if (!says.length) lines.push("（なし）");
   for (const p of says) lines.push(`- ${p.id}${p.to ? `（${p.to}宛て。ボードがそのまま${p.to}に渡すので、取り次がない）` : ""}：${textOf(p.data)}`);
@@ -375,7 +375,7 @@ export function taskPrompt(board, task, name) {
     task.data?.direct ? `言われたこと：${text}` : `仕事：${text}`,
     prev ? `前にあなたが受け持った仕事（${prev.id}）：${clip(textOf(prev.data), 300)}` : "",
     ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
-    topic ? `観点（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
+    topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
     `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
     "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",

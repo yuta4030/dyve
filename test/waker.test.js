@@ -244,15 +244,15 @@ test("アイコンで宛てた発言：続けて話したぶんをまとめて�
   w.stop();
 });
 
-test("観点：マネージャには観点の一覧を渡し、控室には観点と元の発言（data.from）を渡す", () => {
+test("話題：マネージャには話題の一覧を渡し、控室には話題と元の発言（data.from）を渡す", () => {
   const store = new Store();
   const s1 = store.apply({ by: "human", type: "add", panel: { view: "say", data: "diff も欲しい" } }).op.panel.id;
-  const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "パネルの整理" } }, reason: "観点" }).op.panel.id;
+  const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "パネルの整理" } }, reason: "話題" }).op.panel.id;
   const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: tp, data: { text: "diff の view を作る", from: [s1] } }, reason: "x" }).op.panel;
   const m = managerPrompt(0, store.board);
-  assert.match(m, new RegExp(`## 観点\\n- ${tp}：パネルの整理（仕事 1）`));
-  assert.match(m, new RegExp(`${t.id}［task・観点 ${tp}］diff の view を作る`));
+  assert.match(m, new RegExp(`## 話題\\n- ${tp}：パネルの整理（仕事 1）`));
+  assert.match(m, new RegExp(`${t.id}［task・話題 ${tp}］diff の view を作る`));
   const p = taskPrompt(store.board, store.board.get(t.id), "アリス");
-  assert.match(p, /観点（.+）：パネルの整理/);
+  assert.match(p, /話題（.+）：パネルの整理/);
   assert.match(p, new RegExp(`元の発言（${s1}）：diff も欲しい`));
 });
