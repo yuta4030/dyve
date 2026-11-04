@@ -129,7 +129,7 @@ dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
 .topics button { min-height: 0; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 11px; color: var(--mute); }
 .topics button:hover { color: var(--ink); }
 /* 話題：話題の欄の群の頭になる */
-dv-topic h3 { margin: 0; font-size: 15px; font-weight: 700; }
+dv-panel .meta .topic-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; font-weight: 700; color: var(--ink); }
 dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #doing { width: 100%; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--mute); }
 #doing li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -413,11 +413,11 @@ class SummaryView extends View {
   }
 }
 customElements.define("dv-summary", SummaryView);
-// 話題：仕事を束ねる見出し。data は { title, note? } か文字列
+// 話題：仕事を束ねる見出し。data は { title, note? } か文字列。タイトルはパネルの見出しの行に出す（畳んでも見える）ので、ここは補足だけ
 class TopicView extends View {
   render(v) {
     const note = typeof v === "object" && v ? v.note : "";
-    this.innerHTML = `<div class="body"><h3>${esc(typeof v === "string" ? v : v?.title ?? "")}</h3>${note ? `<p>${linkify(note)}</p>` : ""}</div>`;
+    this.innerHTML = note ? `<div class="body"><p>${linkify(note)}</p></div>` : "";
   }
 }
 customElements.define("dv-topic", TopicView);
@@ -515,7 +515,10 @@ function panelEl(p, kids) {
   const feed = S.feeds[p.id];
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
-  el.innerHTML = `<div class="meta"><span class="who">${esc(who(p.by))}</span>${tags.join("")}
+  const head = p.view === "topic"
+    ? `<span class="who" title="${esc(who(p.by))}">${esc(L.tile.results)}</span><span class="topic-title" title="${esc(topicTitle(p))}">${esc(topicTitle(p))}</span>`
+    : `<span class="who">${esc(who(p.by))}</span>`;
+  el.innerHTML = `<div class="meta">${head}${tags.join("")}
     ${p.state === "proposal" ? `<button data-act="accept">${L.accept}</button>` : ""}
     ${p.source && !feed?.approved ? `<button data-act="allow" title="${esc(L.allowTitle)}">${L.allow}</button>` : ""}
     <span class="tools">
@@ -634,12 +637,23 @@ const freeAt = (box, g) => (cx, cy) => {
   return { x: Math.floor((cx - r.left) / ((colW + g.gap) * s)) + 1, y: Math.floor((cy - r.top) / ((g.rowH + g.gap) * s)) + 1 };
 };
 
-// パネルを about でたどれる形にする（並びは追加順）
+// 画面の上での親。仕事について置かれたもの（結果）は仕事の子にせず、仕事と並べて仕事の親（話題か発言）の直下に出す。
+// データの about は仕事を指したままで、並べ方だけここで導く。親のない仕事の結果は、行き先がないので仕事の下のまま
+function shownParent(p, byId) {
+  let k = p.about;
+  while (k && byId.has(k)) {
+    const up = byId.get(k);
+    if (up.view !== "task" || !up.about || !byId.has(up.about)) return k;
+    k = up.about;
+  }
+  return null;
+}
+// パネルをたどれる形にする（並びは追加順）
 function tree() {
-  const ids = new Set(S.panels.map((p) => p.id));
+  const byId = new Map(S.panels.map((p) => [p.id, p]));
   const by = new Map();
   for (const p of S.panels) {
-    const k = p.about && ids.has(p.about) ? p.about : null;
+    const k = shownParent(p, byId);
     if (!by.has(k)) by.set(k, []);
     by.get(k).push(p);
   }
@@ -755,7 +769,7 @@ function render() {
     const t = tileOf(k);
     if (!t) continue;
     const p = S.panels.find((x) => x.id === k.slice(6));
-    $(".tile-head h2", t).textContent = p ? `${who(p.by)}・${p.view}` : k.slice(6);
+    $(".tile-head h2", t).textContent = !p ? k.slice(6) : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
     const body = $(".tile-body", t);
     body.innerHTML = "";
     if (p) body.append(panelEl(p, kids)); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
@@ -1289,7 +1303,7 @@ grid.addEventListener("click", async (e) => {
   if (!act && el.classList.contains("folded")) { S.unfold.add(p.id); return render(); }
   if (act === "unsize") { delete SIZES[p.id]; put("sizes", SIZES); return render(); }
   if (act === "min") { if (MIN.has(p.id)) MIN.delete(p.id); else MIN.add(p.id); put("min", [...MIN]); return render(); }
-  if (act === "unpos") { for (const k of S.panels) if (k.about === p.id) delete TPOS[k.id]; put("tpos", TPOS); return render(); }
+  if (act === "unpos") { for (const k of tree()(p.id)) delete TPOS[k.id]; put("tpos", TPOS); return render(); }
   if (act === "pin") return op("edit", { id: p.id, pinned: !p.pinned });
   if (act === "accept") return op("edit", { id: p.id, state: "done" });
   if (act === "drop") { if (confirm(L.dropAsk)) op("drop", { id: p.id }); return; }
