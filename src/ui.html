@@ -20,7 +20,7 @@ button { font: inherit; font-size: 13px; color: var(--ink); background: var(--ca
          padding: 3px 10px; cursor: pointer; min-height: 30px; }
 button:hover { border-color: var(--mute); }
 button.primary { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
-button.icon { min-height: 26px; padding: 0 6px; border-color: transparent; background: transparent; color: var(--mute); }
+button.icon { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 26px; padding: 0 6px; border-color: transparent; background: transparent; color: var(--mute); }
 button.icon:hover { color: var(--ink); border-color: var(--line); }
 button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 a { color: var(--accent); }
@@ -41,7 +41,7 @@ a { color: var(--accent); }
 .tile-head .grip { letter-spacing: -2px; opacity: .5; }
 .tile-head .badge { color: var(--accent); }
 .tile-head .ctl { margin-left: auto; display: flex; align-items: center; gap: 0; cursor: default; }
-.tile-head .ctl button { min-height: 22px; padding: 0 5px; font-size: 12px; opacity: .35; transition: opacity .15s; }
+.tile-head .ctl button { display: inline-flex; align-items: center; justify-content: center; min-height: 22px; padding: 0 5px; font-size: 12px; opacity: .35; transition: opacity .15s; }
 .tile:hover .tile-head .ctl button, .tile-head .ctl button:focus-visible, .tile-head .ctl button[aria-expanded="true"] { opacity: 1; }
 @media (hover: none) { .tile-head .ctl button { opacity: 1; } }
 .tile-head .lockmark { display: none; color: var(--mute); }
@@ -311,6 +311,8 @@ const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<)]+/g, (u) => `<a href="$
 const ICON = {
   pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"/><path d="M12 15v6"/></svg>',
   gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  min: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>',
+  restore: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
   drop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   seen: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><path d="M9 12l2 2 4-4"/></svg>',
   export: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
@@ -491,7 +493,7 @@ function panelEl(p, kids) {
       ${done && !el.classList.contains("folded") ? `<button class="icon" data-act="fold">${L.unfold}</button>` : ""}
       ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
       ${p.view !== "say" && !(LAYOUT.extra || []).includes(`panel:${p.id}`) ? `<button class="icon" data-act="tile">${L.toTile}</button>` : ""}
-      ${minable ? `<button class="icon" data-act="min" aria-pressed="${MIN.has(p.id)}" title="${MIN.has(p.id) ? L.restore : L.minimize}" aria-label="${MIN.has(p.id) ? L.restore : L.minimize}">${MIN.has(p.id) ? "▢" : "–"}</button>` : ""}
+      ${minable ? `<button class="icon" data-act="min" aria-pressed="${MIN.has(p.id)}" title="${MIN.has(p.id) ? L.restore : L.minimize}" aria-label="${MIN.has(p.id) ? L.restore : L.minimize}">${MIN.has(p.id) ? ICON.restore : ICON.min}</button>` : ""}
       <button class="icon" data-act="pin" aria-pressed="${!!p.pinned}" title="${p.pinned ? L.unpin : L.pin}" aria-label="${p.pinned ? L.unpin : L.pin}">${ICON.pin}</button>
       <button class="icon" data-act="drop" title="${L.drop}" aria-label="${L.drop}">${ICON.drop}</button>
     </span></div>`;
@@ -768,7 +770,7 @@ function place(pos) {
       mb.setAttribute("aria-pressed", String(isMin(k)));
       mb.title = isMin(k) ? L.restore : L.minimize;
       mb.setAttribute("aria-label", mb.title);
-      mb.textContent = isMin(k) ? "▢" : "–";
+      mb.innerHTML = isMin(k) ? ICON.restore : ICON.min;
     }
     $(".zoom", t).value = String(Math.round(zoomOf(k) * 100));
     const lk = $('[data-ctl="lock"]', t);
@@ -860,7 +862,7 @@ function setupTile(k) {
   head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k])}</h2><span class="badge"></span>
     <span class="ctl">
       <span class="lockmark" title="${esc(L.locked)}" aria-label="${esc(L.locked)}">${ICON.pin}</span>
-      <button class="icon" data-ctl="min" aria-pressed="false">–</button>
+      <button class="icon" data-ctl="min" aria-pressed="false">${ICON.min}</button>
       <button class="icon" data-ctl="menu" aria-haspopup="true" aria-expanded="false" title="${esc(L.options)}" aria-label="${esc(L.options)}">${ICON.gear}</button>
       ${k === "tools" ? "" : `<button class="icon" data-ctl="close" title="${esc(L.close)}" aria-label="${esc(L.close)}">${ICON.drop}</button>`}
     </span>`;
