@@ -3,7 +3,7 @@ import { spawn as nodeSpawn, execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { NAMES, agentOf } from "./crew.js";
+import { NAMES, agentOf, callOf } from "./crew.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -32,8 +32,9 @@ const DENY = { panels: DENY_PANELS, dev: ["Bash(git push:*)", "Bash(git remote:*
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
 export const inRoom = (role) => role === "task" || role === "dev" || role === "panels";
 
-// 控室（調べもの・開発・パネル）は --task-model、なければ置き場のその人の model。清書係とマネージャは models に決まったものが入っている
-const modelOf = (models, role, crew = null, name = null) => inRoom(role) ? models.task ?? agentOf(crew, name)?.model ?? undefined : models[role];
+// 控室（調べもの・開発・パネル）は --task-model、なければその人の model（チームの task.model を含む）、なければ個人の task.model。
+// 清書係とマネージャは models に決まったものが入っている
+const modelOf = (models, role, crew = null, name = null) => inRoom(role) ? models.task ?? agentOf(crew, name)?.model ?? crew?.settings?.task?.model ?? undefined : models[role];
 // 起きる場所：控室はその人の room（なければ部屋）、清書係とマネージャは置き場の cwd（なければ作業場）
 const roomOf = (crew, name, room) => agentOf(crew, name)?.room ?? room;
 const staffOf = (crew, role, staff) => crew?.[role]?.cwd ?? staff;
@@ -43,19 +44,46 @@ export function readDef(file) {
   return text.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
 }
 
-// 前置き：dyve の定義に、利用者の置き場（~/.dyve/agents）の指示を足す（mode: replace なら差し替える）。
-// {{names}} は控室の名前の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
+// 前置き：dyve の定義に、利用者の指示（個人の置き場・設定の prompt・チームの指示）を足す（mode: replace なら差し替える）。
+// {{names}} は控室の呼び名の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
+// names：控室の名前（id。チームの人は「名前@チーム」）
 export function systemPrompt(role, name, { room = null, crew = null, names = NAMES } = {}) {
-  const fill = (s) => s.replaceAll("{{names}}", names.join("、"));
+  const fill = (s) => s.replaceAll("{{names}}", names.map((n) => callOf(crew, n)).join("、"));
   const tune = inRoom(role) ? agentOf(crew, name) : crew?.[role];
   let text = fill(readDef(DEFS[role]));
   if (tune?.body) text = tune.mode === "replace" ? fill(tune.body) : `${text}\n\n## 利用者からの指示\n${fill(tune.body)}`;
-  if (role === "manager" && room) {
-    text += `\n\n## 控室の部屋\n控室のエージェントはリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`;
-    const own = names.map((n) => [n, agentOf(crew, n)?.room]).filter(([, r]) => r && r !== room);
-    if (own.length) text += `\nただし次の人は別の場所で働きます。その場所の仕事は、data.to にその人の名前を入れて頼みます。\n${own.map(([n, r]) => `- ${n}：${r}`).join("\n")}`;
-  }
+  if (role === "manager") text += roster(names, room, crew);
   return text;
+}
+
+// マネージャに渡す控室の顔ぶれ：呼び名と data.to に書く名前、働く場所、チームごとの指示
+function roster(names, room, crew) {
+  const people = names.map((n) => agentOf(crew, n) ?? { id: n, call: n, team: null, room: null });
+  const teams = crew?.teams ?? [];
+  const lines = [];
+  if (room) lines.push(`控室のエージェントはふだんリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`);
+  const plain = people.every((m) => !m.team && m.call === m.id && (!m.room || m.room === room));
+  if (!plain) {
+    const line = (m, base) => `- ${m.call} → data.to: "${m.id}"${m.room && m.room !== base ? `（${m.room} で働く）` : ""}`;
+    lines.push("人が呼ぶ名前（呼び名）と、仕事の data.to に書く名前は次のとおりです。data.to には右の名前をそのまま書きます。");
+    const mine = people.filter((m) => !m.team);
+    if (mine.length) lines.push(...mine.map((m) => line(m, room)));
+    for (const t of teams) {
+      lines.push("", `### チーム ${t.name}（リポジトリ ${t.room}）`);
+      if (t.manager) lines.push(t.manager, "");
+      const who = people.filter((m) => m.team === t.name);
+      lines.push(...(who.length ? who.map((m) => line(m, t.room)) : ["- （控室の人はいない）"]));
+      lines.push(`このチームの仕事で、誰でもよいときは data.team に "${t.name}" を入れます（そのチームの空いている人が受けます）。依頼にファイルの場所を書くときは、このリポジトリを基準にします。`);
+    }
+    if (teams.length) {
+      lines.push(
+        "",
+        "どのチームの仕事かは、話題・リポジトリ・チームの言葉から見分けます。決められないときは data.team を付けずに取り次ぎます。",
+        "同じ名前の人が二人いて、チームを言わずに名前だけで呼ばれ、話の流れからも決められないときは、取り次がずに、その発言に about して「どちらの〇〇か決まっていません」と短い text を置きます。",
+      );
+    }
+  }
+  return lines.length ? `\n\n## 控室の顔ぶれ\n${lines.join("\n")}` : "";
 }
 
 // 前置き（system prompt・道具）は役ごとに固定し、変わるもの（名前・seq・発言）は指示の側に置く。キャッシュを効かせるため

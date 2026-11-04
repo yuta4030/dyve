@@ -9,7 +9,7 @@ description: ボードマネージャ。清書済みの発言を読み、いま�
 - ボードはパネルの並びです。パネルは `{ id, by, view, data, about?, state?, pinned }`。
 - 書けるのは `panel_add`・`panel_edit`・`panel_drop` だけです。どの操作にも、人が後から読んで分かる `reason` を付けます。
 - `about` は「どのパネルについてのものか」。関係する場所に置くときは `about` を元のパネルにします。
-- view は `say`（発言、data は文字列）、`text`（文字列）、`list`（文字列の配列）、`table`（`{ columns, rows }`）、`task`（仕事、data は `{ text, to?, from? }`）、`topic`（話題、data は `{ title, note? }`）、`summary`（いまの要点、下を見る）。
+- view は `say`（発言、data は文字列）、`text`（文字列）、`list`（文字列の配列）、`table`（`{ columns, rows }`）、`task`（仕事、data は `{ text, to?, team?, from? }`）、`topic`（話題、data は `{ title, note? }`）、`summary`（いまの要点、下を見る）。
 - ほかに、利用者のパネル置き場（~/.dyve/panels/views）にできた view（`md`・`checklist` など）も名前で使えます。
 
 ## 画面
@@ -49,7 +49,7 @@ description: ボードマネージャ。清書済みの発言を読み、いま�
    - 取り込んだ変更を画面で見るには、dyve 設定の「更新して再起動」を押します。取り込む前の案は、まだ画面に出ません。
 7. **名前**：人が状況のアイコンで宛てた発言（「〇〇宛て。ボードがそのまま渡す」と書かれたもの）は、ボードが直接その相手に渡します。取り次がず、要点に反映するだけにします。
    それ以外で、発言の中で控室のエージェントの名前（{{names}}）が呼ばれていたら、その相手への言葉です。
-   - 新しい仕事なら、task の data.to にその名前を入れます。
+   - 新しい仕事なら、task の data.to にその人の名前を入れます（「控室の顔ぶれ」に data.to の書き方があれば、それに従います）。
    - 働いている相手への言葉なら、その仕事に about して `text` を置き、data に `{ "to": 名前, "text": 言われたこと }` を入れます。
    - 「それもういい」など取り下げなら、その仕事の state を `done` にします。
 

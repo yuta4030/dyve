@@ -11,7 +11,7 @@ import { Feeds } from "../src/feeds.js";
 import { ensurePanels } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
-import { loadCrew, readConfig, ensureCrew, namesOf, initialsOf, checkName } from "../src/crew.js";
+import { loadCrew, readConfig, ensureCrew, namesOf, initialsOf, callsOf, teamsOf, checkName } from "../src/crew.js";
 import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT } from "../src/agents.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
@@ -79,7 +79,7 @@ try {
 }
 const DEFAULTS = { port: "4740", data: path.join(HOME, "board.jsonl"), room: process.cwd(), claude: "claude", slots: "3" };
 for (const [k, v] of Object.entries(DEFAULTS)) args[k] ??= conf[k] != null ? String(conf[k]) : v;
-args["task-model"] ??= conf.task?.model;
+// task.model は控室の一人ずつの model より弱いので、ここでは混ぜない（modelOf が順に見る）
 
 // 立て直すときの終了コード。見張り役はこれで落ちた子だけを立て直す
 const RESTART = 75;
@@ -119,6 +119,8 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   } catch (e) {
     die(`設定が読めない：${e.message}`);
   }
+  // 知らせるだけで止めない（名前がぶつかった、など）。画面には出さない
+  for (const w of crew.warnings) process.stderr.write(`注意：${w}\n`);
   const cliNames = args.names ? args.names.split(/[,、]/).map((n) => n.trim()).filter(Boolean) : null;
   if (cliNames && new Set(cliNames).size !== cliNames.length) die("--names に同じ名前が二つある");
   try {
@@ -147,12 +149,12 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   };
   const spawn = claudeSpawner(how), session = claudeSession(how);
   const workDir = path.join(home, "work");
-  const rooms = crew.team.map((a) => a.room).filter(Boolean);
+  const rooms = crew.members.map((a) => a.room).filter(Boolean);
   const merge = ({ board, taskId }) => integrate({ room: how.room, rooms, workDir, board, taskId });
   // ボードを切り替えるたびに、そのボードの起こし係を作り直す（前のボードの会話は止める）
   const wake = (store) => args["no-agents"]
     ? null
-    : new Waker({ store, pause, scribePause, slots: Number(args.slots), spawn, session, integrate: merge, names, initials: initialsOf(crew, names) });
+    : new Waker({ store, pause, scribePause, slots: Number(args.slots), spawn, session, integrate: merge, names, initials: initialsOf(crew, names), calls: callsOf(crew, names), teams: teamsOf(crew, names) });
   // 流し込み係：許可された shell コマンドを部屋で走らせる
   const feed = (store) => new Feeds({ store, room: how.room });
   const desk = new Desk({ file: path.resolve(args.data), wake, feed });

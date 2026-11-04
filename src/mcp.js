@@ -61,6 +61,7 @@ export function boardView(store, waker, { since, about } = {}) {
     live: waker?.status() ?? null,
     names: waker?.names ?? [],
     initials: waker?.initials ?? {},
+    calls: waker?.calls ?? {},
   };
 }
 

@@ -17,7 +17,7 @@ export { NAMES };
 export class Waker {
   // session：清書係の会話を開く関数（なければ清書係を置かない）
   // integrate：開発の提案を人が受け入れたら呼ぶ（{ board, taskId } -> { branch, into, commit, cleaned }）
-  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {} }) {
+  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {}, calls = {}, teams = {} }) {
     this.store = store;
     this.integrate = integrate;
     this.board = store.file ? path.basename(store.file, ".jsonl") : "board";
@@ -35,6 +35,8 @@ export class Waker {
     this.slots = slots;
     this.names = names;
     this.initials = initials; // 名前 -> 画面のアイコンの頭文字
+    this.calls = calls; // 名前（ログに残る id）-> 呼び名（画面と声）。なければ名前のまま
+    this.teams = teams; // 名前 -> チーム（個人の控室の人は null）
     this.manager = null; // { since, startedAt, handle }
     this.again = false;
     this.timer = null;
@@ -235,12 +237,12 @@ export class Waker {
       if (this.running.size >= this.slots) break;
       if (t.state !== "task" || this.running.has(t.id)) continue;
       if (this.tried.get(t.id) === t.rev || hasAiAnswer(board, t.id)) continue;
-      const name = this._pickName(t.data?.to);
+      const name = this._pickName(t.data?.to, t.data?.team);
       if (!name) continue;
       this.tried.set(t.id, t.rev);
       // data.write が付いた仕事：true は開発（仕事ごとの worktree の中で）、"panels" はパネルの仕事（利用者のパネル置き場で）
       const role = t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
-      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name) });
+      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name)) });
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
       handle.done.then((res) => {
@@ -252,7 +254,7 @@ export class Waker {
           this.store.apply({
             by: "board",
             type: "add",
-            panel: { view: "text", about: t.id, data: `${name} は結果を置かずに終わりました${res?.error ? `（${res.error}）` : ""}` },
+            panel: { view: "text", about: t.id, data: `${this.call(name)} は結果を置かずに終わりました${res?.error ? `（${res.error}）` : ""}` },
             reason: "仕事が落ちたままにならないように",
           });
         }
@@ -287,15 +289,32 @@ export class Waker {
       by: "board",
       type: "add",
       panel: { view: "task", state: "task", about: says.at(-1).id, data: { text: says.map((p) => textOf(p.data)).join("\n"), to: name, direct: true, from: says.map((p) => p.id), ...(after ? { after: after.id } : {}) } },
-      reason: `人が${name}に宛てて話したことを、そのまま${name}に渡す`,
+      reason: `人が${this.call(name)}に宛てて話したことを、そのまま${this.call(name)}に渡す`,
     });
   }
 
-  _pickName(wanted) {
+  call(name) {
+    return this.calls[name] ?? name;
+  }
+
+  // data.to はふつう名前（id）。呼び名や「@チーム」を省いた名前で書かれても、一人に決まればその人にする
+  resolve(to) {
+    if (!to) return null;
+    if (this.names.includes(to)) return to;
+    const hit = this.names.filter((n) => this.call(n) === to);
+    if (hit.length === 1) return hit[0];
+    const bare = this.names.filter((n) => n.split("@")[0] === to);
+    return bare.length === 1 ? bare[0] : null;
+  }
+
+  // team：data.team。そのチームの空いている人に渡す（そのチームの人がいなければ、誰でも）
+  _pickName(wanted, team = null) {
     const busy = new Set([...this.running.values()].map((r) => r.name));
     // 名前を呼ばれた相手が働いているなら、空くまで待つ
-    if (wanted && this.names.includes(wanted)) return busy.has(wanted) ? null : wanted;
-    return this.names.find((n) => !busy.has(n));
+    const who = this.resolve(wanted);
+    if (who) return busy.has(who) ? null : who;
+    const mates = team ? this.names.filter((n) => this.teams[n] === team) : [];
+    return (mates.length ? mates : this.names).find((n) => !busy.has(n));
   }
 }
 
@@ -362,7 +381,7 @@ export function managerPrompt(since, board = null, running = []) {
   return lines.join("\n");
 }
 
-export function taskPrompt(board, task, name) {
+export function taskPrompt(board, task, name, call = name) {
   // 元の発言：data.from があればそれ、なければ about の先が発言のとき
   const from = Array.isArray(task.data?.from) ? task.data.from.map((id) => board.get(id)).filter(Boolean) : [];
   const above = task.about ? board.get(task.about) : null;
@@ -372,7 +391,9 @@ export function taskPrompt(board, task, name) {
   const prev = task.data?.after ? board.get(task.data.after) : null;
   const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
   return [
-    `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`,
+    call === name
+      ? `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`
+      : `あなたは控室のタスクエージェント「${call}」（ボードの上の名前は ${name}）です。ボードの仕事 ${task.id} を受け持ちました。`,
     task.data?.direct ? `人があなたに直接話しかけました。言われたことにそのまま応えてください。まず一、二行の短い返事を about: "${task.id}" の text（data は文字列）で置いてください。人のトークに返事として出ます。中身の結果は、そのあとに置きます。` : "",
     task.data?.direct ? `言われたこと：${text}` : `仕事：${text}`,
     prev ? `前にあなたが受け持った仕事（${prev.id}）：${clip(textOf(prev.data), 300)}` : "",

@@ -18,6 +18,7 @@
 - dyve が自前で持つのはボードだけ。エージェントはどれも外の Claude Code で、MCP の口からボードを読み書きする
 - 違いはどのディレクトリで、どの定義を読んで起きるかだけ。清書係は `agents/scribe.md`（起こしっぱなし）、マネージャは `agents/manager.md`、控室は `skills/backroom/SKILL.md`
 - 利用者は `~/.dyve/config.json` と `~/.dyve/agents/<名前>.md`（`src/crew.js`）で、名前・起きる場所・モデル・指示を自分好みにできる。設定は JSON（依存ゼロのため YAML は使わない）。dyve の定義はその下敷きで、利用者の指示は後ろに足す（`mode: "replace"` なら差し替え）。控室の名前は定義に書き込まず `{{names}}` で差し込む
+- チームの設定（`<リポジトリ>/.dyve/config.json`）は個人の設定の `teams` で取り込む。チームの人はログに `名前@チーム` で残し、この名前は変えない。画面と声は呼び名（ぶつかったら「チーム の 名前」）。チームの設定はほかの人が書くので、書ける項目とパス（リポジトリの中だけ）を絞る
 - 型は定義しない。エージェントは汎用なので、流し込んだことをそのまま頼む
 - パネルは view とデータでできている。本体が持つ view は最小限（say・text・list・table・task・summary・json）。拡張は利用者側のパネル置き場（`~/.dyve/panels/views/<名前>.js`）に置き、画面は sandbox の iframe（allow-scripts だけ）で描く。利用者の view はボードの API に触れない
 - データは data に直接、`dyve put`（標準入力）、source の shell コマンドのどれかで流し込む。shell の結果は操作ログに積まず、定義（source）だけをログに持つ
