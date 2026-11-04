@@ -1,5 +1,5 @@
 // エージェントの実体は外の Claude Code。どのディレクトリで、どの定義を読んで起きるかだけが違う
-import { spawn as nodeSpawn, execFileSync } from "node:child_process";
+import { spawn as nodeSpawn, execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,6 +121,32 @@ export function updateApp({ room, app, ref = "HEAD" }) {
   if (git("-C", app, "status", "--porcelain")) throw new Error(`${app} に手を入れた跡がある。片付けてから更新してください`);
   git("-C", app, "checkout", "--detach", commit);
   return { commit, created: false };
+}
+
+// 使う dyve（app）が部屋から切り出したもの（同じリポジトリの worktree）か。
+// npm などで入れた dyve は部屋と関係ないので、部屋のコミットで上書きしない
+export function isAppOf({ room, app }) {
+  const common = (dir) => {
+    try {
+      const out = execFileSync("git", ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      return fs.realpathSync(out);
+    } catch {
+      return null;
+    }
+  };
+  const a = common(app);
+  return a != null && a === common(room);
+}
+
+// claude が動くかを確かめる。動かなければ、どうすればよいかを返す（動けば null）
+export function claudeMissing(cmd, run = spawnSync) {
+  const r = run(cmd, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (!r.error && r.status === 0) return null;
+  return [
+    `Claude Code（${cmd}）が動きません${r.error ? `（${r.error.code || r.error.message}）` : ""}。`,
+    "エージェントは Claude Code で動きます。入れてログインしてから立て直してください：https://docs.claude.com/en/docs/claude-code/setup",
+    "画面だけ試すなら --no-agents を付けます。",
+  ].join("\n");
 }
 
 export function panelsNote(dir) {

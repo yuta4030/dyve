@@ -1,0 +1,50 @@
+name: Release
+
+# main の版（package.json）にまだタグがなければ、v<版> のタグと GitHub Release を作る。
+# リリースの手順は README の「リリース」を参照。版を上げて CHANGELOG を書いた PR をマージすれば、ここが動く。
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read version
+        id: version
+        run: echo "version=$(node scripts/release-notes.js --version)" >> "$GITHUB_OUTPUT"
+      - name: Check tag
+        id: tag
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${{ steps.version.outputs.version }}" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Test
+        if: steps.tag.outputs.exists == 'false'
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.com
+          npm test
+      - name: Tag and release
+        if: steps.tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          node scripts/release-notes.js "$version" > notes.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$version" -m "dyve $version"
+          git push origin "v$version"
+          gh release create "v$version" --title "dyve $version" --notes-file notes.md

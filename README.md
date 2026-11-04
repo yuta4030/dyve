@@ -5,11 +5,23 @@
 
 企画書：https://claude.ai/artifact/1K7uGG7NUQVTWx8FHFjxpb
 
+## 入れる
+
+要るのは Node 20 以上と、入れてログインした [Claude Code](https://docs.claude.com/en/docs/claude-code/setup)（エージェントはどれも Claude Code で動く）。clone もアカウントも要らない。
+
+```sh
+brew install node                        # Node がなければ（Mac）。npm も一緒に入る
+npm i -g github:yuta4030/dyve#v0.1.0     # dyve コマンドを入れる。版はタグで固定する
+```
+
+入れずに試すだけなら `npx github:yuta4030/dyve#v0.1.0 serve`。更新は版を変えて `npm i -g` し直す（版ごとの変更は [CHANGELOG](CHANGELOG.md)）。
+`serve` は最初に Claude Code が動くかを確かめ、動かなければ何をすればよいかを出して止まる（`--no-agents` なら確かめない）。
+
 ## 使い方
 
 ```sh
-node bin/dyve.js serve --room ~/code/myrepo   # ボードを立てる（一つだけ）
-open http://127.0.0.1:4740/                    # 画面
+dyve serve --room ~/code/myrepo   # ボードを立てる（一つだけ）
+open http://127.0.0.1:4740/        # 画面
 ```
 
 - トークの欄に話すか書く。止まって間があくか Enter で発言として置かれる（改行は Shift+Enter）。OS の音声入力（Mac の音声入力、Windows の Win+H）でも、ブラウザが対応していれば「マイク」でも話せる
@@ -33,7 +45,7 @@ open http://127.0.0.1:4740/                    # 画面
 | `--claude` | `claude` | Claude Code のコマンド |
 | `--no-agents` | | エージェントを起こさない（画面だけ） |
 
-`node bin/dyve.js export` で、ボードをそのまま Markdown に書き出す（AI は使わない）。画面の「Markdown に書き出す」も同じ。
+`dyve export` で、ボードをそのまま Markdown に書き出す（AI は使わない）。画面の「Markdown に書き出す」も同じ。
 
 ## パネルを足す（拡張は利用者側で）
 
@@ -43,8 +55,8 @@ open http://127.0.0.1:4740/                    # 画面
 - 利用者の view は sandbox の iframe の中で描く。ボードの API には触れない
 - データの流し込み方：
   - パネルの data に直接（エージェントは MCP で）
-  - `df -h | node bin/dyve.js put p12`：標準入力をそのパネルのデータにする（JSON なら JSON で）
-  - `node bin/dyve.js add --view bars --shell "du -s * | sort -n" --every 60`：shell コマンドの結果を流し込むパネルを置く
+  - `df -h | dyve put p12`：標準入力をそのパネルのデータにする（JSON なら JSON で）
+  - `dyve add --view bars --shell "du -s * | sort -n" --every 60`：shell コマンドの結果を流し込むパネルを置く
   - エージェントが置いた shell コマンドは、人が画面で「実行を許可」を押すまで走らない。AI がコマンドを変えたら許可は外れる
 - どのパネルも「タイルに出す」で、自分のタイルにできる
 
@@ -61,13 +73,13 @@ node ~/.dyve/app/bin/dyve.js serve --room ~/code/dyve  # 使う dyve で、作�
 - 「直して」「作って」と話すと、マネージャが開発の仕事（`data.write: true`）として取り次ぐ
 - 開発の仕事は、部屋のいまの HEAD から切り出した worktree（`~/.dyve/work/<仕事>-<時刻>`）とブランチ（`dyve/<仕事>-<時刻>`）の中で書き、`node --test` を走らせてコミットし、結果を提案として置く。push はしない
 - 取り込むかは人が決める。提案の「受け入れる」を押すと、そのブランチを部屋のいまのブランチにマージコミット（`--no-ff`）で取り込み、作業場とブランチを片付けて、結果をボードに置く。ぶつかったら取りやめて元に戻す。戻したいときは `git revert -m 1 <コミット>`
-- 取り込んだ変更を使っている dyve に反映するには、dyve 設定の「更新して再起動」。`~/.dyve/app` を部屋のいまのコミットに更新して、立て直す（`serve` は見張り役が本体を子として起こしているので、落ちても同じ端末で立ち直る）
+- 取り込んだ変更を使っている dyve に反映するには、dyve 設定の「更新して再起動」。部屋から切り出した dyve のときだけ更新し、npm で入れた dyve は立て直すだけ（部屋のコミットで上書きしない）。`~/.dyve/app` を部屋のいまのコミットに更新して、立て直す（`serve` は見張り役が本体を子として起こしているので、落ちても同じ端末で立ち直る）
 
 `--data` と同じディレクトリの `*.jsonl` が一枚ずつのボードになる。画面の dyve 設定から、新しいボードにしたり（いまのボードの操作ログは残る）、前のボードに切り替えたりできる。切り替えると、前のボードの清書係・マネージャ・控室は止まる。
 
 ## Claude Code のプラグインとして入れる
 
-このリポジトリはそのままマーケットプレイスになっている。
+ボードを立てるのは `dyve serve`。プラグインは、普段使っている Claude Code から、立っているボードを読み書きするためのもの。このリポジトリはそのままマーケットプレイスになっている（公開リポジトリなので、入れるのにログインは要らない）。
 
 ```
 /plugin marketplace add yuta4030/dyve
@@ -114,4 +126,11 @@ Op    { seq, at, by, type: add | edit | drop, panel, reason? }
 npm test
 ```
 
-依存ゼロ（Node 20+ の標準だけ）。テストは外につながず、偽の起こし方で回す。
+依存ゼロ（Node 20+ の標準だけ）。テストは外につながず、偽の起こし方で回す。CI は Linux と macOS、Node 20 と 22 で回す。
+
+## リリース
+
+1. `package.json` と `.claude-plugin/plugin.json` の `version` を上げる（テストがそろっているかを確かめる）
+2. `CHANGELOG.md` に `## [<版>] - <日付>` の節を書く（テストが、いまの版の節があるかを確かめる）
+3. PR をマージする。main の版にまだタグがなければ、CI（`.github/workflows/release.yml`）が `v<版>` のタグと GitHub Release を作る。Release の本文は CHANGELOG のその版の節
+4. README の「入れる」の版を新しいタグに直す
