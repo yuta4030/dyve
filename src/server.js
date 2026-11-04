@@ -16,7 +16,8 @@ const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 // open・create は新しい { store, waker } を返す。前のボードの操作ログはそのまま残る
 // restart：使う dyve を更新して立て直す（{ commit } を返し、そのあと落ちる。立て直すのは見張り役）
 // feeds：流し込み係（shell コマンドの結果）。panels：利用者のパネル置き場（view を配る）
-export function createServer({ store, waker = null, feeds = null, title = "ボード", desk = null, restart = null, panels = null }) {
+// words：辞書。shoot：パネルの絵を撮る（id -> PNG）。meta：動いている dyve の情報
+export function createServer({ store, waker = null, feeds = null, title = "ボード", desk = null, restart = null, panels = null, words = null, shoot = null, meta = null }) {
   const clients = new Set();
   const send = (event, data) => {
     const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -64,6 +65,15 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         return res.end(fs.readFileSync(MANAGE));
       }
       if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
+      if (req.method === "GET" && url.pathname === "/api/meta") return json(200, { ...(meta?.() ?? {}), name: desk?.current() ?? null, board: cur.store.file ?? null, seq: cur.store.board.seq, shoot: !!shoot });
+      if (url.pathname === "/api/words") {
+        if (!words) return json(404, { ok: false, code: "not_found", message: "辞書がない" });
+        if (req.method === "GET") return json(200, { words: words.list() });
+        // 画面から来るのは人の操作
+        const body = await readJson(req);
+        const r = body.action === "drop" ? words.drop({ by: "human", heard: body.heard }) : words.add({ by: "human", heard: body.heard, write: body.write, when: body.when });
+        return json(r.ok ? 200 : 409, r);
+      }
       if (req.method === "GET" && url.pathname === "/api/history") return json(200, cur.store.board.history(url.searchParams.get("id")));
       if (req.method === "GET" && url.pathname === "/api/export.md") {
         res.writeHead(200, {
@@ -109,7 +119,7 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         if (!panels) return json(404, { ok: false, code: "not_found", message: "パネル置き場がない" });
         if (req.method === "GET") {
           const here = {}, all = {};
-          for (const p of cur.store.board.list()) here[p.view] = (here[p.view] || 0) + 1;
+          for (const p of cur.store.board.list()) if (p.view !== "layout") here[p.view] = (here[p.view] || 0) + 1;
           // 絵の見本：いまのボードのコマンドの結果、いまのボードのデータ、新しいボードの順に探す
           const boards = desk?.list() ?? [{ views: here, samples: {} }];
           const samples = {};
@@ -161,9 +171,10 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         }
         const as = url.searchParams.get("as") || "guest";
         const body = await readJson(req);
+        const rpc = { offView, words, shoot };
         const out = Array.isArray(body)
-          ? body.map((m) => handleRpc(cur.store, cur.waker, as, m, { offView })).filter(Boolean)
-          : handleRpc(cur.store, cur.waker, as, body, { offView });
+          ? (await Promise.all(body.map((m) => handleRpc(cur.store, cur.waker, as, m, rpc)))).filter(Boolean)
+          : await handleRpc(cur.store, cur.waker, as, body, rpc);
         if (out == null || (Array.isArray(out) && !out.length)) {
           res.writeHead(202);
           return res.end();

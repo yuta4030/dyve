@@ -130,7 +130,7 @@ function fakeSession() {
   return { sessions, open };
 }
 
-test("清書係：発言を起こしっぱなしの会話に流し込み、最初だけ前の発言を文脈として渡す。マネージャは清書のあと", async () => {
+test("清書係：発言を起こしっぱなしの会話に流し込み、前の発言を文脈として渡す。マネージャは清書のあと", async () => {
   const store = new Store();
   store.apply({ by: "human", type: "add", panel: { view: "say", data: "前の話" } });
   const f = fakeSpawn(), g = fakeSession();
@@ -160,11 +160,11 @@ test("清書係：発言を起こしっぱなしの会話に流し込み、最�
   await tick(10);
   assert.equal(w.status().usage.runs, 2);
   assert.equal(w.status().usage.cacheRead, 80);
-  // 二通目は同じ会話に、文脈なしで
+  // 二通目は同じ会話に。直前の発言は合成に使うので rev 付きで渡す
   store.apply({ by: "human", type: "add", panel: { view: "say", data: "次" } });
   await tick(30);
   assert.equal(g.sessions.filter((x) => x.job.role === "scribe").length, 1);
-  assert.doesNotMatch(g.sessions[0].sent[1], /文脈/);
+  assert.match(g.sessions[0].sent[1], /文脈[\s\S]*（rev \d+）/);
   g.sessions[0].reply();
   await tick(30);
   assert.equal(mgr().length, 1);
