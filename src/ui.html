@@ -49,6 +49,8 @@ a { color: var(--accent); }
 .tile.locked .tile-head { cursor: default; }
 .tile.locked .tile-head .grip { visibility: hidden; }
 .tile.locked .sizer { display: none; }
+/* 最小化したタイル：見出しだけ残す */
+.tile.min .tile-body, .tile.min .sizer, .tile.min .opts { display: none; }
 /* タイルの歯車：奥まった設定 */
 .tile-head [data-ctl="menu"] svg { vertical-align: -2px; }
 .opts { position: absolute; z-index: 5; top: 28px; right: 6px; min-width: 190px; display: flex; flex-direction: column; gap: 6px;
@@ -636,6 +638,12 @@ function render() {
   groups.sort((a, b) => lastOf(a) - lastOf(b));
   main.innerHTML = "";
   if (!groups.length) main.innerHTML = `<p class="empty">${esc(L.emptyResults)}</p>`;
+  // 話題の欄は、空のあいだは出さない。最初に何か置かれたら出す（ほかのタイルは押しのけない）
+  if (S.resultsEmpty !== !groups.length) {
+    const appear = S.resultsEmpty === true && groups.length > 0;
+    S.resultsEmpty = !groups.length;
+    applyLayout(appear ? "results" : null);
+  }
   for (const g of groups.reverse()) {
     const box = document.createElement("div");
     box.className = "group";
@@ -717,7 +725,12 @@ const groupOf = (id) => $$("#board > .group").find((x) => x.dataset.key === id);
 const grid = $("#grid");
 const LAYOUT = keep("layout2", null) || {};
 const tileOf = (k) => $(`.tile[data-tile="${CSS.escape(k)}"]`);
-const posOf = (k) => ({ ...(HOME[k] || { x: 1, y: 1, w: 8, h: 8 }), ...LAYOUT.pos?.[k] });
+// 置き場所：覚えたもの（baseOf）。最小化したタイルは見出しの高さだけを占める（posOf）。覚えるのはいつも元の大きさ
+const baseOf = (k) => ({ ...(HOME[k] || { x: 1, y: 1, w: 8, h: 8 }), ...LAYOUT.pos?.[k] });
+const isMin = (k) => (LAYOUT.min || []).includes(k);
+const minRows = () => { const d = DENSITY[dens()]; return Math.max(1, Math.ceil((32 + d.gap) / (d.row + d.gap))); };
+const posOf = (k) => (isMin(k) ? { ...baseOf(k), h: minRows() } : baseOf(k));
+const keepSize = (k, p) => (isMin(k) ? { ...p, h: baseOf(k).h } : p);
 // タイル：決まった六つと、利用者がパネルから出したもの（"panel:<id>"）
 const allTiles = () => [...TILES, ...(LAYOUT.extra || [])];
 const isPanelTile = (k) => k.startsWith("panel:");
@@ -728,10 +741,12 @@ const saveLayout = () => put("layout2", LAYOUT);
 const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 // moved を優先して置き、ほかは重ならないところまで下へずらす（すき間はそのまま残す）
-function settle(pos, moved) {
+// last：いま現れたタイル。いちばん後に置き、すでに出ているタイルを押しのけずに自分がずれる
+function settle(pos, moved, last = null) {
   const shown = allTiles().filter((k) => !tileOf(k).hidden);
   const fixed = shown.filter((k) => isLocked(k));
-  const order = [...fixed, ...(moved && !fixed.includes(moved) ? [moved] : []), ...shown.filter((k) => !fixed.includes(k) && k !== moved).sort((a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x)];
+  const tail = last && shown.includes(last) && !fixed.includes(last) && last !== moved ? [last] : [];
+  const order = [...fixed, ...(moved && !fixed.includes(moved) ? [moved] : []), ...shown.filter((k) => !fixed.includes(k) && k !== moved && !tail.includes(k)).sort((a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x), ...tail];
   const placed = [];
   for (const k of order) {
     const p = pos[k];
@@ -747,6 +762,14 @@ function place(pos) {
     t.style.setProperty("--h", String(p.h));
     $(".tile-body", t).style.zoom = String(zoomOf(k));
     t.classList.toggle("locked", isLocked(k));
+    t.classList.toggle("min", isMin(k));
+    const mb = $('[data-ctl="min"]', t);
+    if (mb) {
+      mb.setAttribute("aria-pressed", String(isMin(k)));
+      mb.title = isMin(k) ? L.restore : L.minimize;
+      mb.setAttribute("aria-label", mb.title);
+      mb.textContent = isMin(k) ? "▢" : "–";
+    }
     $(".zoom", t).value = String(Math.round(zoomOf(k) * 100));
     const lk = $('[data-ctl="lock"]', t);
     lk.setAttribute("aria-pressed", String(isLocked(k)));
@@ -755,7 +778,9 @@ function place(pos) {
     for (const b of $$('[data-ctl="smaller"], [data-ctl="larger"], .zoom', t)) b.disabled = isLocked(k);
   }
 }
-function applyLayout() {
+// 閉じたタイル：人が閉じたもの（dyve 設定は閉じられない）。空のあいだの話題の欄は閉じたことにしない
+const userHidden = (k) => k !== "tools" && (LAYOUT.hidden || []).includes(k);
+function applyLayout(appear = null) {
   const d = DENSITY[dens()];
   grid.style.setProperty("--cols", String(dens()));
   grid.style.setProperty("--row", `${d.row}px`);
@@ -763,10 +788,10 @@ function applyLayout() {
   // パネルから出したタイルを作る・消す
   for (const k of LAYOUT.extra || []) if (!tileOf(k)) setupTile(k);
   for (const t of $$(".tile", grid)) if (isPanelTile(t.dataset.tile) && !(LAYOUT.extra || []).includes(t.dataset.tile)) t.remove();
-  for (const k of TILES) tileOf(k).hidden = (LAYOUT.hidden || []).includes(k) && k !== "tools";
+  for (const k of TILES) tileOf(k).hidden = userHidden(k) || (k === "results" && S.resultsEmpty !== false);
   const pos = Object.fromEntries(allTiles().map((k) => [k, posOf(k)]));
-  place(settle(pos, null));
-  const closed = TILES.filter((k) => tileOf(k).hidden);
+  place(settle(pos, null, appear));
+  const closed = TILES.filter(userHidden);
   $("#closed").innerHTML = closed.length ? `<span>${esc(L.closed)}</span>` + closed.map((k) => `<button data-reopen="${k}">${esc(L.reopen(L.tile[k]))}</button>`).join("") : "";
   $("#density").value = String(dens());
 }
@@ -775,7 +800,7 @@ function setDensity(next) {
   const r = next / dens();
   if (r === 1) return;
   const scale = (p) => ({ x: Math.max(1, Math.round((p.x - 1) * r) + 1), y: Math.max(1, Math.round((p.y - 1) * r) + 1), w: Math.max(2, Math.round(p.w * r)), h: Math.max(2, Math.round(p.h * r)) });
-  LAYOUT.pos = Object.fromEntries(allTiles().map((k) => [k, scale(posOf(k))]));
+  LAYOUT.pos = Object.fromEntries(allTiles().map((k) => [k, scale(baseOf(k))]));
   LAYOUT.density = next;
   saveLayout();
   applyLayout();
@@ -815,7 +840,7 @@ function drag(e, k, handle, step) {
     handle.removeEventListener("pointermove", move);
     grid.classList.remove("editing");
     tileOf(k).classList.remove("dragging");
-    LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, last[x]]));
+    LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, keepSize(x, last[x])]));
     saveLayout();
   }, { once: true });
 }
@@ -835,6 +860,7 @@ function setupTile(k) {
   head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k])}</h2><span class="badge"></span>
     <span class="ctl">
       <span class="lockmark" title="${esc(L.locked)}" aria-label="${esc(L.locked)}">${ICON.pin}</span>
+      <button class="icon" data-ctl="min" aria-pressed="false">–</button>
       <button class="icon" data-ctl="menu" aria-haspopup="true" aria-expanded="false" title="${esc(L.options)}" aria-label="${esc(L.options)}">${ICON.gear}</button>
       ${k === "tools" ? "" : `<button class="icon" data-ctl="close" title="${esc(L.close)}" aria-label="${esc(L.close)}">${ICON.drop}</button>`}
     </span>`;
@@ -878,6 +904,10 @@ function setupTile(k) {
       LAYOUT.extra = (LAYOUT.extra || []).filter((x) => x !== k);
     } else if (c === "close") {
       LAYOUT.hidden = [...new Set([...(LAYOUT.hidden || []), k])];
+    } else if (c === "min") {
+      const set = new Set(LAYOUT.min || []);
+      if (set.has(k)) set.delete(k); else set.add(k);
+      LAYOUT.min = [...set];
     } else if (c === "lock") {
       const set = new Set(LAYOUT.locked || []);
       if (set.has(k)) set.delete(k); else set.add(k);
