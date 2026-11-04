@@ -170,11 +170,26 @@ dv-panel:hover > .meta .tools, dv-panel:focus-within > .meta .tools { opacity: 1
 @media (hover: none) { dv-panel .meta .tools { opacity: 1; } }
 dv-panel .kids { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 dv-panel .kids:empty { display: none; }
-/* 話題の中のパネルは自由配置：見出しをつまんで動かす。置き場所は見る人のブラウザに覚える */
-dv-panel .kids.free { display: block; position: relative; min-height: 40px; }
-.kids.free > dv-panel { position: absolute; width: min(360px, 100%); min-width: 160px; resize: both; overflow: auto; }
-.kids.free > dv-panel > .meta { cursor: grab; touch-action: none; }
-.kids.free > dv-panel.dragging { z-index: 2; cursor: grabbing; box-shadow: 0 4px 16px rgb(0 0 0 / .15); }
+/* 話題の中もタイルと同じます目：見出しをつまんで好きな場所へ、右下の角で大きさ。重なったら動かした方を優先して下へずらす。
+   大きさを決めていないパネルは中身の高さだけ占める。置き場所は見る人のブラウザに覚える */
+dv-panel .kids.free { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: var(--row); gap: var(--gap); }
+dv-panel .kids.free.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) / -2); }
+.kids.free > .cell { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.kids.free > .cell.auto { align-self: start; }
+.kids.free > .cell > dv-panel { flex: 1; min-height: 0; overflow: auto; }
+.kids.free > .cell.auto > dv-panel { flex: none; overflow: visible; }
+.kids.free > .cell > dv-panel > .meta { cursor: grab; touch-action: none; user-select: none; }
+.kids.free > .cell.dragging { z-index: 2; opacity: .6; outline: 2px dashed var(--accent); outline-offset: 1px; border-radius: var(--radius); }
+.kids.free > .cell > .sizer { opacity: 0; transition: opacity .15s; }
+.kids.free > .cell:hover > .sizer { opacity: .5; }
+.kids.free > .cell > .sizer:hover { opacity: 1; }
+@media (hover: none) { .kids.free > .cell > .sizer { opacity: .5; } }
+.kids.free > .cell.min > .sizer { display: none; }
+@media (max-width: 760px) {
+  dv-panel .kids.free { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
+  .kids.free > .cell { grid-column: 1 / -1 !important; grid-row: auto !important; }
+  .kids.free > .cell > .sizer { display: none; }
+}
 dv-panel dv-panel { background: color-mix(in srgb, var(--card) 70%, var(--bg)); }
 dv-panel.human { border-left: 3px solid var(--ink); }
 dv-panel.pinned { box-shadow: inset 0 0 0 1px var(--ink); }
@@ -329,7 +344,7 @@ const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catc
 S.seen = {};
 const SIZES = keep("sizes", {});
 const MIN = new Set(keep("min", [])); // 最小化したパネルの id
-const POS = keep("pos", {}); // 話題の中のパネルの置き場所：id -> [x, y]（px）
+const TPOS = keep("tpos", {}); // 話題の中のパネルの置き場所：id -> { x, y, w, h? }（ます目。h がなければ中身の高さ）
 // 見た印はボードごとに覚える（id はボードごとに p1 から振られるため）
 const saveSeen = () => put(`seen:${S.name || ""}`, S.seen);
 const isPerson = (by) => by === "human";
@@ -489,7 +504,7 @@ function panelEl(p, kids) {
     <span class="tools">
       ${edited ? `<button class="icon" data-act="orig">${L.orig}</button>` : ""}
       ${SIZES[p.id] ? `<button class="icon" data-act="unsize">${L.resetSize}</button>` : ""}
-      ${p.view === "topic" && kids(p.id).some((k) => POS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
+      ${p.view === "topic" && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
       ${done && !el.classList.contains("folded") ? `<button class="icon" data-act="fold">${L.unfold}</button>` : ""}
       ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
       ${p.view !== "say" && !(LAYOUT.extra || []).includes(`panel:${p.id}`) ? `<button class="icon" data-act="tile">${L.toTile}</button>` : ""}
@@ -517,37 +532,90 @@ function panelEl(p, kids) {
   box.className = p.view === "topic" ? "kids free" : "kids";
   for (const k of kids(p.id)) {
     const c = panelEl(k, kids);
-    if (p.view === "topic") {
-      const sz = SIZES[k.id];
-      if (sz) Object.assign(c.style, { width: `${sz[0]}px`, height: `${sz[1]}px` });
-      FREE.observe(c);
-    }
-    box.append(c);
+    if (p.view !== "topic") { box.append(c); continue; }
+    // 話題の中はます目の一つ分（cell）に入れ、右下に大きさの角を付ける
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.dataset.id = k.id;
+    const sizer = document.createElement("div");
+    sizer.className = "sizer";
+    sizer.title = L.size;
+    cell.append(c, sizer);
+    box.append(cell);
+    FREE.observe(c);
   }
   el.append(box);
   return el;
 }
 
-// 話題の中の自由配置：置き場所のあるものはそこへ、まだないものは下へ順に積む。中身の高さが変わったら置き直す
-function layoutFree(box) {
-  let bottom = 0;
-  const rest = [];
-  for (const el of box.children) {
-    const at = POS[el.dataset.id];
-    if (!at) { rest.push(el); continue; }
-    Object.assign(el.style, { left: `${at[0]}px`, top: `${at[1]}px` });
-    bottom = Math.max(bottom, at[1] + el.offsetHeight);
-  }
-  let y = bottom ? bottom + 8 : 0;
-  for (const el of rest) {
-    Object.assign(el.style, { left: "0px", top: `${y}px` });
-    y += el.offsetHeight + 8;
-  }
-  box.style.height = `${Math.max(bottom, y - 8, 0)}px`;
+// ── 話題の中のます目：タイルと同じ決まりで並べる ──
+// 置き場所のあるものはそこへ（重なったら下へずらす）、まだないものはその下の空いたところへ順に詰める
+const cellsIn = (box) => [...box.children].filter((c) => c.matches(".cell"));
+function freeGrid(box) {
+  const cs = getComputedStyle(box);
+  return { cols: cs.gridTemplateColumns.split(" ").length, rowH: parseFloat(cs.gridAutoRows) || 44, gap: parseFloat(cs.rowGap) || 0 };
 }
+// 覚えた置き場所を当て、大きさを決めていないものは中身の高さを測ってます目に直す（幅を先に当ててから測る）
+function freePos(box, g) {
+  const colW = (box.clientWidth - g.gap * (g.cols - 1)) / g.cols;
+  const defW = clamp(Math.round((360 + g.gap) / (colW + g.gap)), 2, g.cols);
+  const pos = {};
+  for (const c of cellsIn(box)) {
+    const id = c.dataset.id, t = TPOS[id];
+    const w = clamp(t?.w || defW, 1, g.cols);
+    pos[id] = { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: t?.h || 1, auto: !t?.h || MIN.has(id), placed: !!t };
+    c.classList.toggle("auto", pos[id].auto);
+    c.style.gridColumn = `${pos[id].x} / span ${w}`;
+  }
+  for (const c of cellsIn(box)) {
+    const p = pos[c.dataset.id];
+    if (p.auto) p.h = Math.max(1, Math.ceil((c.offsetHeight + g.gap) / (g.rowH + g.gap)));
+  }
+  return pos;
+}
+// moved を優先し、置き場所のあるものを重ならないように下へずらす。まだないものは、その下で左上から空いたところへ
+function arrange(pos, cols, moved = null) {
+  const keys = Object.keys(pos);
+  const set = keys.filter((k) => pos[k].placed || k === moved);
+  stack(pos, [...(moved ? [moved] : []), ...set.filter((k) => k !== moved).sort(byPlace(pos))]);
+  const y0 = Math.max(1, ...set.map((k) => pos[k].y + pos[k].h));
+  const done = [...set];
+  for (const k of keys.filter((k) => !set.includes(k))) {
+    const p = pos[k];
+    find: for (let y = y0; ; y++) for (let x = 1; x + p.w <= cols + 1; x++) {
+      if (!done.some((o) => overlap({ ...p, x, y }, pos[o]))) { Object.assign(p, { x, y }); break find; }
+    }
+    done.push(k);
+  }
+  return pos;
+}
+function placeFree(box, pos) {
+  for (const c of cellsIn(box)) {
+    const p = pos[c.dataset.id];
+    if (!p) continue;
+    c.classList.toggle("auto", p.auto);
+    c.classList.toggle("min", MIN.has(c.dataset.id));
+    Object.assign(c.style, { gridColumn: `${p.x} / span ${p.w}`, gridRow: `${p.y} / span ${p.h}` });
+  }
+  box._pos = pos;
+}
+// 中身の高さが変わったら置き直す。畳まれて見えていない話題は測れないので、見えたときに置く
+function layoutFree(box) {
+  if (!box.isConnected || !box.offsetParent) return;
+  const g = freeGrid(box);
+  if (g.cols < 2) return;
+  placeFree(box, arrange(freePos(box, g), g.cols));
+}
+const relayoutFree = () => { for (const b of $$(".kids.free")) layoutFree(b); };
 const FREE = new ResizeObserver((es) => {
-  for (const box of new Set(es.map((e) => e.target.parentElement).filter((b) => b?.matches(".kids.free")))) layoutFree(box);
+  for (const box of new Set(es.map((e) => e.target.closest(".kids.free")).filter(Boolean))) layoutFree(box);
 });
+// ます目の上の位置（話題の中）。文字の大きさ（zoom）が掛かっていても、見えている大きさで測る
+const freeAt = (box, g) => (cx, cy) => {
+  const r = box.getBoundingClientRect(), s = r.width / (box.clientWidth || r.width) || 1;
+  const colW = (box.clientWidth - g.gap * (g.cols - 1)) / g.cols;
+  return { x: Math.floor((cx - r.left) / ((colW + g.gap) * s)) + 1, y: Math.floor((cy - r.top) / ((g.rowH + g.gap) * s)) + 1 };
+};
 
 // パネルを about でたどれる形にする（並びは追加順）
 function tree() {
@@ -748,7 +816,10 @@ function settle(pos, moved, last = null) {
   const shown = allTiles().filter((k) => !tileOf(k).hidden);
   const fixed = shown.filter((k) => isLocked(k));
   const tail = last && shown.includes(last) && !fixed.includes(last) && last !== moved ? [last] : [];
-  const order = [...fixed, ...(moved && !fixed.includes(moved) ? [moved] : []), ...shown.filter((k) => !fixed.includes(k) && k !== moved && !tail.includes(k)).sort((a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x), ...tail];
+  return stack(pos, [...fixed, ...(moved && !fixed.includes(moved) ? [moved] : []), ...shown.filter((k) => !fixed.includes(k) && k !== moved && !tail.includes(k)).sort(byPlace(pos)), ...tail]);
+}
+// order の順に置き、先に置いたものと重なったら下へずらす（タイルと話題の中で共通）
+function stack(pos, order) {
   const placed = [];
   for (const k of order) {
     const p = pos[k];
@@ -757,6 +828,7 @@ function settle(pos, moved, last = null) {
   }
   return pos;
 }
+const byPlace = (pos) => (a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x;
 function place(pos) {
   for (const k of allTiles()) {
     const p = pos[k], t = tileOf(k);
@@ -805,7 +877,14 @@ function setDensity(next) {
   LAYOUT.pos = Object.fromEntries(allTiles().map((k) => [k, scale(baseOf(k))]));
   LAYOUT.density = next;
   saveLayout();
+  // 話題の中も同じ割合で（大きさを決めていないものの高さは測り直す）
+  for (const [id, t] of Object.entries(TPOS)) {
+    const s = scale({ ...t, h: t.h || 2 });
+    TPOS[id] = { x: s.x, y: s.y, w: s.w, ...(t.h ? { h: s.h } : {}) };
+  }
+  put("tpos", TPOS);
   applyLayout();
+  relayoutFree();
 }
 // ます目の大きさ（いまの幅で測る）
 function cells() {
@@ -819,32 +898,51 @@ function cells() {
     y: Math.floor((cy - r.top - padT + grid.scrollTop) / (rowH + gap)) + 1,
   }) };
 }
-// つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）
-function drag(e, k, handle, step) {
+// つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）。タイルと話題の中で共通
+// 4px 動くまでは動かしたことにしない（見出しを押しただけのときは、ます目も出さない）
+function dragCells(e, { handle, k, start, at, step, arrange, place, onStart, onEnd }) {
   e.preventDefault();
   handle.setPointerCapture(e.pointerId);
-  const c = cells();
-  if (c.cols === 1) return;
-  const start = Object.fromEntries(allTiles().map((x) => [x, posOf(x)]));
-  const p0 = start[k], at0 = c.at(e.clientX, e.clientY);
-  let last = start;
-  grid.classList.add("editing");
-  tileOf(k).classList.add("dragging");
+  const p0 = start[k], a0 = at(e.clientX, e.clientY), px = e.clientX, py = e.clientY;
+  let last = start, moved = false;
   const move = (ev) => {
-    const at = c.at(ev.clientX, ev.clientY);
-    const pos = Object.fromEntries(allTiles().map((x) => [x, { ...start[x] }]));
-    pos[k] = step(p0, at.x - at0.x, at.y - at0.y);
-    last = settle(pos, k);
+    if (!moved) {
+      if (Math.hypot(ev.clientX - px, ev.clientY - py) < 4) return;
+      moved = true;
+      onStart();
+    }
+    const a = at(ev.clientX, ev.clientY);
+    const pos = Object.fromEntries(Object.entries(start).map(([x, p]) => [x, { ...p }]));
+    pos[k] = step(p0, a.x - a0.x, a.y - a0.y);
+    last = arrange(pos, k);
     place(last);
   };
-  handle.addEventListener("pointermove", move);
-  handle.addEventListener("pointerup", () => {
+  const up = () => {
     handle.removeEventListener("pointermove", move);
-    grid.classList.remove("editing");
-    tileOf(k).classList.remove("dragging");
-    LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, keepSize(x, last[x])]));
-    saveLayout();
-  }, { once: true });
+    handle.removeEventListener("pointerup", up);
+    handle.removeEventListener("pointercancel", up);
+    onEnd(last, moved);
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+  handle.addEventListener("pointercancel", up);
+}
+function drag(e, k, handle, step) {
+  const c = cells();
+  if (c.cols === 1) return;
+  dragCells(e, {
+    handle, k, step, at: c.at, place,
+    start: Object.fromEntries(allTiles().map((x) => [x, posOf(x)])),
+    arrange: (pos, m) => settle(pos, m),
+    onStart: () => { grid.classList.add("editing"); tileOf(k).classList.add("dragging"); },
+    onEnd: (last, moved) => {
+      grid.classList.remove("editing");
+      tileOf(k).classList.remove("dragging");
+      if (!moved) return;
+      LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, keepSize(x, last[x])]));
+      saveLayout();
+    },
+  });
 }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 function setupTile(k) {
@@ -966,7 +1064,7 @@ applyLayout();
 
 // 話題の欄のパネルの角をつまんで離したら、変わった大きさを覚える
 grid.addEventListener("pointerdown", (e) => {
-  const el = e.target.closest(".items > dv-panel, .kids.free > dv-panel");
+  const el = e.target.closest(".items > dv-panel");
   if (!el) return;
   const w = el.offsetWidth, h = el.offsetHeight;
   addEventListener("pointerup", () => {
@@ -977,37 +1075,37 @@ grid.addEventListener("pointerdown", (e) => {
   }, { once: true });
 });
 
-// 話題の中のパネルを見出しでつまんで動かす。動かしたあとの click は捨てる（畳み・印の解除が走らないように）
+// 話題の中のパネル：見出しでつまんで動かし、右下の角で大きさを変える（タイルと同じ）。動かしたあとの click は捨てる（畳み・印の解除が走らないように）
 let dragged = false;
 grid.addEventListener("pointerdown", (e) => {
-  const head = e.target.closest(".kids.free > dv-panel > .meta");
-  if (!head || e.button !== 0 || e.target.closest("button, a, input, select, summary")) return;
-  const el = head.parentElement, box = el.parentElement;
-  const x0 = el.offsetLeft, y0 = el.offsetTop, px = e.clientX, py = e.clientY;
-  let moved = false;
-  head.setPointerCapture(e.pointerId);
-  const move = (ev) => {
-    const dx = ev.clientX - px, dy = ev.clientY - py;
-    if (!moved && Math.hypot(dx, dy) < 4) return;
-    moved = true;
-    el.classList.add("dragging");
-    el.style.left = `${clamp(x0 + dx, 0, Math.max(0, box.clientWidth - el.offsetWidth))}px`;
-    el.style.top = `${Math.max(0, y0 + dy)}px`;
-  };
-  const up = () => {
-    head.removeEventListener("pointermove", move);
-    head.removeEventListener("pointerup", up);
-    head.removeEventListener("pointercancel", up);
-    el.classList.remove("dragging");
-    if (!moved) return;
-    dragged = true;
-    POS[el.dataset.id] = [el.offsetLeft, el.offsetTop];
-    put("pos", POS);
-    layoutFree(box);
-  };
-  head.addEventListener("pointermove", move);
-  head.addEventListener("pointerup", up);
-  head.addEventListener("pointercancel", up);
+  const head = e.target.closest(".kids.free > .cell > dv-panel > .meta");
+  const sizer = e.target.closest(".kids.free > .cell > .sizer");
+  if ((!head && !sizer) || e.button !== 0) return;
+  if (head && e.target.closest("button, a, input, select, summary")) return;
+  const handle = head || sizer, cell = handle.closest(".cell"), box = cell.parentElement, k = cell.dataset.id;
+  const g = freeGrid(box);
+  if (g.cols < 2 || !box._pos?.[k]) return;
+  dragCells(e, {
+    handle, k,
+    start: Object.fromEntries(Object.entries(box._pos).map(([x, p]) => [x, { ...p, placed: true }])),
+    at: freeAt(box, g),
+    step: head
+      ? (p, dx, dy) => ({ ...p, x: clamp(p.x + dx, 1, g.cols + 1 - p.w), y: Math.max(1, p.y + dy) })
+      : (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, g.cols + 1 - p.x), h: clamp(p.h + dy, 2, 400), auto: false }),
+    arrange: (pos, m) => arrange(pos, g.cols, m),
+    place: (pos) => placeFree(box, pos),
+    onStart: () => { box.classList.add("editing"); cell.classList.add("dragging"); },
+    onEnd: (last, moved) => {
+      box.classList.remove("editing");
+      cell.classList.remove("dragging");
+      if (!moved) return;
+      dragged = true;
+      // 動かしたら、話題の中の全部の置き場所を覚える（大きさを決めたものだけ高さも）
+      for (const [id, p] of Object.entries(last)) TPOS[id] = { x: p.x, y: p.y, w: p.w, ...(p.auto ? {} : { h: p.h }) };
+      put("tpos", TPOS);
+      layoutFree(box);
+    },
+  });
 });
 grid.addEventListener("click", (e) => { if (dragged) { dragged = false; e.stopPropagation(); e.preventDefault(); } }, true);
 
@@ -1063,7 +1161,7 @@ grid.addEventListener("click", async (e) => {
   if (!act && el.classList.contains("folded")) { S.unfold.add(p.id); return render(); }
   if (act === "unsize") { delete SIZES[p.id]; put("sizes", SIZES); return render(); }
   if (act === "min") { if (MIN.has(p.id)) MIN.delete(p.id); else MIN.add(p.id); put("min", [...MIN]); return render(); }
-  if (act === "unpos") { for (const k of S.panels) if (k.about === p.id) delete POS[k.id]; put("pos", POS); return render(); }
+  if (act === "unpos") { for (const k of S.panels) if (k.about === p.id) delete TPOS[k.id]; put("tpos", TPOS); return render(); }
   if (act === "pin") return op("edit", { id: p.id, pinned: !p.pinned });
   if (act === "accept") return op("edit", { id: p.id, state: "done" });
   if (act === "drop") { if (confirm(L.dropAsk)) op("drop", { id: p.id }); return; }
