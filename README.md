@@ -11,10 +11,10 @@
 
 ```sh
 brew install node                        # Node がなければ（Mac）。npm も一緒に入る
-npm i -g github:yuta4030/dyve#v0.1.0     # dyve コマンドを入れる。版はタグで固定する
+npm i -g github:yuta4030/dyve#v0.3.0     # dyve コマンドを入れる。版はタグで固定する
 ```
 
-入れずに試すだけなら `npx github:yuta4030/dyve#v0.1.0 serve`。更新は版を変えて `npm i -g` し直す（版ごとの変更は [CHANGELOG](CHANGELOG.md)）。
+入れずに試すだけなら `npx github:yuta4030/dyve#v0.3.0 serve`。更新は版を変えて `npm i -g` し直す（版ごとの変更は [CHANGELOG](CHANGELOG.md)）。
 `serve` は最初に Claude Code が動くかを確かめ、動かなければ何をすればよいかを出して止まる（`--no-agents` なら確かめない）。
 
 ## 使い方
