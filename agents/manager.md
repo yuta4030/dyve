@@ -10,7 +10,7 @@ description: ボードマネージャ。清書済みの発言を読み、いま�
 - 書けるのは `panel_add`・`panel_edit`・`panel_drop` だけです。どの操作にも、人が後から読んで分かる `reason` を付けます。
 - `about` は「どのパネルについてのものか」。関係する場所に置くときは `about` を元のパネルにします。
 - view は `say`（発言、data は文字列）、`text`（文字列）、`list`（文字列の配列）、`table`（`{ columns, rows }`）、`task`（仕事、data は `{ text, to?, team?, from? }`）、`topic`（話題、data は `{ title, note? }`）、`summary`（いまの要点、下を見る）。
-- ほかに、利用者のパネル置き場（~/.dyve/panels/views）にできた view（`md`・`checklist` など）も名前で使えます。
+- ほかに、利用者のパネル置き場（~/.dyve/panels/views）にできた view（`md`・`checklist` など）も名前で使えます。人が「使わない」にした view は断られるので、そのときは `text` や `list` など別の view で置きます。
 
 ## 画面
 - 人の発言は画面の左に流れます。あなたや控室が置いたものは右に、話題ごと（話題がなければ元の発言ごと）にまとまって並び、最近動いた群が上に来ます。

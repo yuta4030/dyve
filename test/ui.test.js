@@ -49,3 +49,18 @@ test("親のない仕事の結果は仕事の下のまま。about の先がな�
   assert.equal(shownParent({ id: "x", view: "text", about: "gone" }, board()), null);
   assert.equal(shownParent(topic, board(topic)), null);
 });
+
+test("使わない view のパネルは隠す。人の判断待ちと、下に何か付いているものは隠さない", () => {
+  const code = html.match(/^function shownPanels\([\s\S]*?^}$/m)[0];
+  const shownPanels = new Function(`${code}; return shownPanels;`)();
+  const plain = { id: "a", view: "bars" }, waiting = { id: "b", view: "bars" }, parent = { id: "c", view: "bars" };
+  const kid = { id: "d", view: "text", about: "c" }, other = { id: "e", view: "text" };
+  const out = shownPanels([plain, waiting, parent, kid, other], { b: "waiting" }, new Set(["bars"]));
+  assert.deepEqual(out.map((p) => p.id), ["b", "c", "d", "e"]);
+});
+
+test("管理のページも外のものを読まない", () => {
+  const manage = fs.readFileSync(new URL("../src/manage.html", import.meta.url), "utf8");
+  assert.doesNotMatch(manage, /(src|href)="https?:/);
+  assert.doesNotMatch(html, /id="boards"|boardPick/);
+});

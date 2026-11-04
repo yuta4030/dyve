@@ -154,7 +154,7 @@ dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #tools .ib { display: inline-grid; place-items: center; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 8px;
              border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; }
 #tools .ib:hover { border-color: var(--mute); }
-#tools .pick { display: inline-flex; align-items: center; gap: 4px; color: var(--mute); }
+#tools .ib[hidden] { display: none; }
 #tools select { font: inherit; font-size: 12px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; max-width: 14em; }
 #tools .closed { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: var(--mute); font-size: 12px; }
 #tools .closed button { min-height: 24px; padding: 0 8px; font-size: 12px; }
@@ -269,11 +269,12 @@ dv-panel.waiting { border: 3px double var(--warn); }
     <div class="tile-body">
       <div id="tools">
         <div class="acts">
+          <a class="ib" id="boardsLink" href="/boards" target="dyve-manage"></a>
+          <a class="ib" id="panelsLink" href="/panels" target="dyve-manage"></a>
           <button class="ib" id="seenAll"></button>
           <a class="ib" id="export" href="/api/export.md"></a>
           <button class="ib" id="newBoard"></button>
           <button class="ib" id="restart"></button>
-          <label class="pick" id="boardPick"><span></span><select id="boards"></select></label>
         </div>
         <div id="toolsMore">
           <div class="row"><span id="densityLabel"></span><select id="density"></select></div>
@@ -304,7 +305,7 @@ const L = {
   emptySummary: "話しはじめると、マネージャがここに要点をまとめます。",
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
   newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
-  boards: "ボードを切り替える", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
+  boards: "ボードの管理（切り替え・呼び名・しまう）", boardsNow: (n) => `ボードの管理（いま：${n}）`, panels: "パネルの管理（使う・使わない・既定の大きさ・消す）", offView: "この種類のパネルは「使わない」にしています（パネルの管理で戻せます）", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
   closed: "閉じたもの：", reopen: (n) => `＋ ${n}`,
   restart: "更新して再起動（取り込んだ変更を使っている dyve に反映する）", restartAsk: "使っている dyve を更新して立て直しますか（走っているエージェントは止まります）",
   restarting: "立て直しています…",
@@ -337,7 +338,7 @@ const TILES = ["talk", "summary", "status", "quota", "tools"];
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
   talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
-  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 3 },
+  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 },
 };
 // HOME は「ふつう」（24 列）のます目で書く。細かさを変えたら置き場所も同じ割合で直す
 const DENSITY = { 12: { row: 44, gap: 10 }, 24: { row: 18, gap: 8 }, 48: { row: 7, gap: 5 } };
@@ -359,6 +360,7 @@ const ICON = {
   reset: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 17.5a3.5 3.5 0 1 0 1-2.5M14 13v2.5h2.5"/></svg>',
   boards: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
   restart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
+  panels: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="11" width="8" height="10" rx="1"/><rect x="3" y="14" width="8" height="7" rx="1"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
 const S = { to: null, panels: [], marks: {}, live: null, names: [], initials: {}, calls: {}, title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
@@ -380,6 +382,8 @@ const textOf = (d) => typeof d === "string" ? d : d?.text ?? JSON.stringify(d);
 // アイコン：ここだけで描く。絵に差し替えるときもここを直せば、状況・トーク・宛先がそろって変わる
 const iniOf = (key) => S.initials?.[key] || L.initial[key] || [...String(key)][0] || "?";
 const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria-hidden="true">${esc(iniOf(key))}</span>`;
+// 既定の大きさ（パネルの管理で決める。ピクセル）
+const sizeOf = (view) => S.panelSet?.views?.[view] || {};
 const topicTitle = (p) => typeof p.data === "string" ? p.data : p.data?.title ?? textOf(p.data);
 
 // ── view：パネルの JSON の流し込み先。コンポーネントを書くのは本体だけ ──
@@ -564,6 +568,7 @@ function panelEl(p, kids) {
     const cell = document.createElement("div");
     cell.className = "cell";
     cell.dataset.id = k.id;
+    cell.dataset.view = k.view;
     const sizer = document.createElement("div");
     sizer.className = "sizer";
     sizer.title = L.size;
@@ -585,12 +590,14 @@ function freeGrid(box) {
 // 覚えた置き場所を当て、大きさを決めていないものは中身の高さを測ってます目に直す（幅を先に当ててから測る）
 function freePos(box, g) {
   const colW = (box.clientWidth - g.gap * (g.cols - 1)) / g.cols;
-  const defW = clamp(Math.round((360 + g.gap) / (colW + g.gap)), 2, g.cols);
+  const toCols = (px) => clamp(Math.round((px + g.gap) / (colW + g.gap)), 2, g.cols);
+  const toRows = (px) => Math.max(2, Math.round((px + g.gap) / (g.rowH + g.gap)));
   const pos = {};
   for (const c of cellsIn(box)) {
-    const id = c.dataset.id, t = TPOS[id];
-    const w = clamp(t?.w || defW, 1, g.cols);
-    pos[id] = { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: t?.h || 1, auto: !t?.h || MIN.has(id), placed: !!t };
+    const id = c.dataset.id, t = TPOS[id], d = sizeOf(c.dataset.view);
+    const w = clamp(t?.w || toCols(d.w || 360), 1, g.cols);
+    const h = t?.h || (d.h ? toRows(d.h) : 0);
+    pos[id] = { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: h || 1, auto: !h || MIN.has(id), placed: !!t };
     c.classList.toggle("auto", pos[id].auto);
     c.style.gridColumn = `${pos[id].x} / span ${w}`;
   }
@@ -655,11 +662,17 @@ function shownParent(p, byId) {
   }
   return null;
 }
+// 「使わない」にした view のパネルは画面に出さない。ただし人の判断を待っているもの（印）や、下に何か付いているものは落とさない
+function shownPanels(panels, marks, off) {
+  const parents = new Set(panels.map((p) => p.about));
+  return panels.filter((p) => !off.has(p.view) || marks[p.id] || parents.has(p.id));
+}
+const offSet = () => new Set(Object.entries(S.panelSet?.views || {}).filter(([, v]) => v?.off).map(([k]) => k));
 // パネルをたどれる形にする（並びは追加順）
 function tree() {
   const byId = new Map(S.panels.map((p) => [p.id, p]));
   const by = new Map();
-  for (const p of S.panels) {
+  for (const p of shownPanels(S.panels, S.marks, offSet())) {
     const k = shownParent(p, byId);
     if (!by.has(k)) by.set(k, []);
     by.get(k).push(p);
@@ -754,7 +767,7 @@ function render() {
   for (const g of groups) {
     const k = gk(g.key);
     if (!tileOf(k)) { setupTile(k); changed = true; }
-    if (!LAYOUT.pos?.[k]) { LAYOUT.pos = { ...LAYOUT.pos, [k]: freeSpot(GROUP_SIZE()) }; changed = true; }
+    if (!LAYOUT.pos?.[k]) { LAYOUT.pos = { ...LAYOUT.pos, [k]: freeSpot(g.src ? GROUP_SIZE() : tileSize(g.items[0].view)) }; changed = true; }
   }
   if (changed) { saveLayout(); applyLayout(); }
   for (const g of groups) {
@@ -790,7 +803,8 @@ function render() {
     $(".tile-head h2", t).textContent = !p ? k.slice(6) : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
     const body = $(".tile-body", t);
     body.innerHTML = "";
-    if (p) body.append(panelEl(p, kids)); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
+    if (p && !shownPanels(S.panels, S.marks, offSet()).includes(p)) body.innerHTML = `<p class="empty">${esc(L.offView)}</p>`;
+    else if (p) body.append(panelEl(p, kids)); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
   }
   drawMapSoon();
 }
@@ -862,6 +876,11 @@ const isGroupTile = (k) => k.startsWith("g:");
 const gk = (id) => `g:${S.name || ""}/${id}`;
 // 群のタイルの大きさ（一画面の三分の一の幅）と、置き場所：一画面の幅の中で、上から空いているところ
 const GROUP_SIZE = () => ({ w: Math.round(dens() / 3), h: Math.round(dens() * 0.6) });
+// その view の既定の大きさをます目に直す。決めていなければ base のまま
+function tileSize(view, base = GROUP_SIZE()) {
+  const d = sizeOf(view), m = metrics();
+  return { w: d.w ? clamp(Math.round((d.w + m.gap) / m.sx), 2, dens()) : base.w, h: d.h ? Math.max(2, Math.round((d.h + m.gap) / m.sy)) : base.h };
+}
 function freeSpot({ w, h }) {
   const taken = allTiles().filter((x) => tileOf(x) && !tileOf(x).hidden && (LAYOUT.pos?.[x] || HOME[x])).map(posOf);
   for (let y = 1; ; y++) for (let x = 1; x + w <= dens() + 1; x++) {
@@ -1160,7 +1179,7 @@ function tileFromPanel(id) {
   if ((LAYOUT.extra || []).includes(k)) return reveal(tileOf(k));
   const bottom = Math.max(1, ...allTiles().filter((x) => tileOf(x) && !tileOf(x).hidden).map((x) => posOf(x).y + posOf(x).h));
   LAYOUT.extra = [...(LAYOUT.extra || []), k];
-  LAYOUT.pos = { ...LAYOUT.pos, [k]: { x: 1, y: bottom, w: Math.round(dens() / 3), h: Math.round(dens() / 3) } };
+  LAYOUT.pos = { ...LAYOUT.pos, [k]: { x: 1, y: bottom, ...tileSize(S.panels.find((p) => p.id === id)?.view, { w: Math.round(dens() / 3), h: Math.round(dens() / 3) }) } };
   saveLayout();
   applyLayout();
   render();
@@ -1300,9 +1319,11 @@ async function load() {
   const r = await fetch("/api/board");
   const b = await r.json();
   if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
-  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {} });
+  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet });
   await loadViews(b.views || []);
-  document.title = b.name ? `${b.title}・${b.name}` : b.title;
+  const boardName = b.boardTitle || b.name;
+  document.title = boardName ? `${b.title}・${boardName}` : b.title;
+  if (boardName) $("#boardsLink").title = L.boardsNow(boardName);
   render();
   renderLive();
 }
@@ -1362,18 +1383,15 @@ grid.addEventListener("click", async (e) => {
   // 見たら知らせの印を消す（パネルを触ったとき）
   if (markOf(p) === "notice") { S.seen[p.id] = p.aiSeq; saveSeen(); render(); }
 });
-// ボード：切り替えと新しいボード（前のボードの操作ログは残る）
+// ボード：新しいボード（前のボードの操作ログは残る）。切り替えなどはボードの管理のページで
 async function loadBoards() {
   const r = await fetch("/api/boards");
-  if (!r.ok) { $("#boardPick").hidden = true; $("#newBoard").hidden = true; return; }
-  const b = await r.json();
-  $("#boards").innerHTML = b.boards.map((x) => `<option value="${esc(x.name)}" ${x.name === b.current ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+  if (!r.ok) { $("#boardsLink").hidden = true; $("#newBoard").hidden = true; }
 }
 async function boardsDo(body) {
   const r = await (await fetch("/api/boards", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   if (!r.ok) $("#err").textContent = L.refused(r.message);
 }
-$("#boards").onchange = (e) => boardsDo({ action: "open", name: e.target.value });
 // 更新して再起動：立ち直ったら、新しい画面を読み直す
 $("#restart").onclick = async () => {
   if (!confirm(L.restartAsk)) return;
@@ -1463,7 +1481,8 @@ if (SR) {
 function connect() {
   const es = new EventSource("/api/events");
   let t = null;
-  es.addEventListener("board", () => { loadBoards(); load(); });
+  es.addEventListener("board", load);
+  es.addEventListener("panelset", load);
   es.addEventListener("views", async (e) => { await loadViews(JSON.parse(e.data)); render(); });
   es.addEventListener("feed", (e) => { const f = JSON.parse(e.data); S.feeds[f.id] = f; clearTimeout(t); t = setTimeout(load, 120); });
   es.addEventListener("op", () => { clearTimeout(t); t = setTimeout(load, 120); });
@@ -1480,9 +1499,10 @@ iconBtn("#export", ICON.export, L.export);
 iconBtn("#newBoard", ICON.newBoard, L.newBoard);
 iconBtn("#restart", ICON.restart, L.restart);
 $("#resetLayout").innerHTML = `${ICON.reset} ${esc(L.resetLayout)}`;
-$("#boardPick span").innerHTML = ICON.boards;
-$("#boardPick").title = L.boards;
-$("#boards").setAttribute("aria-label", L.boards);
+iconBtn("#boardsLink", ICON.boards, L.boards);
+iconBtn("#panelsLink", ICON.panels, L.panels);
+// 管理のページから、切り替えたあとにこのタブへ戻れるように名前を付ける
+window.name = "dyve-board";
 $("#densityLabel").textContent = L.density;
 $("#density").setAttribute("aria-label", L.density);
 loadBoards();
