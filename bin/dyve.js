@@ -11,7 +11,7 @@ import { Feeds } from "../src/feeds.js";
 import { ensurePanels } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
-import { claudeSpawner, claudeSession, updateApp, integrate, ROOT } from "../src/agents.js";
+import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT } from "../src/agents.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
 
@@ -84,6 +84,10 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => child?.kill(sig));
   run();
 } else if (cmd === "serve") {
+  if (!args["no-agents"]) {
+    const missing = claudeMissing(args.claude);
+    if (missing) die(missing);
+  }
   const port = Number(args.port);
   const boardUrl = `http://127.0.0.1:${port}`;
   const home = path.dirname(path.resolve(args.data));
@@ -107,10 +111,11 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   // 流し込み係：許可された shell コマンドを部屋で走らせる
   const feed = (store) => new Feeds({ store, room: how.room });
   const desk = new Desk({ file: path.resolve(args.data), wake, feed });
-  // 使う dyve（ROOT）が部屋と別の置き場なら、部屋のいまのコミットに更新してから立て直す
+  // 使う dyve（ROOT）が部屋から切り出したもの（dyve で dyve を開発しているとき）なら、部屋のいまのコミットに更新してから立て直す。
+  // npm などで入れた dyve は立て直すだけ（更新は npm で）
   const restart = {
     prepare: () => {
-      if (path.resolve(ROOT) === path.resolve(how.room)) return { updated: false };
+      if (path.resolve(ROOT) === path.resolve(how.room) || !isAppOf({ room: how.room, app: ROOT })) return { updated: false };
       const r = updateApp({ room: how.room, app: ROOT });
       return { updated: true, commit: r.commit.slice(0, 7) };
     },

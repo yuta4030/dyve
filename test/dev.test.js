@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { claudeArgs, claudeSpawner, updateApp, workspace, integrate } from "../src/agents.js";
+import { claudeArgs, claudeSpawner, updateApp, workspace, integrate, isAppOf, claudeMissing } from "../src/agents.js";
 import { Store } from "../src/store.js";
 import { Waker } from "../src/waker.js";
 
@@ -74,6 +74,28 @@ test("使う dyve を別の置き場に切り出し、人が決めたときだ�
   assert.equal(fs.readFileSync(path.join(app, "a.txt"), "utf8"), "b\n");
   fs.writeFileSync(path.join(app, "a.txt"), "local\n");
   assert.throws(() => updateApp({ room, app }), /手を入れた跡/);
+});
+
+test("部屋から切り出した dyve だけを部屋のコミットで更新する（npm などで入れた dyve には当てない）", () => {
+  const { dir, room } = repo();
+  const app = path.join(dir, "app");
+  updateApp({ room, app });
+  assert.equal(isAppOf({ room, app }), true);
+  // git でない置き場（npm で入れたときなど）
+  const plain = path.join(dir, "plain");
+  fs.mkdirSync(plain);
+  assert.equal(isAppOf({ room, app: plain }), false);
+  // 別のリポジトリ
+  const other = repo();
+  assert.equal(isAppOf({ room: other.room, app }), false);
+});
+
+test("claude が動かなければ、どうすればよいかを返す", () => {
+  assert.equal(claudeMissing("claude", () => ({ status: 0 })), null);
+  const enoent = claudeMissing("claude", () => ({ error: Object.assign(new Error("x"), { code: "ENOENT" }) }));
+  assert.match(enoent, /Claude Code（claude）が動きません（ENOENT）/);
+  assert.match(enoent, /--no-agents/);
+  assert.match(claudeMissing("claude", () => ({ status: 1 })), /動きません。/);
 });
 
 test("取り込む：マージコミットで取り込み、作業場とブランチを片付ける。ぶつかったら元に戻す", () => {
