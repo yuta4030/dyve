@@ -61,10 +61,18 @@ export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = 
 // 名前は「ボード名-仕事の id-時刻」（id はボードごとに p1 から振られるので、ボード名で分ける）。
 // 同じ仕事でもう一度起こされたら、同じ作業場を使い続ける
 const gitIn = (dir) => (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+// 実パスで比べる。git はシンボリックリンクをたどった先を返す（Mac の /var → /private/var など）
+const real = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
 function findWorkspace(room, workDir, board, taskId) {
   const git = gitIn(room);
   const known = git("worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).map((l) => l.slice(9));
-  const dir = known.find((p) => path.basename(p).startsWith(`${board}-${taskId}-`) && path.dirname(p) === path.resolve(workDir));
+  const dir = known.find((p) => path.basename(p).startsWith(`${board}-${taskId}-`) && real(path.dirname(p)) === real(workDir));
   return dir ? { dir, branch: gitIn(dir)("rev-parse", "--abbrev-ref", "HEAD") } : null;
 }
 export function workspace({ room, workDir, taskId, board = "board", now = new Date() }) {
@@ -79,7 +87,7 @@ export function workspace({ room, workDir, taskId, board = "board", now = new Da
   const base = git("rev-parse", "--abbrev-ref", "HEAD");
   fs.mkdirSync(path.resolve(workDir), { recursive: true });
   git("worktree", "add", "-b", branch, dir, "HEAD");
-  return { dir, branch, base, top };
+  return { dir: real(dir), branch, base, top };
 }
 
 // 取り込む：人が開発の提案を受け入れたら、その仕事のブランチを部屋のいまのブランチにマージコミットで取り込む
