@@ -11,6 +11,7 @@ import { Feeds } from "../src/feeds.js";
 import { ensurePanels } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
+import { loadCrew, readConfig, ensureCrew, namesOf, initialsOf, callsOf, teamsOf, checkName } from "../src/crew.js";
 import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT } from "../src/agents.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
@@ -18,7 +19,7 @@ import { toMarkdown } from "../src/export.js";
 const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
   dyve serve [--port 4740] [--data FILE] [--room DIR] [--no-agents] [--claude CMD] [--pause MS] [--scribe-pause MS] [--slots N]
-              [--scribe-model M] [--manager-model M] [--task-model M]
+              [--scribe-model M] [--manager-model M] [--task-model M] [--config FILE] [--agents DIR] [--names A,B,…]
   dyve export [--data FILE] [--out FILE]
   dyve app [--room DIR] [--ref REF] [--app DIR]   使う dyve を作る側のコミットから切り出す・更新する
   dyve put <id> [--port 4740]                     標準入力をそのパネルのデータにする（JSON なら JSON で）
@@ -36,17 +37,22 @@ try {
     args: rest,
     allowPositionals: true,
     options: {
-      port: { type: "string", default: "4740" },
-      data: { type: "string", default: path.join(HOME, "board.jsonl") },
-      room: { type: "string", default: process.cwd() },
+      // port・data・room・claude・slots の既定は、設定（~/.dyve/config.json）を読んでから決める
+      config: { type: "string" },
+      port: { type: "string" },
+      data: { type: "string" },
+      room: { type: "string" },
       "no-agents": { type: "boolean", default: false },
-      claude: { type: "string", default: "claude" },
-      pause: { type: "string", default: "4000" },
-      "scribe-pause": { type: "string", default: "1000" },
-      "scribe-model": { type: "string", default: "haiku" },
-      "manager-model": { type: "string", default: "sonnet" },
+      claude: { type: "string" },
+      // 既定は置き場（~/.dyve/agents）を読んでから決める。コマンドで渡したものがいちばん強い
+      pause: { type: "string" },
+      "scribe-pause": { type: "string" },
+      "scribe-model": { type: "string" },
+      "manager-model": { type: "string" },
+      agents: { type: "string" },
+      names: { type: "string" },
       "task-model": { type: "string" },
-      slots: { type: "string", default: "3" },
+      slots: { type: "string" },
       title: { type: "string", default: "ボード" },
       out: { type: "string" },
       ref: { type: "string", default: "HEAD" },
@@ -61,6 +67,19 @@ try {
 }
 const pos = args.positionals;
 args = args.values;
+
+// 設定：コマンド > config.json > 既定
+const configFile = path.resolve(args.config ?? path.join(HOME, "config.json"));
+if (args.config && !fs.existsSync(configFile)) die(`設定がない：${configFile}`);
+let conf;
+try {
+  conf = readConfig(configFile);
+} catch (e) {
+  die(`設定が読めない：${e.message}`);
+}
+const DEFAULTS = { port: "4740", data: path.join(HOME, "board.jsonl"), room: process.cwd(), claude: "claude", slots: "3" };
+for (const [k, v] of Object.entries(DEFAULTS)) args[k] ??= conf[k] != null ? String(conf[k]) : v;
+// task.model は控室の一人ずつの model より弱いので、ここでは混ぜない（modelOf が順に見る）
 
 // 立て直すときの終了コード。見張り役はこれで落ちた子だけを立て直す
 const RESTART = 75;
@@ -92,6 +111,31 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   const boardUrl = `http://127.0.0.1:${port}`;
   const home = path.dirname(path.resolve(args.data));
   const panels = ensurePanels(path.join(home, "panels"));
+  // 配役：コマンド > 置き場（~/.dyve/agents）> 既定
+  let crew;
+  try {
+    crew = loadCrew({ config: configFile, agents: args.agents ? path.resolve(args.agents) : null, fallback: path.join(home, "agents") });
+    ensureCrew(crew.agents);
+  } catch (e) {
+    die(`設定が読めない：${e.message}`);
+  }
+  // 知らせるだけで止めない（名前がぶつかった、など）。画面には出さない
+  for (const w of crew.warnings) process.stderr.write(`注意：${w}\n`);
+  const cliNames = args.names ? args.names.split(/[,、]/).map((n) => n.trim()).filter(Boolean) : null;
+  if (cliNames && new Set(cliNames).size !== cliNames.length) die("--names に同じ名前が二つある");
+  try {
+    cliNames?.forEach((n) => checkName(n, "--names の名前"));
+  } catch (e) {
+    die(e.message);
+  }
+  const names = namesOf(crew, cliNames);
+  const num = (v, name) => {
+    const n = Number(v);
+    if (!(n >= 0)) die(`${name} は 0 以上の数`);
+    return n;
+  };
+  const pause = num(args.pause ?? crew.manager?.pause ?? 4000, "--pause");
+  const scribePause = num(args["scribe-pause"] ?? crew.scribe?.pause ?? 1000, "--scribe-pause");
   const how = {
     panels,
     cmd: args.claude,
@@ -99,15 +143,18 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
     staff: path.join(home, "staff"), // 清書係とマネージャの作業場（空のディレクトリ）
     boardUrl,
     logDir: path.join(home, "logs"),
-    models: { scribe: args["scribe-model"], manager: args["manager-model"], task: args["task-model"] },
+    models: { scribe: args["scribe-model"] ?? crew.scribe?.model ?? "haiku", manager: args["manager-model"] ?? crew.manager?.model ?? "sonnet", task: args["task-model"] },
+    crew,
+    names,
   };
   const spawn = claudeSpawner(how), session = claudeSession(how);
   const workDir = path.join(home, "work");
-  const merge = ({ board, taskId }) => integrate({ room: how.room, workDir, board, taskId });
+  const rooms = crew.members.map((a) => a.room).filter(Boolean);
+  const merge = ({ board, taskId }) => integrate({ room: how.room, rooms, workDir, board, taskId });
   // ボードを切り替えるたびに、そのボードの起こし係を作り直す（前のボードの会話は止める）
   const wake = (store) => args["no-agents"]
     ? null
-    : new Waker({ store, pause: Number(args.pause), scribePause: Number(args["scribe-pause"]), slots: Number(args.slots), spawn, session, integrate: merge });
+    : new Waker({ store, pause, scribePause, slots: Number(args.slots), spawn, session, integrate: merge, names, initials: initialsOf(crew, names), calls: callsOf(crew, names), teams: teamsOf(crew, names) });
   // 流し込み係：許可された shell コマンドを部屋で走らせる
   const feed = (store) => new Feeds({ store, room: how.room });
   const desk = new Desk({ file: path.resolve(args.data), wake, feed });

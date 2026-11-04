@@ -318,7 +318,7 @@ const ICON = {
   restart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
-const S = { to: null, panels: [], marks: {}, live: null, names: [], title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
+const S = { to: null, panels: [], marks: {}, live: null, names: [], initials: {}, calls: {}, title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
 // 見る人ごとの見た目（タイルの並び・大きさ、パネルの大きさ）。ボードのデータには持たない
 const keep = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -329,11 +329,14 @@ const POS = keep("pos", {}); // 話題の中のパネルの置き場所：id -> 
 // 見た印はボードごとに覚える（id はボードごとに p1 から振られるため）
 const saveSeen = () => put(`seen:${S.name || ""}`, S.seen);
 const isPerson = (by) => by === "human";
-const who = (by) => isPerson(by) ? L.you : by === "manager" ? L.manager : by === "scribe" ? L.scribe : by === "board" ? L.board : by;
+// 控室の人はログに名前（id。チームの人は「名前@チーム」）で残る。画面には呼び名で出す
+const callOf = (id) => S.calls?.[id] || id;
+const who = (by) => isPerson(by) ? L.you : by === "manager" ? L.manager : by === "scribe" ? L.scribe : by === "board" ? L.board : callOf(by);
 const isWorking = (id) => !!S.live?.agents?.some((a) => a.task === id);
 const textOf = (d) => typeof d === "string" ? d : d?.text ?? JSON.stringify(d);
 // アイコン：ここだけで描く。絵に差し替えるときもここを直せば、状況・トーク・宛先がそろって変わる
-const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria-hidden="true">${esc(L.initial[key] || [...String(key)][0] || "?")}</span>`;
+const iniOf = (key) => S.initials?.[key] || L.initial[key] || [...String(key)][0] || "?";
+const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria-hidden="true">${esc(iniOf(key))}</span>`;
 const topicTitle = (p) => typeof p.data === "string" ? p.data : p.data?.title ?? textOf(p.data);
 
 // ── view：パネルの JSON の流し込み先。コンポーネントを書くのは本体だけ ──
@@ -460,7 +463,7 @@ function panelEl(p, kids) {
   const tags = [];
   if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
   if (mark) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
-  if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(p.to)}</span>`);
+  if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(callOf(p.to))}</span>`);
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
@@ -675,13 +678,13 @@ function renderLive() {
     { key: "manager", name: L.manager, on: !!lv.manager, wait: !lv.manager && lv.waitingManager, what: lv.manager ? L.managerBusy : lv.waitingManager ? L.managerWait : "" },
     ...(S.names || []).map((n) => {
       const a = busy.get(n), t = a && S.panels.find((p) => p.id === a.task);
-      return { key: n, name: n, on: !!a, task: a?.task, what: t ? textOf(t.data) : "", agent: true };
+      return { key: n, id: n, name: callOf(n), on: !!a, task: a?.task, what: t ? textOf(t.data) : "", agent: true };
     }),
   ];
   // 控室のエージェントは押すとその人が宛先になる。清書係とマネージャは押せない
-  const ava = (x) => `<${x.agent ? `button data-to="${esc(x.name)}"${x.task ? ` data-task="${esc(x.task)}"` : ""} aria-pressed="${S.to === x.name}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}${S.to === x.name ? " to" : ""}" title="${esc(x.agent ? L.toAva(x.name, x.what || L.idle) : `${x.name}：${x.what || L.idle}`)}">` +
+  const ava = (x) => `<${x.agent ? `button data-to="${esc(x.id)}"${x.task ? ` data-task="${esc(x.task)}"` : ""} aria-pressed="${S.to === x.id}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}${x.agent && S.to === x.id ? " to" : ""}" title="${esc(x.agent ? L.toAva(x.name, x.what || L.idle) : `${x.name}：${x.what || L.idle}`)}">` +
     `${ini(x.key)}${esc(x.name)}</${x.agent ? "button" : "span"}>`;
-  const doing = people.filter((x) => x.what).map((x) => `<li>${esc(L.initial[x.key] || [...x.name][0])}：${esc(x.what)}</li>`).join("");
+  const doing = people.filter((x) => x.what).map((x) => `<li>${esc(iniOf(x.key))}：${esc(x.what)}</li>`).join("");
   $("#status").innerHTML = people.map(ava).join("") + (doing ? `<ul id="doing">${doing}</ul>` : "");
 
   // 残量：claude が流してくる利用枠から
@@ -990,7 +993,7 @@ async function load() {
   const r = await fetch("/api/board");
   const b = await r.json();
   if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
-  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, title: b.title, name: b.name, feeds: b.feeds || {} });
+  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {} });
   await loadViews(b.views || []);
   document.title = b.name ? `${b.title}・${b.name}` : b.title;
   render();
@@ -1108,8 +1111,8 @@ function setTo(name) {
   S.to = name;
   const b = $("#to");
   b.hidden = !name;
-  if (name) { b.textContent = L.toChip(name); b.title = L.toOff; }
-  msg.placeholder = name ? L.toPlaceholder(name) : L.placeholder;
+  if (name) { b.textContent = L.toChip(callOf(name)); b.title = L.toOff; }
+  msg.placeholder = name ? L.toPlaceholder(callOf(name)) : L.placeholder;
   renderLive();
 }
 $("#to").onclick = () => setTo(null);
