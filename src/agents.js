@@ -15,19 +15,20 @@ const DEFS = {
   panels: path.join(ROOT, "skills", "backroom", "SKILL.md"),
 };
 
-// 取り消せないことはしない。清書係は発言の書き換えだけ、マネージャはボードだけ、控室は読むことと調べることだけ。
-// 開発（dev）だけは書けるが、仕事ごとの git worktree の中だけ。取り込むかは人が決める（push や外に届くことはしない）
+// 取り消せないことは人が決める。清書係は発言の書き換えと辞書への追記だけ、マネージャはボードだけ。
+// 控室は Claude Code の auto で動く（危ない操作は auto の判定が止める）。調べもの（task）はファイルを書き換えない。
+// 開発（dev）は仕事ごとの git worktree の中で書き、取り込むかは人が決める。push など外に届くことは DENY で止める
 const READ = ["mcp__board", "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 const TOOLS = {
-  scribe: ["mcp__board__panel_edit"],
+  scribe: ["mcp__board__panel_edit", "mcp__board__word_add"],
   manager: ["mcp__board"],
   task: READ,
   dev: [...READ, "Edit", "Write", "Bash(node --test:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
   // パネルの仕事：控室のエージェントが利用者のパネル置き場（~/.dyve/panels）で view を書く。書けるのはその中だけ
   panels: [...READ, "Edit", "Write", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
 };
-const DENY_PANELS = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git reset:*)", "Bash(rm:*)"];
-const DENY = { panels: DENY_PANELS, dev: ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git worktree:*)", "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(rm:*)"] };
+const OUTWARD = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git reset:*)", "Bash(rm:*)"];
+const DENY = { task: [...OUTWARD, "Edit", "Write", "NotebookEdit"], panels: OUTWARD, dev: [...OUTWARD, "Bash(git worktree:*)", "Bash(git checkout:*)"] };
 
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
 export const inRoom = (role) => role === "task" || role === "dev" || role === "panels";
@@ -99,7 +100,7 @@ export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = 
     "--append-system-prompt", systemPrompt(job.role, job.name, { room, crew, names }),
     ...(modelOf(models, job.role, crew, job.name) ? ["--model", modelOf(models, job.role, crew, job.name)] : []),
     // 部屋の git status などを前置きから外し、リポジトリを触っても前置きのキャッシュが外れないようにする
-    ...(inRoom(job.role) ? ["--exclude-dynamic-system-prompt-sections"] : []),
+    ...(inRoom(job.role) ? ["--exclude-dynamic-system-prompt-sections", "--permission-mode", "auto"] : []),
     ...(DENY[job.role] ? ["--disallowedTools", ...DENY[job.role]] : []),
     "--allowedTools", ...TOOLS[job.role],
   ];
@@ -175,6 +176,21 @@ export function integrate({ room, rooms = [room], workDir, board = "board", task
   }
   return { branch: ws.branch, into, commit, cleaned };
 }
+
+// 動いている dyve の情報（dyve 設定のポップアップ）。behind：起動のあとに部屋へ入ったコミットの数（再起動で反映される）
+export function runningMeta({ room, startCommit, startedAt, browser = null }) {
+  const count = (from) => { try { return Number(gitIn(room)("rev-list", "--count", `${from}..HEAD`)); } catch { return null; } };
+  const same = real(ROOT) === real(room);
+  return {
+    version: JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version,
+    commit: startCommit?.slice(0, 7) ?? null,
+    head: commitOf(room)?.slice(0, 7) ?? null,
+    behind: startCommit ? count(startCommit) : null,
+    source: same ? "room" : isAppOf({ room, app: ROOT }) ? "app" : "installed",
+    running: ROOT, room, startedAt, browser,
+  };
+}
+export const commitOf = (dir) => { try { return gitIn(dir)("rev-parse", "HEAD"); } catch { return null; } };
 
 // 使う dyve：作る側（部屋）とは別の置き場に、ある時点のコミットを切り出して動かす。
 // 取り込んだ変更が壊れていても、使っているボードは落ちない。更新は人が決めたときだけ

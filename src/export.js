@@ -5,11 +5,13 @@ const STATE = { task: "仕事", proposal: "提案", done: "済み" };
 const MARK = { waiting: "受け入れ待ち", untouched: "未着手" };
 
 export function toMarkdown(board, { title = "ボード", now = new Date(), running = [] } = {}) {
-  const panels = board.list();
+  // 置き場所は画面のためのもの。合流した発言は先頭に入っている（下に付いたものは先頭へ寄せる）
+  const panels = board.list().filter((p) => p.view !== "layout" && !p.into);
   const ids = new Set(panels.map((p) => p.id));
   const kids = new Map();
   for (const p of panels) {
-    const parent = p.about && ids.has(p.about) ? p.about : null;
+    const about = board.get(p.about)?.into ?? p.about;
+    const parent = about && ids.has(about) ? about : null;
     if (!kids.has(parent)) kids.set(parent, []);
     kids.get(parent).push(p);
   }

@@ -51,7 +51,7 @@ test("MCP の口：初期化・道具の一覧・書き込みは名乗った立�
     const note = await post(`${base}/mcp?as=manager`, { jsonrpc: "2.0", method: "notifications/initialized" });
     assert.equal(note.status, 202);
     const tools = await rpc("manager", "tools/list");
-    assert.deepEqual(tools.result.tools.map((t) => t.name), ["board_read", "panel_add", "panel_edit", "panel_drop", "panel_history"]);
+    assert.deepEqual(tools.result.tools.map((t) => t.name), ["board_read", "panel_add", "panel_edit", "panel_drop", "board_view", "panel_view", "board_layout", "word_add", "panel_history"]);
 
     store.apply({ by: "human", type: "add", panel: { view: "say", data: "えっと、あの" } });
     const add = await rpc("アリス", "tools/call", { name: "panel_add", arguments: { view: "text", about: "p1", data: "答え", reason: "調べた" } });
@@ -113,7 +113,8 @@ test("エージェントの起こし方：役割ごとの道具と、名乗り�
   const mcp = JSON.parse(args[args.indexOf("--mcp-config") + 1]);
   assert.equal(mcp.mcpServers.board.url, "http://127.0.0.1:4740/mcp?as=%E3%82%A2%E3%83%AA%E3%82%B9");
   assert.ok(args.includes("WebSearch"));
-  assert.ok(!args.includes("Edit") && !args.includes("Bash"));
+  const allowed = args.slice(args.indexOf("--allowedTools") + 1);
+  assert.ok(!allowed.includes("Edit") && !allowed.includes("Bash"));
   const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
   assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
   assert.match(m[m.indexOf("--append-system-prompt") + 1], /ボードマネージャ/);
@@ -132,7 +133,7 @@ test("エージェントの起こし方：前置きを固定してキャッシ�
   const s = claudeArgs({ role: "scribe", name: "scribe" }, "http://x", { scribe: "haiku" }, { stream: true });
   assert.equal(s[s.indexOf("--input-format") + 1], "stream-json");
   assert.equal(s[s.indexOf("--model") + 1], "haiku");
-  assert.deepEqual(s.slice(s.indexOf("--allowedTools") + 1), ["mcp__board__panel_edit"]);
+  assert.deepEqual(s.slice(s.indexOf("--allowedTools") + 1), ["mcp__board__panel_edit", "mcp__board__word_add"]);
   assert.match(s[s.indexOf("--append-system-prompt") + 1], /清書係/);
 });
 

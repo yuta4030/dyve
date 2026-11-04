@@ -15,7 +15,7 @@ const SAMPLE_MAX = 20000;
 export const fitsSample = (d) => d != null && JSON.stringify(d).length <= SAMPLE_MAX;
 export function samplesOf(board) {
   const out = {};
-  for (const p of board.list()) if (fitsSample(p.data)) out[p.view] = p.data;
+  for (const p of board.list()) if (p.view !== "layout" && fitsSample(p.data)) out[p.view] = p.data;
   return out;
 }
 
@@ -23,10 +23,10 @@ export function samplesOf(board) {
 export function summarize(board) {
   const ps = board.list();
   const views = {};
-  for (const p of ps) views[p.view] = (views[p.view] || 0) + 1;
+  for (const p of ps) if (p.view !== "layout") views[p.view] = (views[p.view] || 0) + 1;
   const sum = ps.filter((p) => p.view === "summary").at(-1);
   return {
-    panels: ps.length,
+    panels: ps.filter((p) => p.view !== "layout").length,
     first: textOf(ps.find((p) => p.view === "say")?.data).slice(0, 80),
     topics: ps.filter((p) => p.view === "topic").map((p) => (typeof p.data === "string" ? p.data : p.data?.title)).filter(Boolean).slice(-6).reverse(),
     points: (Array.isArray(sum?.data?.points) ? sum.data.points : []).map(textOf).filter(Boolean).slice(0, 3),

@@ -1,0 +1,247 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import vm from "node:vm";
+import zlib from "node:zlib";
+import { Board } from "../src/board.js";
+import { Words } from "../src/words.js";
+import { handleRpc } from "../src/mcp.js";
+import { legend, boardPng, changeLayout } from "../src/view.js";
+import { findBrowser, screenshot } from "../src/shot.js";
+import { managerPrompt, scribePrompt } from "../src/waker.js";
+import { toMarkdown } from "../src/export.js";
+
+const storeOf = (board = new Board()) => ({ board, apply: (o) => board.apply(o) });
+const human = (b, type, panel) => b.apply({ by: "human", type, panel });
+const ai = (b, type, panel, by = "scribe") => b.apply({ by, type, panel, reason: "試す" });
+const tools = (store, as, name, args, opts = {}) => handleRpc(store, null, as, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, opts);
+const laid = (board, data) => human(board, "add", { view: "layout", data }).op.panel.id;
+const POS = { talk: { x: 1, y: 1, w: 8, h: 8 }, "g:b/p9": { x: 9, y: 1, w: 8, h: 8 } };
+
+test("画面の script は全体が JavaScript として読める", () => {
+  for (const f of ["ui.html", "manage.html"]) {
+    const html = fs.readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8");
+    const src = html.slice(html.indexOf('<script type="module">') + 22, html.lastIndexOf("</script>"));
+    assert.ok(src.length > 1000, f);
+    assert.doesNotThrow(() => new vm.Script(src), f);
+  }
+});
+
+test("合成：発言だけ、一段だけ。宛てた発言とピン留めは AI が合流できず、人は印を外せる", () => {
+  const b = new Board();
+  const id = (r) => r.op.panel.id;
+  const a = id(human(b, "add", { view: "say", data: "あとは" }));
+  const c = id(human(b, "add", { view: "say", data: "続き" }));
+  const d = id(human(b, "add", { view: "say", data: "宛て", to: "アリス" }));
+  const t = id(ai(b, "add", { view: "text", data: "x" }));
+  assert.equal(ai(b, "edit", { id: c, into: t }).code, "invalid");
+  assert.equal(ai(b, "edit", { id: c, into: "nope" }).code, "not_found");
+  assert.equal(ai(b, "edit", { id: d, into: a }).code, "invalid");
+  assert.ok(ai(b, "edit", { id: c, into: a }).ok);
+  assert.equal(b.get(c).data, "続き", "元の文は残る");
+  assert.equal(ai(b, "edit", { id: a, into: c }).code, "invalid", "合流先はほかへ合流しない");
+  const e = id(human(b, "add", { view: "say", data: "ピン" }));
+  human(b, "edit", { id: e, pinned: true });
+  const f = id(human(b, "add", { view: "say", data: "後" }));
+  assert.equal(ai(b, "edit", { id: f, into: e }).code, "pinned");
+  human(b, "edit", { id: c, into: null });
+  assert.equal(b.get(c).into, undefined);
+  assert.equal(new Board(b.log).get(a).data, "あとは", "当て直しても同じ");
+});
+
+test("合成した発言：マネージャは先頭だけを読み、書き出しにも先頭だけ出る", () => {
+  const b = new Board();
+  const a = human(b, "add", { view: "say", data: "前の半分" }).op.panel.id;
+  const since = b.seq;
+  const c = human(b, "add", { view: "say", data: "後の半分" }).op.panel.id;
+  ai(b, "edit", { id: a, data: "前の半分と後の半分" });
+  ai(b, "edit", { id: c, into: a });
+  const k = ai(b, "add", { view: "text", about: c, data: "補足" }, "manager").op.panel.id;
+  const m = managerPrompt(since, b);
+  assert.match(m, new RegExp(`- ${a}：前の半分と後の半分`));
+  assert.doesNotMatch(m, new RegExp(`- ${c}：`));
+  const md = toMarkdown(b);
+  assert.match(md, /前の半分と後の半分/);
+  assert.doesNotMatch(md, /^- 後の半分/m);
+  assert.match(md, /補足/, `合流した発言の下のもの ${k} も落とさない`);
+});
+
+test("置き場所：AI は作れず、固定を変えられず、固定されたタイルを動かせない", () => {
+  const b = new Board();
+  assert.equal(ai(b, "add", { view: "layout", data: {} }).code, "forbidden");
+  const id = laid(b, { density: 24, pos: POS, locked: ["talk"] });
+  assert.equal(human(b, "add", { view: "layout", data: {} }).code, "invalid", "一枚だけ");
+  const cur = b.get(id).data;
+  assert.equal(ai(b, "edit", { id, data: { ...cur, locked: [] } }).code, "forbidden");
+  assert.equal(ai(b, "edit", { id, data: { ...cur, pos: { ...POS, talk: { x: 2, y: 1, w: 8, h: 8 } } } }).code, "pinned");
+  assert.equal(ai(b, "drop", { id }).code, "forbidden");
+  assert.equal(ai(b, "edit", { id, view: "text" }).code, "forbidden");
+});
+
+test("board_layout：固定とピン留めは断り、残りは動かし、重なりを知らせる", () => {
+  const b = new Board();
+  for (let i = 0; i < 8; i++) human(b, "add", { view: "say", data: String(i) });
+  const pinned = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
+  human(b, "edit", { id: pinned, pinned: true });
+  const pos = { talk: { x: 1, y: 1, w: 8, h: 8 }, tools: { x: 9, y: 1, w: 8, h: 8 }, [`g:b/${pinned}`]: { x: 17, y: 1, w: 8, h: 8 } };
+  laid(b, { density: 24, pos, locked: ["talk"] });
+  const s = storeOf(b);
+  assert.equal(changeLayout(s, "manager", { moves: { talk: { x: 3, y: 3 } } }, "r").code, "pinned");
+  const r = changeLayout(s, "manager", { moves: { talk: { x: 3 }, tools: { x: 2, y: 2 }, [`g:b/${pinned}`]: { x: 1 }, nope: { x: 1 } } }, "並べ直す");
+  assert.ok(r.ok);
+  assert.deepEqual(r.changed, ["tools"]);
+  assert.deepEqual(r.refused.map((x) => x.key).sort(), [`g:b/${pinned}`, "nope", "talk"].sort());
+  assert.deepEqual(r.overlaps, [["talk", "tools"]]);
+  const l = legend(b).tiles;
+  assert.equal(l.find((t) => t.key === "talk").fixed, true);
+  assert.equal(l.find((t) => t.key === `g:b/${pinned}`).title, "話題");
+  assert.equal(changeLayout(s, "manager", { moves: { tools: { w: 1 } } }, "r").code, "invalid");
+});
+
+test("board_layout：人が画面でできる操作を全部できる（固定は除く）", () => {
+  const b = new Board();
+  const topic = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
+  const res = ai(b, "add", { view: "list", about: topic, data: ["a"] }, "アリス").op.panel.id;
+  const pos = { tools: { x: 1, y: 1, w: 4, h: 4 }, status: { x: 5, y: 1, w: 4, h: 4 }, [`g:b/${topic}`]: { x: 9, y: 1, w: 8, h: 8 } };
+  const id = laid(b, { density: 24, pos });
+  const s = storeOf(b), data = () => b.get(id).data;
+  const ok = (change) => { const r = changeLayout(s, "manager", change, "試す"); assert.ok(r.ok, JSON.stringify(r)); return r; };
+  ok({ min: { status: true } });
+  assert.deepEqual(data().min, ["status"]);
+  ok({ min: { status: false }, hidden: { status: true }, zoom: { status: 1.5 } });
+  assert.deepEqual([data().min, data().hidden, data().zoom.status], [[], ["status"], 1.5]);
+  assert.deepEqual(changeLayout(s, "manager", { hidden: { tools: true }, moves: { status: { x: 2 } } }, "r").refused.map((x) => x.key), ["tools"]);
+  ok({ hidden: { status: false } });
+  // タイルに出す・なくす
+  ok({ tiles: { add: [res] } });
+  assert.ok(data().extra.includes(`panel:${res}`) && data().pos[`panel:${res}`]);
+  assert.equal(changeLayout(s, "manager", { tiles: { add: [topic] } }, "r").code, "invalid", "話題はもうタイル");
+  ok({ tiles: { remove: [`panel:${res}`] } });
+  assert.deepEqual(data().extra, []);
+  // 話題の中
+  ok({ panels: { [res]: { x: 2, y: 3, w: 6, h: 4, size: [300, 200], min: true, unfold: true } } });
+  assert.deepEqual(data().inner.tpos[res], { x: 2, y: 3, w: 6, h: 4 });
+  assert.deepEqual([data().inner.sizes[res], data().inner.min, data().inner.unfold], [[300, 200], [res], [res]]);
+  ok({ panels: { [res]: { h: null, size: null, min: false, unfold: false } } });
+  assert.deepEqual(data().inner.tpos[res], { x: 2, y: 3, w: 6 });
+  ok({ panels: { [res]: { position: null } } });
+  assert.equal(data().inner.tpos[res], undefined);
+  assert.equal(legend(b).panels.find((p) => p.id === res).title.includes("a"), true);
+  // ます目の細かさ・並びを戻す
+  ok({ panels: { [res]: { x: 3, y: 5, w: 4 } } });
+  ok({ density: 48 });
+  assert.equal(data().density, 48);
+  assert.deepEqual(data().pos.tools, { x: 1, y: 1, w: 8, h: 8 });
+  assert.deepEqual(data().inner.tpos[res], { x: 5, y: 9, w: 8 });
+  assert.equal(changeLayout(s, "manager", { density: 13 }, "r").code, "invalid");
+  ok({ reset: true });
+  assert.deepEqual(data().pos, {});
+  assert.deepEqual(data().inner.tpos[res], { x: 5, y: 9, w: 8 }, "話題の中は人の操作と同じく残す");
+  assert.equal(changeLayout(s, "manager", { nothing: 1 }, "r").code, "invalid");
+});
+
+test("board_layout：固定したタイルの中とピン留めの中は動かず、固定があるとます目は変えられない。固定そのものは変えられない", () => {
+  const b = new Board();
+  const topic = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
+  const res = ai(b, "add", { view: "list", about: topic, data: ["a"] }, "アリス").op.panel.id;
+  const free = human(b, "add", { view: "topic", data: { title: "別" } }).op.panel.id;
+  const g = `g:b/${topic}`;
+  const id = laid(b, { density: 24, pos: { tools: { x: 1, y: 1, w: 4, h: 4 }, [g]: { x: 5, y: 1, w: 8, h: 8 }, [`g:b/${free}`]: { x: 13, y: 1, w: 8, h: 8 } }, locked: [g], inner: { tpos: { [res]: { x: 1, y: 1, w: 4 } }, sizes: {}, min: [], unfold: [] } });
+  const s = storeOf(b);
+  for (const change of [{ panels: { [res]: { x: 3 } } }, { panels: { [topic]: { min: true } } }, { min: { [g]: true } }, { hidden: { [g]: true } }, { zoom: { [g]: 2 } }, { tiles: { add: [res] } }, { density: 12 }]) {
+    const r = changeLayout(s, "manager", change, "r");
+    assert.equal(r.ok, false, JSON.stringify(change));
+  }
+  const cur = b.get(id).data;
+  // MCP を通らずに panel_edit で書いても、ボードが同じように断る
+  for (const data of [{ ...cur, inner: { ...cur.inner, tpos: { [res]: { x: 9, y: 1, w: 4 } } } }, { ...cur, min: [g] }, { ...cur, hidden: [g] }, { ...cur, zoom: { [g]: 2 } }, { ...cur, inner: { ...cur.inner, min: [res] } }]) {
+    assert.equal(ai(b, "edit", { id, data }).code, "pinned");
+  }
+  assert.equal(ai(b, "edit", { id, data: { ...cur, locked: [] } }).code, "forbidden");
+  // 並びを戻しても固定は残る
+  const r = changeLayout(s, "manager", { reset: true }, "r");
+  assert.ok(r.ok);
+  assert.ok(b.get(id).data.pos[g] && !b.get(id).data.pos.tools);
+  assert.deepEqual(b.get(id).data.locked, [g]);
+  assert.equal(legend(b).panels.find((p) => p.id === res).fixed, true);
+  // 人が固定を外せば動かせる
+  human(b, "edit", { id, data: { ...b.get(id).data, locked: [] } });
+  assert.ok(changeLayout(s, "manager", { panels: { [res]: { x: 3 } } }, "r").ok);
+});
+
+test("board_view：置き場所がなければそう言い、あれば読める PNG と対応表を返す。board_read に置き場所は混ざらない", async () => {
+  const b = new Board(), s = storeOf(b);
+  assert.equal((await tools(s, "manager", "board_view", {})).result.isError, true);
+  laid(b, { density: 24, pos: POS, locked: ["talk"], metric: { sx: 40, sy: 26, rows: 20 } });
+  const { content } = (await tools(s, "manager", "board_view", {})).result;
+  assert.equal(content[0].mimeType, "image/png");
+  const png = Buffer.from(content[0].data, "base64");
+  assert.deepEqual([...png.subarray(1, 4)], [80, 78, 71]);
+  const w = png.readUInt32BE(16), h = png.readUInt32BE(20);
+  const idat = png.subarray(png.indexOf("IDAT") + 4, png.indexOf("IDAT") + 4 + png.readUInt32BE(png.indexOf("IDAT") - 4));
+  assert.equal(zlib.inflateSync(idat).length, (w * 3 + 1) * h);
+  assert.equal(JSON.parse(content[1].text).tiles.length, 2);
+  assert.ok(boardPng(legend(b), { maxW: 100, maxH: 100 }).readUInt32BE(16) <= 100, "大きすぎれば縮める");
+  const real = (await tools(s, "manager", "board_view", { real: true }, { shoot: async (x, size) => Buffer.from(`${x}:${size.width}`) })).result.content;
+  assert.equal(Buffer.from(real[2].data, "base64").toString(), "board:1400");
+  assert.match((await tools(s, "manager", "board_view", { real: true })).result.content[2].text, /撮れなかった/);
+  const read = JSON.parse(tools(s, "manager", "board_read", {}).result.content[0].text);
+  assert.ok(!read.panels.some((p) => p.view === "layout"));
+});
+
+test("panel_view：撮れれば絵、撮れなければ中身を返す", async () => {
+  const b = new Board(), s = storeOf(b);
+  const id = human(b, "add", { view: "text", data: "中身" }).op.panel.id;
+  const none = await tools(s, "manager", "panel_view", { id });
+  assert.equal(JSON.parse(none.result.content[0].text).panel.data, "中身");
+  let size;
+  const shot = await tools(s, "manager", "panel_view", { id }, { shoot: async (x, z) => { size = z; return Buffer.from(`png:${x}`); } });
+  assert.equal(size.width, 900, "タイルでなければ既定の幅");
+  assert.equal(shot.result.content[0].type, "image");
+  assert.equal(Buffer.from(shot.result.content[0].data, "base64").toString(), `png:${id}`);
+  const broken = await tools(s, "manager", "panel_view", { id }, { shoot: async () => { throw new Error("落ちた"); } });
+  assert.match(broken.result.content[0].text, /落ちた/);
+  assert.equal((await tools(s, "manager", "panel_view", { id: "nope" })).result.isError, true);
+});
+
+test("ブラウザ：指定を優先し、PATH と決まった場所から探す。偽の実行で撮る", async () => {
+  assert.equal(findBrowser("/x/chrome"), "/x/chrome");
+  assert.equal(findBrowser(null, { exists: (p) => p === "/usr/bin/chromium", env: { PATH: "/usr/bin" } }), "/usr/bin/chromium");
+  assert.match(findBrowser(null, { exists: (p) => p.endsWith("chrome.exe"), env: { PATH: "" } }), /chrome\.exe$/);
+  assert.equal(findBrowser(null, { exists: () => false, env: { PATH: "/none" } }), null);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-shot-test-"));
+  let args;
+  const png = await screenshot({
+    browser: "/x/chrome", url: "http://localhost:1/?shot=p1",
+    area: () => ({ dir, outward: (p) => p }),
+    run: async (_, a) => { args = a; fs.writeFileSync(a.find((x) => x.startsWith("--screenshot=")).slice(13), "PNG"); },
+  });
+  assert.equal(png.toString(), "PNG");
+  assert.ok(args.includes("--headless=new") && args.at(-1).endsWith("shot=p1"));
+  assert.ok(args.some((x) => x.startsWith("--user-data-dir=")), "使っているブラウザのプロファイルに触らない");
+  assert.ok(!fs.existsSync(dir), "片付ける");
+});
+
+test("辞書：追記のログを当て直す。AI は人の項目を変えられず、消せず、人が消した言葉を足し直せない", () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-words-")), "words.jsonl");
+  const w = new Words(file);
+  assert.equal(w.add({ by: "scribe", heard: "ライブ", write: "dyve" }).code, "invalid", "AI は reason が要る");
+  assert.ok(w.add({ by: "scribe", heard: "ライブ", write: "dyve", when: "dyve の話のとき", reason: "訂正された" }).ok);
+  assert.ok(w.add({ by: "manager", heard: "ライブ", write: "DYVE", reason: "直す" }).ok, "AI の項目は AI も直せる");
+  assert.ok(w.add({ by: "human", heard: "やめる", write: "yml" }).ok);
+  assert.equal(w.add({ by: "scribe", heard: "やめる", write: "x", reason: "r" }).code, "forbidden");
+  assert.equal(w.drop({ by: "scribe", heard: "ライブ" }).code, "forbidden");
+  assert.equal(w.add({ by: "human", heard: "同じ", write: "同じ" }).code, "invalid");
+  assert.ok(w.drop({ by: "human", heard: "ライブ" }).ok);
+  assert.equal(w.add({ by: "scribe", heard: "ライブ", write: "dyve", reason: "r" }).code, "forbidden");
+  const again = new Words(file);
+  assert.deepEqual(again.list().map((x) => x.heard), ["やめる"]);
+  assert.equal(again.add({ by: "scribe", heard: "ライブ", write: "dyve", reason: "r" }).code, "forbidden", "当て直しても覚えている");
+  assert.ok(again.add({ by: "human", heard: "ライブ", write: "dyve" }).ok, "人は戻せる");
+  const r = tools(storeOf(), "scribe", "word_add", { heard: "ケツダウン", write: "k2down", reason: "聞き違い" }, { words: again });
+  assert.equal(r.result.isError, false);
+  assert.ok(again.items.has("ケツダウン"));
+  assert.match(scribePrompt([{ id: "p2", rev: 2, data: "x" }], [{ id: "p1", rev: 1, data: "y" }], ["- あ → い"]), /辞書[\s\S]*あ → い[\s\S]*p1（rev 1）[\s\S]*p2（rev 2）/);
+});

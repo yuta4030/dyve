@@ -23,15 +23,21 @@ function repo() {
   return { dir, room, git };
 }
 
-test("開発の道具：書けるが push はできない。控室はいまも読むだけ", () => {
+test("開発の道具：書けるが push はできない。控室は auto で動き、調べものはファイルを書き換えない", () => {
   const d = claudeArgs({ role: "dev", name: "アリス", prompt: "直して" }, "http://x", { task: "opus" });
   const allowed = d.slice(d.indexOf("--allowedTools") + 1);
   assert.ok(allowed.includes("Edit") && allowed.includes("Bash(node --test:*)") && allowed.includes("Bash(git commit:*)"));
   assert.ok(!allowed.some((t) => /push|Bash\)$|^Bash$/.test(t)));
   assert.ok(d.slice(d.indexOf("--disallowedTools") + 1).includes("Bash(git push:*)"));
   assert.equal(d[d.indexOf("--model") + 1], "opus");
+  assert.equal(d[d.indexOf("--permission-mode") + 1], "auto");
   const t = claudeArgs({ role: "task", name: "ボブ", prompt: "調べて" }, "http://x");
-  assert.ok(!t.includes("Edit") && !t.includes("Write"));
+  assert.equal(t[t.indexOf("--permission-mode") + 1], "auto");
+  const denied = t.slice(t.indexOf("--disallowedTools") + 1, t.indexOf("--allowedTools"));
+  assert.ok(denied.includes("Edit") && denied.includes("Write") && denied.includes("Bash(git push:*)"));
+  assert.ok(!t.slice(t.indexOf("--allowedTools") + 1).includes("Edit"));
+  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
+  assert.ok(!m.includes("--permission-mode"));
 });
 
 test("開発の仕事は、仕事ごとの worktree とブランチで起こし、同じ仕事なら同じ作業場を使う", async () => {
