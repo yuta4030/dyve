@@ -7,6 +7,7 @@ import { Store } from "../src/store.js";
 import { createServer } from "../src/server.js";
 import { toMarkdown } from "../src/export.js";
 import { claudeArgs } from "../src/agents.js";
+import { unwrapData } from "../src/mcp.js";
 
 async function withServer(fn) {
   const store = new Store();
@@ -70,6 +71,20 @@ test("MCP の口：初期化・道具の一覧・書き込みは名乗った立�
   });
 });
 
+test("MCP の data：二重にくるまれた文字列はほどき、ほかはそのまま", async () => {
+  assert.equal(unwrapData('"# 見出し\\n本文"'), "# 見出し\n本文");
+  assert.equal(unwrapData(JSON.stringify(JSON.stringify("二重"))), "二重");
+  assert.equal(unwrapData("「引用」はそのまま"), "「引用」はそのまま");
+  assert.equal(unwrapData('"閉じていない'), '"閉じていない');
+  assert.equal(unwrapData('"a" と "b"'), '"a" と "b"');
+  assert.deepEqual(unwrapData(["a"]), ["a"]);
+  assert.equal(unwrapData("[1, 2]"), "[1, 2]");
+  await withServer(async ({ store, base }) => {
+    await post(`${base}/mcp?as=${encodeURIComponent("アリス")}`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "panel_add", arguments: { view: "md", data: '"# dyve\\n本文"', reason: "x" } } });
+    assert.equal(store.board.list()[0].data, "# dyve\n本文");
+  });
+});
+
 test("操作ログはファイルに積まれ、起動し直しても同じボードになる", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "board-"));
   const file = path.join(dir, "log.jsonl");
@@ -102,4 +117,32 @@ test("エージェントの起こし方：役割ごとの道具と、名乗り�
   const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
   assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
   assert.match(m[m.indexOf("--append-system-prompt") + 1], /ボードマネージャ/);
+  assert.ok(!m.includes("--model"));
+  const r = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x", {}, { room: "/repo/x" });
+  assert.match(r[r.indexOf("--append-system-prompt") + 1], /リポジトリ \/repo\/x/);
+});
+
+test("エージェントの起こし方：前置きを固定してキャッシュを効かせる", () => {
+  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x");
+  assert.ok(t.includes("--exclude-dynamic-system-prompt-sections"));
+  assert.equal(t[t.indexOf("--output-format") + 1], "json");
+  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
+  assert.ok(!m.includes("--exclude-dynamic-system-prompt-sections"));
+  // 清書係は起こしっぱなしの会話で、発言を書き換える道具だけ
+  const s = claudeArgs({ role: "scribe", name: "scribe" }, "http://x", { scribe: "haiku" }, { stream: true });
+  assert.equal(s[s.indexOf("--input-format") + 1], "stream-json");
+  assert.equal(s[s.indexOf("--model") + 1], "haiku");
+  assert.deepEqual(s.slice(s.indexOf("--allowedTools") + 1), ["mcp__board__panel_edit"]);
+  assert.match(s[s.indexOf("--append-system-prompt") + 1], /清書係/);
+});
+
+test("エージェントの起こし方：役割ごとのモデル", () => {
+  const models = { manager: "haiku", task: "opus" };
+  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x", models);
+  assert.equal(m[m.indexOf("--model") + 1], "haiku");
+  assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
+  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", models);
+  assert.equal(t[t.indexOf("--model") + 1], "opus");
+  const n = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", { manager: "haiku" });
+  assert.ok(!n.includes("--model"));
 });

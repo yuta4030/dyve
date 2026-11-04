@@ -1,0 +1,126 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { claudeArgs, claudeSpawner, updateApp, workspace, integrate } from "../src/agents.js";
+import { Store } from "../src/store.js";
+import { Waker } from "../src/waker.js";
+
+// 外にはつながず、手元に作った git リポジトリで試す
+function repo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-dev-"));
+  const room = path.join(dir, "room");
+  fs.mkdirSync(room);
+  const git = (...a) => execFileSync("git", ["-C", room, ...a], { encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  git("config", "user.email", "t@example.com");
+  git("config", "user.name", "t");
+  fs.writeFileSync(path.join(room, "a.txt"), "a\n");
+  git("add", ".");
+  git("commit", "-q", "-m", "init");
+  return { dir, room, git };
+}
+
+test("開発の道具：書けるが push はできない。控室はいまも読むだけ", () => {
+  const d = claudeArgs({ role: "dev", name: "アリス", prompt: "直して" }, "http://x", { task: "opus" });
+  const allowed = d.slice(d.indexOf("--allowedTools") + 1);
+  assert.ok(allowed.includes("Edit") && allowed.includes("Bash(node --test:*)") && allowed.includes("Bash(git commit:*)"));
+  assert.ok(!allowed.some((t) => /push|Bash\)$|^Bash$/.test(t)));
+  assert.ok(d.slice(d.indexOf("--disallowedTools") + 1).includes("Bash(git push:*)"));
+  assert.equal(d[d.indexOf("--model") + 1], "opus");
+  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "調べて" }, "http://x");
+  assert.ok(!t.includes("Edit") && !t.includes("Write"));
+});
+
+test("開発の仕事は、仕事ごとの worktree とブランチで起こし、同じ仕事なら同じ作業場を使う", async () => {
+  const { dir, room } = repo();
+  const workDir = path.join(dir, "work");
+  const ws = workspace({ room, workDir, taskId: "p7", now: new Date("2026-11-03T01:02:00Z") });
+  assert.equal(ws.branch, "dyve/board-p7-20261103-0102");
+  assert.equal(ws.base, "main");
+  assert.ok(fs.existsSync(path.join(ws.dir, "a.txt")));
+  assert.equal(workspace({ room, workDir, taskId: "p7" }).dir, ws.dir);
+  assert.notEqual(workspace({ room, workDir, taskId: "p70" }).dir, ws.dir);
+  // claude の代わりに true を起こし、作業場で起きたことと、指示に作業場が書かれたことを見る
+  const logDir = path.join(dir, "logs");
+  const spawn = claudeSpawner({ cmd: "true", room, staff: path.join(dir, "staff"), workDir, boardUrl: "http://x", logDir });
+  const r = await spawn({ role: "dev", name: "アリス", taskId: "p7", prompt: "直して" }).done;
+  assert.equal(r.code, 0);
+  const log = fs.readFileSync(path.join(logDir, fs.readdirSync(logDir)[0]), "utf8");
+  assert.match(log, new RegExp(`in ${ws.dir}`));
+  assert.match(log, /ブランチ：dyve\/board-p7-/);
+  // ボードが違えば、同じ id でも別の作業場
+  assert.notEqual(workspace({ room, workDir, taskId: "p7", board: "other" }).dir, ws.dir);
+  // git でない部屋なら、作業場を作れなかったと返す（落ちたままにしない）
+  const bad = claudeSpawner({ cmd: "true", room: dir, staff: path.join(dir, "staff"), workDir, boardUrl: "http://x" });
+  const e = await bad({ role: "dev", name: "ボブ", taskId: "p9", prompt: "x" }).done;
+  assert.match(e.error, /作業場を作れませんでした/);
+});
+
+test("使う dyve を別の置き場に切り出し、人が決めたときだけ更新する", () => {
+  const { dir, room, git } = repo();
+  const app = path.join(dir, "app");
+  const first = updateApp({ room, app });
+  assert.equal(first.created, true);
+  assert.equal(fs.readFileSync(path.join(app, "a.txt"), "utf8"), "a\n");
+  fs.writeFileSync(path.join(room, "a.txt"), "b\n");
+  git("commit", "-qam", "b");
+  // 作る側が進んでも、使う側は更新するまで変わらない
+  assert.equal(fs.readFileSync(path.join(app, "a.txt"), "utf8"), "a\n");
+  const next = updateApp({ room, app });
+  assert.equal(next.created, false);
+  assert.equal(fs.readFileSync(path.join(app, "a.txt"), "utf8"), "b\n");
+  fs.writeFileSync(path.join(app, "a.txt"), "local\n");
+  assert.throws(() => updateApp({ room, app }), /手を入れた跡/);
+});
+
+test("取り込む：マージコミットで取り込み、作業場とブランチを片付ける。ぶつかったら元に戻す", () => {
+  const { dir, room, git } = repo();
+  const workDir = path.join(dir, "work");
+  assert.throws(() => integrate({ room, workDir, taskId: "p1" }), /見つからない/);
+  const a = workspace({ room, workDir, taskId: "p1" });
+  assert.throws(() => integrate({ room, workDir, taskId: "p1" }), /取り込むものがない/);
+  fs.writeFileSync(path.join(a.dir, "b.txt"), "b\n");
+  execFileSync("git", ["-C", a.dir, "add", "."]);
+  execFileSync("git", ["-C", a.dir, "commit", "-qm", "b を足す"]);
+  const r = integrate({ room, workDir, taskId: "p1" });
+  assert.equal(r.into, "main");
+  assert.equal(r.cleaned, true);
+  assert.ok(fs.existsSync(path.join(room, "b.txt")));
+  assert.match(git("log", "-1", "--format=%s"), /取り込み：dyve\/board-p1-/);
+  assert.equal(git("rev-list", "--count", "--merges", "HEAD").trim(), "1");
+  assert.ok(!fs.existsSync(a.dir));
+  // ぶつかる変更
+  const c = workspace({ room, workDir, taskId: "p2" });
+  fs.writeFileSync(path.join(c.dir, "a.txt"), "worktree\n");
+  execFileSync("git", ["-C", c.dir, "commit", "-qam", "w"]);
+  fs.writeFileSync(path.join(room, "a.txt"), "room\n");
+  git("commit", "-qam", "r");
+  assert.throws(() => integrate({ room, workDir, taskId: "p2" }), /取り込めなかった/);
+  assert.equal(git("status", "--porcelain").trim(), "");
+  assert.equal(fs.readFileSync(path.join(room, "a.txt"), "utf8"), "room\n");
+});
+
+test("人が開発の提案を受け入れたら取り込み、結果をボードに置く。調べものの提案や AI の操作では取り込まない", async () => {
+  const store = new Store();
+  const calls = [];
+  const integrate = async (x) => { calls.push(x); if (x.taskId === "bad") throw new Error("ぶつかった"); return { branch: "dyve/b", into: "main", commit: "abc1234", cleaned: true }; };
+  const w = new Waker({ store, spawn: () => ({ done: new Promise(() => {}), kill() {} }), integrate, pause: 1e6, slots: 0 }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "直す", write: true } }, reason: "x" }).op.panel.id;
+  const p = store.apply({ by: "アリス", type: "add", panel: { view: "list", state: "proposal", about: t, data: ["直した"] }, reason: "x" }).op.panel.id;
+  const q = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる" } }, reason: "x" }).op.panel.id;
+  const r = store.apply({ by: "ボブ", type: "add", panel: { view: "list", state: "proposal", about: q, data: ["案"] }, reason: "x" }).op.panel.id;
+  store.apply({ by: "human", type: "edit", panel: { id: r, state: "done" } });
+  store.apply({ by: "human", type: "edit", panel: { id: p, state: "done" } });
+  await new Promise((ok) => setTimeout(ok, 10));
+  assert.deepEqual(calls, [{ board: "board", taskId: t }]);
+  const note = store.board.list().find((x) => x.about === p && x.by === "board");
+  assert.match(note.data, /取り込みました：dyve\/b → main（abc1234）/);
+  // もう一度 done にしても取り込み直さない（前が proposal でないので）
+  store.apply({ by: "human", type: "edit", panel: { id: p, state: "done" } });
+  await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(calls.length, 1);
+  w.stop();
+});

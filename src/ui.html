@@ -6,52 +6,185 @@
 <title>ボード</title>
 <style>
 :root {
-  --bg: #f6f5f1; --card: #ffffff; --ink: #1f2328; --mute: #6b6f76; --line: #d9d7d0;
-  --accent: #2f6fdb; --accent-soft: #e6eefc; --warn: #b4560f; --warn-soft: #fbefe4; --ok: #2b7a4b;
-  --radius: 10px; --gap: 12px;
+  /* いつもダーク。強調色は彩度を落として目立たせすぎない（アリスの案 p1u） */
+  color-scheme: dark;
+  --bg: #0f1113; --card: #181a1e; --ink: #d4d7dc; --mute: #7d838b; --line: #2a2e34;
+  --accent: #6f86b3; --accent-soft: #1a2130; --warn: #d8995a; --warn-soft: #2e2318; --ok: #6fb38a;
+  --radius: 10px; --gap: 10px; --row: 44px;
 }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #16181b; --card: #202328; --ink: #e7e9ec; --mute: #9aa0a8; --line: #353a41;
-          --accent: #7aa7ff; --accent-soft: #1f2b44; --warn: #f0a35e; --warn-soft: #3a2a1c; --ok: #6fcf97; }
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
-header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-         padding: 10px 16px; background: color-mix(in srgb, var(--bg) 92%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
-header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-#live { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
-.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 12px;
-        border: 1px solid var(--line); color: var(--mute); background: var(--card); white-space: nowrap; }
-.chip.busy::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: .25; } }
-@media (prefers-reduced-motion: reduce) { .chip.busy::before { animation: none; } }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+html, body { height: 100%; }
+body { margin: 0; height: 100dvh; overflow: hidden; background: var(--bg); color: var(--ink);
+       font: 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
 button { font: inherit; font-size: 13px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
          padding: 3px 10px; cursor: pointer; min-height: 30px; }
 button:hover { border-color: var(--mute); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent-soft); border-color: var(--line); color: var(--ink); }
 button.icon { min-height: 26px; padding: 0 6px; border-color: transparent; background: transparent; color: var(--mute); }
 button.icon:hover { color: var(--ink); border-color: var(--line); }
-button[aria-pressed="true"] { color: var(--accent); }
+button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 a { color: var(--accent); }
+.empty { color: var(--mute); text-align: center; margin: 8% 8px 0; font-size: 14px; }
 
-main { max-width: 1180px; margin: 0 auto; padding: 16px 16px 180px; }
-.empty { color: var(--mute); text-align: center; margin-top: 18vh; }
-.row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--gap); margin-bottom: var(--gap); align-items: start; }
-.row > .side { display: flex; flex-direction: column; gap: 8px; }
-.row > .side:empty { display: none; }
-.row:has(> .side:empty) { grid-template-columns: minmax(0, 1fr); }
-@media (max-width: 760px) { .row { grid-template-columns: minmax(0, 1fr); } .row > .side { padding-left: 16px; } }
+/* ── 画面は全部タイル。並べ方と大きさは見る人が決め、ブラウザに覚える ── */
+#grid { --cols: 24; height: 100%; overflow-y: auto; padding: var(--gap); display: grid; gap: var(--gap);
+        grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: var(--row); }
+/* 動かしているあいだだけ、ます目を薄く見せる */
+#grid.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) - 1px); background-attachment: local; }
+.tile { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+        background: color-mix(in srgb, var(--card) 55%, var(--bg)); border: 1px solid var(--line); border-radius: var(--radius); }
+.tile[hidden] { display: none; }
+.tile.dragging { opacity: .6; outline: 2px dashed var(--accent); }
+.tile-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 2px 8px 0 6px; min-height: 28px;
+             font-size: 12px; color: var(--mute); cursor: grab; user-select: none; touch-action: none; }
+.tile-head h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.tile-head .grip { letter-spacing: -2px; opacity: .5; }
+.tile-head .badge { color: var(--accent); }
+.tile-head .ctl { margin-left: auto; display: flex; align-items: center; gap: 0; cursor: default; }
+.tile-head .ctl button { min-height: 22px; padding: 0 5px; font-size: 12px; opacity: .35; transition: opacity .15s; }
+.tile:hover .tile-head .ctl button, .tile-head .ctl button:focus-visible, .tile-head .ctl button[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .tile-head .ctl button { opacity: 1; } }
+.tile-head .lockmark { display: none; color: var(--mute); }
+.tile.locked .tile-head .lockmark { display: inline-flex; }
+.tile.locked .tile-head { cursor: default; }
+.tile.locked .tile-head .grip { visibility: hidden; }
+.tile.locked .sizer { display: none; }
+/* タイルの歯車：奥まった設定 */
+.tile-head [data-ctl="menu"] svg { vertical-align: -2px; }
+.opts { position: absolute; z-index: 5; top: 28px; right: 6px; min-width: 190px; display: flex; flex-direction: column; gap: 6px;
+        padding: 8px 10px; font-size: 12px; color: var(--mute); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+        box-shadow: 0 6px 24px rgb(0 0 0 / .35); }
+.opts[hidden] { display: none; }
+.opts .row { display: flex; align-items: center; gap: 4px; }
+.opts .row > span:first-child { flex: 1; }
+.opts button { min-height: 24px; padding: 0 8px; font-size: 12px; }
+.opts .zoom { width: 4.2em; font: inherit; font-size: 12px; text-align: right; color: var(--ink); background: var(--bg);
+              border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+.opts select { font: inherit; font-size: 12px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+.tile-body { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 10px; }
+.sizer { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none;
+         background: linear-gradient(135deg, transparent 55%, var(--mute) 55%, var(--mute) 62%, transparent 62%, transparent 75%, var(--mute) 75%, var(--mute) 82%, transparent 82%);
+         opacity: .5; border-bottom-right-radius: var(--radius); }
+.sizer:hover { opacity: 1; }
+@media (max-width: 760px) {
+  #grid { grid-template-columns: minmax(0, 1fr); }
+  .tile { grid-column: 1 / -1 !important; grid-row: span var(--h) !important; }
+}
+
+/* トーク：発言の流れと入力 */
+.tile[data-tile="talk"] .tile-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+#timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px; display: flex; flex-direction: column; gap: 6px; }
+#input { flex: none; border-top: 1px solid var(--line); padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 6px; }
+#msg { width: 100%; resize: none; min-height: 36px; max-height: 30vh; font: inherit; color: var(--ink); background: var(--card);
+       border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
+#msg:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#input .bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mute); }
+#input .bar .grow { flex: 1; min-width: 0; }
+#input label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+#err { color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 状況：頭文字のアイコン。動いているあいだは輪が回る */
+#status { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.ava { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 46px; min-height: 0; padding: 0;
+       border: none; background: none; color: var(--mute); font-size: 11px; }
+/* アイコンは状況とトークで同じもの（ini()）。大きさだけ変える */
+.ini { position: relative; flex: none; display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+       border: 2px solid var(--line); background: var(--card); color: var(--ink); font-size: 14px; font-weight: 600; }
+.ini.sm { width: 20px; height: 20px; border-width: 1px; font-size: 10px; }
+.ava.busy { color: var(--ink); }
+.ava.busy .ini { border-color: var(--accent-soft); color: var(--accent); }
+.ava.busy .ini::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid transparent;
+                        border-top-color: var(--accent); animation: spin .9s linear infinite; }
+.ava.wait .ini { border-style: dashed; border-color: var(--mute); }
+button.ava { cursor: pointer; }
+.ava.to { color: var(--accent); }
+.ava.to .ini { border-color: var(--accent); background: var(--accent-soft); }
+#to { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
+dv-panel .meta .to { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
+dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
+/* トーク：宛てた相手の返事は、その発言のすぐ下に */
+.reply { display: flex; align-items: flex-start; gap: 6px; width: 100%; min-height: 0; margin: -2px 0 0 14px; padding: 2px 4px; border: none; background: none;
+         text-align: left; font-size: 13px; color: var(--ink); }
+.reply .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding-top: 1px; }
+.reply.wait .t { color: var(--mute); }
+.reply:hover .t { text-decoration: underline; }
+.topics { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.topics button { min-height: 0; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 11px; color: var(--mute); }
+.topics button:hover { color: var(--ink); }
+/* 話題：話題の欄の群の頭になる */
+dv-topic h3 { margin: 0; font-size: 15px; font-weight: 700; }
+dv-topic p { margin: 2px 0 0; color: var(--mute); }
+#doing { width: 100%; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--mute); }
+#doing li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spin { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%;
+        border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin, .ava.busy .ini::after { animation: none; } .ava.busy .ini { border-color: var(--accent); } }
+
+/* 残量 */
+.meter { margin-bottom: 8px; font-size: 13px; }
+.meter .row { display: flex; justify-content: space-between; gap: 8px; }
+.meter .row .when { color: var(--mute); font-size: 12px; }
+.meter .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 2px; }
+.meter .bar > span { display: block; height: 100%; background: var(--ok); }
+.meter.low .bar > span { background: var(--warn); }
+
+/* dyve 設定：アイコンの並び */
+#tools { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+#tools .acts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+#tools .ib { display: inline-grid; place-items: center; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 8px;
+             border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; }
+#tools .ib:hover { border-color: var(--mute); }
+#tools .pick { display: inline-flex; align-items: center; gap: 4px; color: var(--mute); }
+#tools select { font: inherit; font-size: 12px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; max-width: 14em; }
+#tools .closed { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: var(--mute); font-size: 12px; }
+#tools .closed button { min-height: 24px; padding: 0 8px; font-size: 12px; }
+
+#toolsMore { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+#toolsMore svg, .opts [data-ctl="lock"] svg { vertical-align: -2px; }
+/* 話題の欄：話題ごと（話題がなければ元の発言ごと）の群 */
+.group { margin-bottom: 14px; }
+.group > .src { display: block; width: 100%; min-height: 0; padding: 0 2px; margin-bottom: 4px; border: none; background: none; text-align: left;
+                font-size: 12px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group > .src:hover { color: var(--ink); }
+.group > .items { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.group > .items > dv-panel { flex: none; width: 100%; max-width: 100%; min-width: 200px; min-height: 0; resize: both; overflow: auto; }
+iframe.uview { display: block; width: 100%; border: 0; background: transparent; }
+.src-line { margin: 2px 0 4px; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mute); overflow-wrap: anywhere; }
+/* 済みの仕事は畳む。見出しを押すと開く */
+dv-panel.folded > :not(.meta) { display: none; }
+dv-panel.folded { padding-block: 4px; opacity: .75; }
+/* 最小化：見出しの一行だけにする（見る人が決める。ボードのデータには持たない） */
+dv-panel.min > :not(.meta) { display: none; }
+dv-panel.min { height: auto !important; padding-block: 4px; resize: none; }
+dv-panel .fold { color: var(--mute); }
+.hl { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius); }
 
 dv-panel { display: block; position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
 dv-panel .meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mute); min-height: 22px; }
 dv-panel .meta .who { font-weight: 600; }
 dv-panel .meta .tools { margin-left: auto; display: flex; gap: 2px; opacity: .35; transition: opacity .15s; }
 dv-panel:hover > .meta .tools, dv-panel:focus-within > .meta .tools { opacity: 1; }
+@media (hover: none) { dv-panel .meta .tools { opacity: 1; } }
 dv-panel .kids { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 dv-panel .kids:empty { display: none; }
+/* 話題の中のパネルは自由配置：見出しをつまんで動かす。置き場所は見る人のブラウザに覚える */
+dv-panel .kids.free { display: block; position: relative; min-height: 40px; }
+.kids.free > dv-panel { position: absolute; width: min(360px, 100%); min-width: 160px; resize: both; overflow: auto; }
+.kids.free > dv-panel > .meta { cursor: grab; touch-action: none; }
+.kids.free > dv-panel.dragging { z-index: 2; cursor: grabbing; box-shadow: 0 4px 16px rgb(0 0 0 / .15); }
 dv-panel dv-panel { background: color-mix(in srgb, var(--card) 70%, var(--bg)); }
 dv-panel.human { border-left: 3px solid var(--ink); }
 dv-panel.pinned { box-shadow: inset 0 0 0 1px var(--ink); }
+#timeline dv-panel { padding: 4px 10px 6px; cursor: pointer; }
+#timeline dv-panel .meta { min-height: 18px; }
+#timeline dv-panel .meta .who { display: none; }
+#summary dv-panel { border: none; background: none; padding: 0; }
+#summary dv-panel > .meta .who { display: none; }
+dv-summary .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 4px 16px; }
+dv-summary h3 { margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--mute); }
+dv-summary ul { margin: 0; padding-left: 1.1em; }
+.refs { display: inline-flex; align-items: center; gap: 4px; }
 /* 印：色だけに頼らず、線と記号でも見分ける */
 dv-panel.notice { border-color: var(--accent); background: linear-gradient(var(--accent-soft), var(--accent-soft)) top / 100% 3px no-repeat, var(--card); }
 dv-panel.untouched { border-style: dashed; border-color: var(--mute); }
@@ -68,72 +201,140 @@ dv-panel.waiting { border: 3px double var(--warn); }
 .body pre { margin: 0; font-size: 12px; overflow-x: auto; }
 .orig { margin-top: 6px; font-size: 13px; color: var(--mute); border-left: 2px solid var(--line); padding-left: 8px; white-space: pre-wrap; }
 .task-to { color: var(--mute); font-size: 13px; }
-
-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; background: var(--bg); border-top: 1px solid var(--line); padding: 10px 16px 14px; }
-footer .inner { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; }
-footer textarea { width: 100%; resize: vertical; min-height: 58px; max-height: 40vh; font: inherit; color: var(--ink); background: var(--card);
-                  border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
-footer textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-footer .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--mute); }
-footer .bar .grow { flex: 1; }
-footer label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-#err { color: var(--warn); }
+.ask > summary { cursor: pointer; color: var(--mute); font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+.ask > .body { margin-top: 4px; }
 </style>
 </head>
 <body>
-<header>
-  <h1 id="title"></h1>
-  <div id="live" aria-live="polite"></div>
-  <button id="seenAll"></button>
-  <a id="export" href="/api/export.md"></a>
-</header>
-<main id="board"></main>
-<footer>
-  <div class="inner">
-    <textarea id="msg" rows="2"></textarea>
-    <div class="bar">
-      <label><input type="checkbox" id="stream"> <span id="streamLabel"></span></label>
-      <button id="mic" aria-pressed="false" hidden></button>
-      <span id="hint"></span>
-      <span class="grow"></span>
-      <span id="err" role="status"></span>
-      <button id="send" class="primary"></button>
+<main id="grid">
+  <section class="tile" data-tile="talk">
+    <div class="tile-body">
+      <div id="timeline"></div>
+      <div id="input">
+        <textarea id="msg" rows="1"></textarea>
+        <div class="bar">
+          <button id="mic" aria-pressed="false" hidden></button>
+          <button id="to" hidden></button>
+          <span class="grow"><span id="err" role="status"></span></span>
+          <button id="send" class="primary"></button>
+        </div>
+      </div>
     </div>
-  </div>
-</footer>
+  </section>
+  <section class="tile" data-tile="summary"><div class="tile-body" id="summary"></div></section>
+  <section class="tile" data-tile="status"><div class="tile-body"><div id="status" aria-live="polite"></div></div></section>
+  <section class="tile" data-tile="quota"><div class="tile-body" id="quota"></div></section>
+  <section class="tile" data-tile="results"><div class="tile-body" id="board"></div></section>
+  <section class="tile" data-tile="tools">
+    <div class="tile-body">
+      <div id="tools">
+        <div class="acts">
+          <button class="ib" id="seenAll"></button>
+          <a class="ib" id="export" href="/api/export.md"></a>
+          <button class="ib" id="newBoard"></button>
+          <button class="ib" id="restart"></button>
+          <label class="pick" id="boardPick"><span></span><select id="boards"></select></label>
+        </div>
+        <div id="toolsMore">
+          <div class="row"><span id="densityLabel"></span><select id="density"></select></div>
+          <div class="row"><button id="resetLayout"></button></div>
+        </div>
+        <div class="closed" id="closed"></div>
+      </div>
+    </div>
+  </section>
+</main>
 <script type="module">
 // 画面の言葉はここにまとめる
 const L = {
-  you: "あなた", manager: "マネージャ", board: "ボード",
-  send: "置く", placeholder: "考えていることをそのまま。話し終えて間があくと置かれます",
-  stream: "しゃべり流し", streamHint: "OS の音声入力（Mac は音声入力、Windows は Win+H）でも話せます",
-  micOn: "聞いています", micOff: "マイク",
-  empty: "まだ何もありません。下の欄に話すか書くと、ここに置かれます。",
-  export: "Markdown に書き出す", seenAll: "すべて見た",
-  managerBusy: "マネージャが整えています", managerWait: "間があいたら整えます",
-  agentBusy: (n, t) => `${n}：${t}`,
+  you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
+  tile: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", results: "話題", tools: "dyve 設定" },
+  move: "ドラッグで好きな場所へ", size: "ドラッグで大きさを変える",
+  smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
+  locked: "固定中", lockOn: "固定する", lockOff: "固定を外す",
+  folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）", unfold: "畳む",
+  lock: "固定する（動かない・大きさも変わらない）", unlock: "固定を外す", close: "閉じる（dyve 設定から戻せます）",
+  replyWait: "受け取りました", replyBusy: "取りかかっています…",
+  toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
+  toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
+  send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
+  micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
+  emptyTalk: "話すか書くと、ここに流れます。",
+  emptyResults: "整えたもの・調べた結果が、ここに置かれます。",
+  emptySummary: "話しはじめると、マネージャがここに要点をまとめます。",
+  export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
+  newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
+  boards: "ボードを切り替える", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
+  closed: "閉じたもの：", reopen: (n) => `＋ ${n}`,
+  restart: "更新して再起動（取り込んだ変更を使っている dyve に反映する）", restartAsk: "使っている dyve を更新して立て直しますか（走っているエージェントは止まります）",
+  restarting: "立て直しています…",
+  idle: "待機中", scribeBusy: "直しています", managerBusy: "整えています", managerWait: "間があいたら整えます", working: "動いています",
+  // アイコンの字。状況・トーク・宛先のどこでも ini() を通して描く。差し替えるならここと ini() だけ
+  initial: { scribe: "清", manager: "M", "アリス": "A", "ボブ": "B", "キャロル": "C", "デイブ": "D", "エレン": "E", "フランク": "F" },
+  quota: { five_hour: "5 時間枠", seven_day: "週" },
+  quotaLeft: (n) => `残り ${n}%`,
+  quotaReset: (d) => `${d} にリセット`,
+  quotaNone: "まだわかりません。清書係かマネージャが一度動くと出ます。",
+  sum: { points: "要点", decided: "決まったこと", open: "まだ決まっていない" },
+  refs: (n) => `→ ${n}`,
   mark: { notice: "● 知らせ", untouched: "○ 未着手", waiting: "◇ 受け入れ待ち" },
+  markShort: { notice: "●", untouched: "○", waiting: "◇" },
   state: { task: "仕事", proposal: "提案", done: "✓ 済み" },
   pin: "ピン留め", unpin: "ピン留めを外す", drop: "外す", dropAsk: "このパネルを外しますか（操作ログには残ります）",
-  accept: "受け入れる", orig: "元の文", origHide: "元の文を隠す", to: (n) => `宛先：${n}`,
+  accept: "受け入れる", orig: "元の文", origHide: "元の文を隠す", to: (n) => `宛先：${n}`, ask: "頼んだこと",
   refused: (m) => `できませんでした：${m}`,
+  resetSize: "大きさを戻す", resetPos: "並べ直す", minimize: "最小化", restore: "元に戻す",
+  toTile: "タイルに出す", gone: "このパネルはもうありません",
+  allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
+  every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
+  viewError: (m) => `この view で描けませんでした：${m}`,
 };
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
+// タイルの並びと大きさ（12 列の格子で、幅は列の数、高さは行の数）
+const TILES = ["talk", "summary", "status", "quota", "results", "tools"];
+// x・y は左上のます目（1 から）、w・h は列と行の数
+const HOME = {
+  talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
+  quota: { x: 10, y: 4, w: 3, h: 3 }, results: { x: 4, y: 7, w: 6, h: 9 }, tools: { x: 10, y: 7, w: 3, h: 3 },
+};
+// HOME は「ふつう」（24 列）のます目で書く。細かさを変えたら置き場所も同じ割合で直す
+const DENSITY = { 12: { row: 44, gap: 10 }, 24: { row: 18, gap: 8 }, 48: { row: 7, gap: 5 } };
+const ZOOM = { min: 0.1, max: 5, step: 0.1 };
 
 const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 const ICON = {
   pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"/><path d="M12 15v6"/></svg>',
+  gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   drop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  seen: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><path d="M9 12l2 2 4-4"/></svg>',
+  export: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
+  newBoard: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg>',
+  reset: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 17.5a3.5 3.5 0 1 0 1-2.5M14 13v2.5h2.5"/></svg>',
+  boards: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>',
+  restart: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
+  grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
-const S = { panels: [], marks: {}, live: null, title: "", seen: {} };
-try { S.seen = JSON.parse(localStorage.getItem("seen") || "{}"); } catch {}
-const saveSeen = () => { try { localStorage.setItem("seen", JSON.stringify(S.seen)); } catch {} };
+const S = { to: null, panels: [], marks: {}, live: null, names: [], title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
+// 見る人ごとの見た目（タイルの並び・大きさ、パネルの大きさ）。ボードのデータには持たない
+const keep = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+S.seen = {};
+const SIZES = keep("sizes", {});
+const MIN = new Set(keep("min", [])); // 最小化したパネルの id
+const POS = keep("pos", {}); // 話題の中のパネルの置き場所：id -> [x, y]（px）
+// 見た印はボードごとに覚える（id はボードごとに p1 から振られるため）
+const saveSeen = () => put(`seen:${S.name || ""}`, S.seen);
 const isPerson = (by) => by === "human";
-const who = (by) => isPerson(by) ? L.you : by === "manager" ? L.manager : by === "board" ? L.board : by;
+const who = (by) => isPerson(by) ? L.you : by === "manager" ? L.manager : by === "scribe" ? L.scribe : by === "board" ? L.board : by;
+const isWorking = (id) => !!S.live?.agents?.some((a) => a.task === id);
 const textOf = (d) => typeof d === "string" ? d : d?.text ?? JSON.stringify(d);
+// アイコン：ここだけで描く。絵に差し替えるときもここを直せば、状況・トーク・宛先がそろって変わる
+const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria-hidden="true">${esc(L.initial[key] || [...String(key)][0] || "?")}</span>`;
+const topicTitle = (p) => typeof p.data === "string" ? p.data : p.data?.title ?? textOf(p.data);
 
 // ── view：パネルの JSON の流し込み先。コンポーネントを書くのは本体だけ ──
 class View extends HTMLElement {
@@ -155,18 +356,90 @@ class TableView extends View {
       `<tbody>${v.rows.map((r) => `<tr>${r.map((c) => `<td>${linkify(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   }
 }
+// 仕事：マネージャからエージェントへの依頼文は読まなくてよいので畳んでおく（押すと開く。開いたものは描き直しても開いたまま）
+const ASK_OPEN = new Set();
 class TaskView extends View {
   render(v) {
-    this.innerHTML = `<div class="body">${linkify(textOf(v))}</div>${v?.to ? `<div class="task-to">${esc(L.to(v.to))}</div>` : ""}`;
+    const id = this.panel?.id;
+    this.innerHTML = `<details class="ask"${ASK_OPEN.has(id) ? " open" : ""}><summary>${esc(L.ask)}${v?.to ? `<span class="task-to">${esc(L.to(v.to))}</span>` : ""}</summary><div class="body">${linkify(textOf(v))}</div></details>`;
+    $("details", this).addEventListener("toggle", (e) => { if (e.target.open) ASK_OPEN.add(id); else ASK_OPEN.delete(id); });
   }
 }
+// いまの要点：{ points, decided, open } を三つの欄に並べる
+class SummaryView extends View {
+  render(v) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return super.render(v);
+    const cols = Object.keys(L.sum).filter((k) => Array.isArray(v[k]) && v[k].length);
+    this.innerHTML = `<div class="body cols">${cols.map((k) => `<div><h3>${esc(L.sum[k])}</h3><ul>${v[k].map((x) => `<li>${linkify(textOf(x))}</li>`).join("")}</ul></div>`).join("")}</div>`;
+  }
+}
+customElements.define("dv-summary", SummaryView);
+// 話題：仕事を束ねる見出し。data は { title, note? } か文字列
+class TopicView extends View {
+  render(v) {
+    const note = typeof v === "object" && v ? v.note : "";
+    this.innerHTML = `<div class="body"><h3>${esc(typeof v === "string" ? v : v?.title ?? "")}</h3>${note ? `<p>${linkify(note)}</p>` : ""}</div>`;
+  }
+}
+customElements.define("dv-topic", TopicView);
 customElements.define("dv-json", View);
 customElements.define("dv-say", class extends TextView {});
 customElements.define("dv-text", TextView);
 customElements.define("dv-list", ListView);
 customElements.define("dv-table", TableView);
 customElements.define("dv-task", TaskView);
+// 本体の view（最小限）。それ以外は利用者のパネル置き場の view を囲いの中で描く
 const viewTag = (v) => customElements.get(`dv-${v}`) && /^[a-z][a-z0-9]*$/.test(v) ? `dv-${v}` : "dv-json";
+const isUserView = (v) => S.views.has(v) && !customElements.get(`dv-${v}`);
+
+// ── 利用者の view：sandbox の iframe（allow-scripts だけ）で描く。外のページやボードの API には触れない ──
+const FRAME_H = new Map(); // パネル id -> いちばん最近の高さ（描き直しでがたつかないように）
+const THEME = ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--accent-soft", "--warn", "--warn-soft", "--ok"];
+const RUNTIME = `window.dyve = (() => {
+  let fn = null, n = 0;
+  const wait = new Map(), root = document.getElementById("root"), init = JSON.parse(document.getElementById("init").textContent);
+  const ctx = {
+    panel: init.panel,
+    board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }),
+    open: (id) => parent.postMessage({ dyve: "open", id }, "*"),
+  };
+  const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch (e) { root.textContent = init.err + e.message; } };
+  addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
+  addEventListener("error", (e) => { root.textContent = init.err + e.message; });
+  new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
+  return { view: (f) => { fn = f; draw(); } };
+})();`;
+function userFrame(p, data) {
+  const f = document.createElement("iframe");
+  f.className = "uview";
+  f.setAttribute("sandbox", "allow-scripts");
+  f.title = p.view;
+  f.dataset.id = p.id;
+  f.style.height = `${FRAME_H.get(p.id) || 60}px`;
+  const cs = getComputedStyle(document.documentElement);
+  const vars = THEME.map((v) => `${v}:${cs.getPropertyValue(v)}`).join(";");
+  const safe = (t) => String(t).replace(/<\/(script)/gi, "<\\/$1");
+  const init = JSON.stringify({ data, panel: p, err: L.viewError("") }).replace(/</g, "\\u003c");
+  f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{${vars};color-scheme:dark}html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}</style>` +
+    `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe(S.views.get(p.view).src)}<\/script></body>`;
+  return f;
+}
+// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい（書くことはできない）
+addEventListener("message", (e) => {
+  const f = $$("iframe.uview").find((x) => x.contentWindow === e.source);
+  const m = e.data || {};
+  if (!f || typeof m.dyve !== "string") return;
+  if (m.dyve === "size" && Number.isFinite(m.h)) {
+    const h = Math.min(4000, Math.max(20, Math.ceil(m.h)));
+    FRAME_H.set(f.dataset.id, h);
+    f.style.height = `${h}px`;
+  } else if (m.dyve === "board") {
+    const panels = S.panels.map((p) => (S.feeds[p.id]?.data !== undefined ? { ...p, data: S.feeds[p.id].data } : p));
+    e.source.postMessage({ dyve: "board", k: m.k, panels }, "*");
+  } else if (m.dyve === "open" && typeof m.id === "string") {
+    reveal(panelOf(m.id));
+  }
+});
 
 // ── パネルの封筒 ──
 class PanelEl extends HTMLElement {}
@@ -181,33 +454,96 @@ function markOf(p) {
 function panelEl(p, kids) {
   const el = document.createElement("dv-panel");
   const mark = markOf(p);
-  el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark].filter(Boolean).join(" ");
+  const minable = p.view !== "say" && p.view !== "summary";
+  el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark, minable && MIN.has(p.id) && "min"].filter(Boolean).join(" ");
   el.dataset.id = p.id;
   const tags = [];
+  if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
   if (mark) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
+  if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(p.to)}</span>`);
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
+  // 済みの仕事は結果ごと畳む。中に印（まだ見ていない知らせ・受け入れ待ちの提案）があれば畳まない
+  const sub = [];
+  const walk = (id) => { for (const k of kids(id)) { sub.push(k); walk(k.id); } };
+  walk(p.id);
+  const done = (p.view === "task" || p.view === "topic") && p.state === "done";
+  if (done && !S.unfold.has(p.id) && !sub.some((x) => markOf(x))) {
+    el.classList.add("folded");
+    tags.push(`<span class="fold">${esc(L.folded(sub.filter((x) => !isPerson(x.by)).length))}</span>`);
+  }
+  const feed = S.feeds[p.id];
+  const data = feed?.data !== undefined ? feed.data : p.data;
+  if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
   el.innerHTML = `<div class="meta"><span class="who">${esc(who(p.by))}</span>${tags.join("")}
     ${p.state === "proposal" ? `<button data-act="accept">${L.accept}</button>` : ""}
+    ${p.source && !feed?.approved ? `<button data-act="allow" title="${esc(L.allowTitle)}">${L.allow}</button>` : ""}
     <span class="tools">
       ${edited ? `<button class="icon" data-act="orig">${L.orig}</button>` : ""}
+      ${SIZES[p.id] ? `<button class="icon" data-act="unsize">${L.resetSize}</button>` : ""}
+      ${p.view === "topic" && kids(p.id).some((k) => POS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
+      ${done && !el.classList.contains("folded") ? `<button class="icon" data-act="fold">${L.unfold}</button>` : ""}
+      ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
+      ${p.view !== "say" && !(LAYOUT.extra || []).includes(`panel:${p.id}`) ? `<button class="icon" data-act="tile">${L.toTile}</button>` : ""}
+      ${minable ? `<button class="icon" data-act="min" aria-pressed="${MIN.has(p.id)}" title="${MIN.has(p.id) ? L.restore : L.minimize}" aria-label="${MIN.has(p.id) ? L.restore : L.minimize}">${MIN.has(p.id) ? "▢" : "–"}</button>` : ""}
       <button class="icon" data-act="pin" aria-pressed="${!!p.pinned}" title="${p.pinned ? L.unpin : L.pin}" aria-label="${p.pinned ? L.unpin : L.pin}">${ICON.pin}</button>
       <button class="icon" data-act="drop" title="${L.drop}" aria-label="${L.drop}">${ICON.drop}</button>
     </span></div>`;
-  const view = document.createElement(viewTag(p.view));
-  view.data = p.data;
-  el.append(view);
+  // 流し込むコマンドは、何を走らせるかが見えるように出しておく
+  if (p.source) {
+    const line = document.createElement("div");
+    line.className = "src-line";
+    const when = feed?.error ? `⚠ ${feed.error}` : feed?.at ? L.ranAt(new Date(feed.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })) : "";
+    line.textContent = `$ ${p.source.shell}　${p.source.every ? L.every(p.source.every) : L.once}${when ? `　${when}` : ""}`;
+    el.append(line);
+  }
+  if (isUserView(p.view)) {
+    el.append(userFrame(p, data));
+  } else {
+    const view = document.createElement(viewTag(p.view));
+    view.panel = p;
+    view.data = data;
+    el.append(view);
+  }
   const box = document.createElement("div");
-  box.className = "kids";
-  for (const k of kids(p.id)) box.append(panelEl(k, kids));
+  box.className = p.view === "topic" ? "kids free" : "kids";
+  for (const k of kids(p.id)) {
+    const c = panelEl(k, kids);
+    if (p.view === "topic") {
+      const sz = SIZES[k.id];
+      if (sz) Object.assign(c.style, { width: `${sz[0]}px`, height: `${sz[1]}px` });
+      FREE.observe(c);
+    }
+    box.append(c);
+  }
   el.append(box);
   return el;
 }
 
-function render() {
-  const main = $("#board");
-  const atBottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+// 話題の中の自由配置：置き場所のあるものはそこへ、まだないものは下へ順に積む。中身の高さが変わったら置き直す
+function layoutFree(box) {
+  let bottom = 0;
+  const rest = [];
+  for (const el of box.children) {
+    const at = POS[el.dataset.id];
+    if (!at) { rest.push(el); continue; }
+    Object.assign(el.style, { left: `${at[0]}px`, top: `${at[1]}px` });
+    bottom = Math.max(bottom, at[1] + el.offsetHeight);
+  }
+  let y = bottom ? bottom + 8 : 0;
+  for (const el of rest) {
+    Object.assign(el.style, { left: "0px", top: `${y}px` });
+    y += el.offsetHeight + 8;
+  }
+  box.style.height = `${Math.max(bottom, y - 8, 0)}px`;
+}
+const FREE = new ResizeObserver((es) => {
+  for (const box of new Set(es.map((e) => e.target.parentElement).filter((b) => b?.matches(".kids.free")))) layoutFree(box);
+});
+
+// パネルを about でたどれる形にする（並びは追加順）
+function tree() {
   const ids = new Set(S.panels.map((p) => p.id));
   const by = new Map();
   for (const p of S.panels) {
@@ -215,42 +551,448 @@ function render() {
     if (!by.has(k)) by.set(k, []);
     by.get(k).push(p);
   }
-  const kids = (id) => by.get(id) || [];
-  main.innerHTML = "";
-  const top = kids(null);
-  if (!top.length) main.innerHTML = `<p class="empty">${esc(L.empty)}</p>`;
-  // 発言を左に、それについて置かれたものを右に浮かせる
-  for (const p of top) {
-    const row = document.createElement("div");
-    row.className = "row";
-    const head = panelEl(p, () => []);
-    const side = document.createElement("div");
-    side.className = "side";
-    for (const k of kids(p.id)) side.append(panelEl(k, kids));
-    row.append(head, side);
-    main.append(row);
-  }
-  // 引き戻さない：いちばん下を見ていたときだけ追いかける
-  if (atBottom) scrollTo({ top: document.body.scrollHeight });
+  return (id) => by.get(id) || [];
 }
 
-function renderLive() {
-  const lv = S.live, out = [];
-  if (lv?.manager) out.push(`<span class="chip busy">${esc(L.managerBusy)}</span>`);
-  else if (lv?.waitingManager) out.push(`<span class="chip">${esc(L.managerWait)}</span>`);
-  for (const a of lv?.agents || []) {
-    const t = S.panels.find((p) => p.id === a.task);
-    out.push(`<span class="chip busy">${esc(L.agentBusy(a.name, (t ? textOf(t.data) : "").slice(0, 24)))}</span>`);
+// 人の発言はトークに、要点は要点に、それ以外は話題の欄に。どこに出すかはデータに持たず導く
+function render() {
+  FREE.disconnect();
+  const kids = tree();
+  const desc = (id) => kids(id).flatMap((k) => [k, ...desc(k.id)]);
+  const top = kids(null);
+
+  // トーク：いちばん下を見ていたときだけ追いかける
+  const tl = $("#timeline");
+  const follow = tl.scrollTop + tl.clientHeight >= tl.scrollHeight - 40;
+  tl.innerHTML = "";
+  // トークに出すのは人の発言だけ（人が置いたほかのパネルは話題の欄へ）
+  const isSay = (p) => isPerson(p.by) && p.view === "say";
+  const said = top.filter(isSay);
+  if (!said.length) tl.innerHTML = `<p class="empty">${esc(L.emptyTalk)}</p>`;
+  // 発言から出た仕事が束ねられている話題（data.from から導く）
+  const topOf = (p) => { const seen = new Set(); while (p?.about && !seen.has(p.id)) { seen.add(p.id); p = S.panels.find((x) => x.id === p.about); } return p; };
+  const fromOf = (p) => Array.isArray(p.data?.from) ? p.data.from : [];
+  for (const p of said) {
+    const el = panelEl(p, () => []);
+    const d = desc(p.id);
+    if (d.length) {
+      const ms = d.map(markOf);
+      const m = ms.includes("waiting") ? "waiting" : ms.includes("notice") ? "notice" : null;
+      const r = document.createElement("span");
+      r.className = `refs mark${m ? ` ${m}` : ""}`;
+      r.innerHTML = `${d.some((x) => isWorking(x.id)) ? '<span class="spin" aria-hidden="true"></span>' : ""}${esc(L.refs(d.length))}${m ? ` ${L.markShort[m]}` : ""}`;
+      $(".meta .who", el).after(r);
+    }
+    const topics = [...new Set(S.panels.filter((x) => fromOf(x).includes(p.id)).map(topOf).filter((t) => t?.view === "topic"))];
+    if (topics.length) {
+      const r = document.createElement("span");
+      r.className = "topics";
+      r.innerHTML = topics.map((t) => `<button data-goto="${esc(t.id)}">→ ${esc(topicTitle(t))}</button>`).join("");
+      $(".meta .who", el).after(r);
+    }
+    tl.append(el);
+    // 宛てた相手の返事：その発言から出た直接の仕事に、相手が最初に置いた短い文
+    if (p.to) {
+      const t = S.panels.find((x) => x.view === "task" && x.data?.direct && (fromOf(x).at(-1) ?? x.about) === p.id);
+      const name = t?.data?.to || p.to;
+      const ans = t && S.panels.find((x) => x.about === t.id && x.by === name && typeof x.data === "string");
+      const text = ans ? ans.data : t && isWorking(t.id) ? L.replyBusy : t?.state === "done" ? "" : L.replyWait;
+      if (text) {
+        const b = document.createElement("button");
+        b.className = `reply${ans ? "" : " wait"}`;
+        if (t) b.dataset.goto = ans ? ans.id : t.id;
+        b.innerHTML = `${ini(name, "sm")}<span class="t">${esc(text)}</span>`;
+        tl.append(b);
+      }
+    }
   }
-  $("#live").innerHTML = out.join("");
+  if (follow) tl.scrollTop = tl.scrollHeight;
+
+  // いまの要点（いちばん新しいもの）
+  const sum = top.filter((p) => p.view === "summary").at(-1);
+  const sb = $("#summary");
+  sb.innerHTML = "";
+  if (sum) sb.append(panelEl(sum, kids));
+  else sb.innerHTML = `<p class="empty">${esc(L.emptySummary)}</p>`;
+
+  // 話題の欄：話題ごと（なければ発言ごと）に群にして、新しい群を上に。読んでいる群の位置は動かさない
+  const main = $("#board");
+  let anchor = null;
+  if (main.scrollTop > 0) {
+    const g = $$(":scope > .group", main).find((g) => g.offsetTop + g.offsetHeight > main.scrollTop);
+    if (g) anchor = [g.dataset.key, g.offsetTop - main.scrollTop];
+  }
+  const groups = [];
+  for (const p of top) {
+    if (p === sum) continue;
+    if (!isSay(p)) groups.push({ key: p.id, src: null, items: [p] });
+    else if (kids(p.id).length) groups.push({ key: p.id, src: p, items: kids(p.id) });
+  }
+  // 群は動きのあった順（話題は長く生きるので、作った順ではなく中で最後に動いた時で並べる）
+  const lastOf = (g) => Math.max(...g.items.flatMap((p) => [p, ...desc(p.id)]).map((p) => p.rev || 0), g.src?.rev || 0);
+  groups.sort((a, b) => lastOf(a) - lastOf(b));
+  main.innerHTML = "";
+  if (!groups.length) main.innerHTML = `<p class="empty">${esc(L.emptyResults)}</p>`;
+  for (const g of groups.reverse()) {
+    const box = document.createElement("div");
+    box.className = "group";
+    box.dataset.key = g.key;
+    if (g.src) box.innerHTML = `<button class="src" data-goto="${esc(g.src.id)}">← ${esc(textOf(g.src.data))}</button>`;
+    const items = document.createElement("div");
+    items.className = "items";
+    for (const p of g.items) {
+      const el = panelEl(p, kids), sz = SIZES[p.id];
+      if (sz) Object.assign(el.style, { width: `${sz[0]}px`, height: `${sz[1]}px` });
+      items.append(el);
+    }
+    box.append(items);
+    main.append(box);
+  }
+  if (anchor) {
+    const g = $$(":scope > .group", main).find((x) => x.dataset.key === anchor[0]);
+    if (g) main.scrollTop = g.offsetTop - anchor[1];
+  }
+  // パネルから出したタイル
+  for (const k of LAYOUT.extra || []) {
+    const t = tileOf(k);
+    if (!t) continue;
+    const p = S.panels.find((x) => x.id === k.slice(6));
+    $(".tile-head h2", t).textContent = p ? `${who(p.by)}・${p.view}` : k.slice(6);
+    const body = $(".tile-body", t);
+    body.innerHTML = "";
+    if (p) body.append(panelEl(p, kids)); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
+  }
+  const pending = S.panels.some((p) => !isPerson(p.by) && p !== sum && markOf(p));
+  $('.tile[data-tile="results"] .badge').textContent = pending ? "●" : "";
+}
+
+// 状況：清書係・マネージャ・控室の全員を頭文字で並べ、動いている人の輪を回す
+function renderLive() {
+  const lv = S.live || {};
+  const busy = new Map((lv.agents || []).map((a) => [a.name, a]));
+  const people = [
+    { key: "scribe", name: L.scribe, on: !!lv.scribe, what: lv.scribe ? L.scribeBusy : "" },
+    { key: "manager", name: L.manager, on: !!lv.manager, wait: !lv.manager && lv.waitingManager, what: lv.manager ? L.managerBusy : lv.waitingManager ? L.managerWait : "" },
+    ...(S.names || []).map((n) => {
+      const a = busy.get(n), t = a && S.panels.find((p) => p.id === a.task);
+      return { key: n, name: n, on: !!a, task: a?.task, what: t ? textOf(t.data) : "", agent: true };
+    }),
+  ];
+  // 控室のエージェントは押すとその人が宛先になる。清書係とマネージャは押せない
+  const ava = (x) => `<${x.agent ? `button data-to="${esc(x.name)}"${x.task ? ` data-task="${esc(x.task)}"` : ""} aria-pressed="${S.to === x.name}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}${S.to === x.name ? " to" : ""}" title="${esc(x.agent ? L.toAva(x.name, x.what || L.idle) : `${x.name}：${x.what || L.idle}`)}">` +
+    `${ini(x.key)}${esc(x.name)}</${x.agent ? "button" : "span"}>`;
+  const doing = people.filter((x) => x.what).map((x) => `<li>${esc(L.initial[x.key] || [...x.name][0])}：${esc(x.what)}</li>`).join("");
+  $("#status").innerHTML = people.map(ava).join("") + (doing ? `<ul id="doing">${doing}</ul>` : "");
+
+  // 残量：claude が流してくる利用枠から
+  const q = lv.quota;
+  const when = (sec) => {
+    const d = new Date(sec * 1000), same = d.toDateString() === new Date().toDateString();
+    return same ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+  const meters = q ? Object.keys(L.quota).filter((k) => q[k]).map((k) => {
+    const left = Math.max(0, Math.round(100 - q[k].utilization * 100));
+    return `<div class="meter${left < 20 ? " low" : ""}"><div class="row"><span>${esc(L.quota[k])}　${esc(L.quotaLeft(left))}</span>` +
+      `${q[k].resetsAt ? `<span class="when">${esc(L.quotaReset(when(q[k].resetsAt)))}</span>` : ""}</div>` +
+      `<div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${left}" aria-label="${esc(L.quota[k])}"><span style="width:${left}%"></span></div></div>`;
+  }).join("") : "";
+  $("#quota").innerHTML = meters || `<p class="empty">${esc(L.quotaNone)}</p>`;
+}
+
+// 人が押したときだけ、つながっている先を見せる
+function reveal(el) {
+  if (!el) return;
+  el.scrollIntoView({ block: "nearest" });
+  el.classList.add("hl");
+  setTimeout(() => el.classList.remove("hl"), 1600);
+}
+const panelOf = (id) => $$("dv-panel").find((x) => x.dataset.id === id);
+const groupOf = (id) => $$("#board > .group").find((x) => x.dataset.key === id);
+
+// ── タイル：見出しをつまんで好きな場所へ、右下の角で大きさ、見出しの右で文字の大きさと固定 ──
+// 置き場所はます目で持つ。重なったら、動かしたタイルを優先して重なった方を下へずらす。固定したタイルは動かない
+const grid = $("#grid");
+const LAYOUT = keep("layout2", null) || {};
+const tileOf = (k) => $(`.tile[data-tile="${CSS.escape(k)}"]`);
+const posOf = (k) => ({ ...(HOME[k] || { x: 1, y: 1, w: 8, h: 8 }), ...LAYOUT.pos?.[k] });
+// タイル：決まった六つと、利用者がパネルから出したもの（"panel:<id>"）
+const allTiles = () => [...TILES, ...(LAYOUT.extra || [])];
+const isPanelTile = (k) => k.startsWith("panel:");
+const isLocked = (k) => (LAYOUT.locked || []).includes(k);
+const dens = () => (DENSITY[LAYOUT.density] ? LAYOUT.density : 24);
+const zoomOf = (k) => LAYOUT.zoom?.[k] || 1;
+const saveLayout = () => put("layout2", LAYOUT);
+const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+// moved を優先して置き、ほかは重ならないところまで下へずらす（すき間はそのまま残す）
+function settle(pos, moved) {
+  const shown = allTiles().filter((k) => !tileOf(k).hidden);
+  const fixed = shown.filter((k) => isLocked(k));
+  const order = [...fixed, ...(moved && !fixed.includes(moved) ? [moved] : []), ...shown.filter((k) => !fixed.includes(k) && k !== moved).sort((a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x)];
+  const placed = [];
+  for (const k of order) {
+    const p = pos[k];
+    for (let hit; (hit = placed.find((q) => overlap(p, pos[q]))); ) p.y = pos[hit].y + pos[hit].h;
+    placed.push(k);
+  }
+  return pos;
+}
+function place(pos) {
+  for (const k of allTiles()) {
+    const p = pos[k], t = tileOf(k);
+    Object.assign(t.style, { gridColumn: `${p.x} / span ${p.w}`, gridRow: `${p.y} / span ${p.h}`, order: String(p.y * 100 + p.x) });
+    t.style.setProperty("--h", String(p.h));
+    $(".tile-body", t).style.zoom = String(zoomOf(k));
+    t.classList.toggle("locked", isLocked(k));
+    $(".zoom", t).value = String(Math.round(zoomOf(k) * 100));
+    const lk = $('[data-ctl="lock"]', t);
+    lk.setAttribute("aria-pressed", String(isLocked(k)));
+    lk.title = isLocked(k) ? L.unlock : L.lock;
+    lk.innerHTML = `${ICON.pin} ${esc(isLocked(k) ? L.lockOff : L.lockOn)}`;
+    for (const b of $$('[data-ctl="smaller"], [data-ctl="larger"], .zoom', t)) b.disabled = isLocked(k);
+  }
+}
+function applyLayout() {
+  const d = DENSITY[dens()];
+  grid.style.setProperty("--cols", String(dens()));
+  grid.style.setProperty("--row", `${d.row}px`);
+  grid.style.setProperty("--gap", `${d.gap}px`);
+  // パネルから出したタイルを作る・消す
+  for (const k of LAYOUT.extra || []) if (!tileOf(k)) setupTile(k);
+  for (const t of $$(".tile", grid)) if (isPanelTile(t.dataset.tile) && !(LAYOUT.extra || []).includes(t.dataset.tile)) t.remove();
+  for (const k of TILES) tileOf(k).hidden = (LAYOUT.hidden || []).includes(k) && k !== "tools";
+  const pos = Object.fromEntries(allTiles().map((k) => [k, posOf(k)]));
+  place(settle(pos, null));
+  const closed = TILES.filter((k) => tileOf(k).hidden);
+  $("#closed").innerHTML = closed.length ? `<span>${esc(L.closed)}</span>` + closed.map((k) => `<button data-reopen="${k}">${esc(L.reopen(L.tile[k]))}</button>`).join("") : "";
+  $("#density").value = String(dens());
+}
+// 細かさを変えたら、置き場所・大きさを同じ割合で直す（見た目の大きさを保つ）
+function setDensity(next) {
+  const r = next / dens();
+  if (r === 1) return;
+  const scale = (p) => ({ x: Math.max(1, Math.round((p.x - 1) * r) + 1), y: Math.max(1, Math.round((p.y - 1) * r) + 1), w: Math.max(2, Math.round(p.w * r)), h: Math.max(2, Math.round(p.h * r)) });
+  LAYOUT.pos = Object.fromEntries(allTiles().map((k) => [k, scale(posOf(k))]));
+  LAYOUT.density = next;
+  saveLayout();
+  applyLayout();
+}
+// ます目の大きさ（いまの幅で測る）
+function cells() {
+  const cs = getComputedStyle(grid), r = grid.getBoundingClientRect();
+  const gap = parseFloat(cs.columnGap) || 0, rowH = parseFloat(cs.gridAutoRows) || 44;
+  const cols = cs.gridTemplateColumns.split(" ").length;
+  const padL = parseFloat(cs.paddingLeft), padT = parseFloat(cs.paddingTop);
+  const colW = (grid.clientWidth - padL - parseFloat(cs.paddingRight) - gap * (cols - 1)) / cols;
+  return { cols, colW, rowH, gap, at: (cx, cy) => ({
+    x: Math.floor((cx - r.left - padL) / (colW + gap)) + 1,
+    y: Math.floor((cy - r.top - padT + grid.scrollTop) / (rowH + gap)) + 1,
+  }) };
+}
+// つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）
+function drag(e, k, handle, step) {
+  e.preventDefault();
+  handle.setPointerCapture(e.pointerId);
+  const c = cells();
+  if (c.cols === 1) return;
+  const start = Object.fromEntries(allTiles().map((x) => [x, posOf(x)]));
+  const p0 = start[k], at0 = c.at(e.clientX, e.clientY);
+  let last = start;
+  grid.classList.add("editing");
+  tileOf(k).classList.add("dragging");
+  const move = (ev) => {
+    const at = c.at(ev.clientX, ev.clientY);
+    const pos = Object.fromEntries(allTiles().map((x) => [x, { ...start[x] }]));
+    pos[k] = step(p0, at.x - at0.x, at.y - at0.y);
+    last = settle(pos, k);
+    place(last);
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", () => {
+    handle.removeEventListener("pointermove", move);
+    grid.classList.remove("editing");
+    tileOf(k).classList.remove("dragging");
+    LAYOUT.pos = Object.fromEntries(allTiles().map((x) => [x, last[x]]));
+    saveLayout();
+  }, { once: true });
+}
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+function setupTile(k) {
+  let t = tileOf(k);
+  if (!t) {
+    t = document.createElement("section");
+    t.className = "tile";
+    t.dataset.tile = k;
+    t.innerHTML = `<div class="tile-body"></div>`;
+    grid.append(t);
+  }
+  const head = document.createElement("div");
+  head.className = "tile-head";
+  head.title = L.move;
+  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k])}</h2><span class="badge"></span>
+    <span class="ctl">
+      <span class="lockmark" title="${esc(L.locked)}" aria-label="${esc(L.locked)}">${ICON.pin}</span>
+      <button class="icon" data-ctl="menu" aria-haspopup="true" aria-expanded="false" title="${esc(L.options)}" aria-label="${esc(L.options)}">${ICON.gear}</button>
+      ${k === "tools" ? "" : `<button class="icon" data-ctl="close" title="${esc(L.close)}" aria-label="${esc(L.close)}">${ICON.drop}</button>`}
+    </span>`;
+  t.prepend(head);
+  const menu = document.createElement("div");
+  menu.className = "opts";
+  menu.hidden = true;
+  menu.innerHTML = `<div class="row"><span>${esc(L.zoomLabel)}</span>
+      <button data-ctl="smaller" title="${esc(L.smaller)}" aria-label="${esc(L.smaller)}">A−</button>
+      <input class="zoom" type="number" min="${ZOOM.min * 100}" max="${ZOOM.max * 100}" step="10" title="${esc(L.zoomSet)}" aria-label="${esc(L.zoomSet)}">%
+      <button data-ctl="larger" title="${esc(L.larger)}" aria-label="${esc(L.larger)}">A＋</button></div>
+    <div class="row"><button data-ctl="lock" aria-pressed="false"></button></div>`;
+  head.after(menu);
+  // dyve 設定の奥まったもの（ます目・並びを戻す）はこのタイルの歯車へ
+  if (k === "tools") menu.append($("#toolsMore"));
+  const sizer = document.createElement("div");
+  sizer.className = "sizer";
+  sizer.title = L.size;
+  t.append(sizer);
+
+  head.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".ctl") || isLocked(k)) return;
+    drag(e, k, head, (p, dx, dy) => ({ ...p, x: clamp(p.x + dx, 1, dens() + 1 - p.w), y: Math.max(1, p.y + dy) }));
+  });
+  sizer.addEventListener("pointerdown", (e) => {
+    if (isLocked(k)) return;
+    drag(e, k, sizer, (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, dens() + 1 - p.x), h: clamp(p.h + dy, 2, 400) }));
+  });
+  const onCtl = (e) => {
+    const c = e.target.closest("button")?.dataset.ctl;
+    if (!c) return;
+    if (c === "menu") {
+      const open = menu.hidden;
+      closeMenus();
+      menu.hidden = !open;
+      e.target.closest("button").setAttribute("aria-expanded", String(open));
+      return;
+    }
+    if (c === "close" && isPanelTile(k)) {
+      // パネルから出したタイルは、閉じたらなくす（パネルは話題の欄に残る）
+      LAYOUT.extra = (LAYOUT.extra || []).filter((x) => x !== k);
+    } else if (c === "close") {
+      LAYOUT.hidden = [...new Set([...(LAYOUT.hidden || []), k])];
+    } else if (c === "lock") {
+      const set = new Set(LAYOUT.locked || []);
+      if (set.has(k)) set.delete(k); else set.add(k);
+      LAYOUT.locked = [...set];
+    } else {
+      const z = clamp(Math.round((zoomOf(k) + (c === "larger" ? 1 : -1) * ZOOM.step) * 10) / 10, ZOOM.min, ZOOM.max);
+      LAYOUT.zoom = { ...LAYOUT.zoom, [k]: z };
+    }
+    saveLayout();
+    applyLayout();
+  };
+  head.querySelector(".ctl").addEventListener("click", onCtl);
+  menu.addEventListener("click", onCtl);
+  // 大きさは打ち込んでもよい（10〜500%）
+  menu.querySelector(".zoom").addEventListener("change", (e) => {
+    const v = Number(e.target.value);
+    if (!Number.isFinite(v) || v <= 0) return applyLayout();
+    LAYOUT.zoom = { ...LAYOUT.zoom, [k]: clamp(v / 100, ZOOM.min, ZOOM.max) };
+    saveLayout();
+    applyLayout();
+  });
+}
+for (const k of TILES) setupTile(k);
+// パネルをタイルに出す：ます目の下の方に置く
+function tileFromPanel(id) {
+  const k = `panel:${id}`;
+  if ((LAYOUT.extra || []).includes(k)) return reveal(tileOf(k));
+  const bottom = Math.max(1, ...allTiles().filter((x) => tileOf(x) && !tileOf(x).hidden).map((x) => posOf(x).y + posOf(x).h));
+  LAYOUT.extra = [...(LAYOUT.extra || []), k];
+  LAYOUT.pos = { ...LAYOUT.pos, [k]: { x: 1, y: bottom, w: Math.round(dens() / 3), h: Math.round(dens() / 3) } };
+  saveLayout();
+  applyLayout();
+  render();
+  reveal(tileOf(k));
+}
+function closeMenus() {
+  for (const m of $$(".opts")) m.hidden = true;
+  for (const b of $$('[data-ctl="menu"]')) b.setAttribute("aria-expanded", "false");
+}
+// メニューの外を押すか Esc で閉じる
+document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".opts, [data-ctl=menu]")) closeMenus(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
+$("#closed").addEventListener("click", (e) => {
+  const k = e.target.closest("[data-reopen]")?.dataset.reopen;
+  if (!k) return;
+  LAYOUT.hidden = (LAYOUT.hidden || []).filter((x) => x !== k);
+  saveLayout();
+  applyLayout();
+});
+$("#density").innerHTML = Object.keys(DENSITY).map((n) => `<option value="${n}">${esc(L.densities[n])}</option>`).join("");
+$("#density").onchange = (e) => setDensity(Number(e.target.value));
+$("#resetLayout").onclick = () => { for (const k of Object.keys(LAYOUT)) delete LAYOUT[k]; saveLayout(); applyLayout(); };
+applyLayout();
+
+// 話題の欄のパネルの角をつまんで離したら、変わった大きさを覚える
+grid.addEventListener("pointerdown", (e) => {
+  const el = e.target.closest(".items > dv-panel, .kids.free > dv-panel");
+  if (!el) return;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  addEventListener("pointerup", () => {
+    if (el.offsetWidth === w && el.offsetHeight === h) return;
+    SIZES[el.dataset.id] = [el.offsetWidth, el.offsetHeight];
+    put("sizes", SIZES);
+    render();
+  }, { once: true });
+});
+
+// 話題の中のパネルを見出しでつまんで動かす。動かしたあとの click は捨てる（畳み・印の解除が走らないように）
+let dragged = false;
+grid.addEventListener("pointerdown", (e) => {
+  const head = e.target.closest(".kids.free > dv-panel > .meta");
+  if (!head || e.button !== 0 || e.target.closest("button, a, input, select, summary")) return;
+  const el = head.parentElement, box = el.parentElement;
+  const x0 = el.offsetLeft, y0 = el.offsetTop, px = e.clientX, py = e.clientY;
+  let moved = false;
+  head.setPointerCapture(e.pointerId);
+  const move = (ev) => {
+    const dx = ev.clientX - px, dy = ev.clientY - py;
+    if (!moved && Math.hypot(dx, dy) < 4) return;
+    moved = true;
+    el.classList.add("dragging");
+    el.style.left = `${clamp(x0 + dx, 0, Math.max(0, box.clientWidth - el.offsetWidth))}px`;
+    el.style.top = `${Math.max(0, y0 + dy)}px`;
+  };
+  const up = () => {
+    head.removeEventListener("pointermove", move);
+    head.removeEventListener("pointerup", up);
+    head.removeEventListener("pointercancel", up);
+    el.classList.remove("dragging");
+    if (!moved) return;
+    dragged = true;
+    POS[el.dataset.id] = [el.offsetLeft, el.offsetTop];
+    put("pos", POS);
+    layoutFree(box);
+  };
+  head.addEventListener("pointermove", move);
+  head.addEventListener("pointerup", up);
+  head.addEventListener("pointercancel", up);
+});
+grid.addEventListener("click", (e) => { if (dragged) { dragged = false; e.stopPropagation(); e.preventDefault(); } }, true);
+
+// 利用者の view：変わったものだけ読み直す
+async function loadViews(list) {
+  const names = new Set(list.map((v) => v.name));
+  for (const k of [...S.views.keys()]) if (!names.has(k)) S.views.delete(k);
+  await Promise.all(list.filter((v) => S.views.get(v.name)?.hash !== v.hash).map(async (v) => {
+    const r = await fetch(`/api/views/${encodeURIComponent(v.name)}`);
+    if (r.ok) S.views.set(v.name, { hash: v.hash, src: await r.text() });
+  }));
 }
 
 async function load() {
   const r = await fetch("/api/board");
   const b = await r.json();
-  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, title: b.title });
-  document.title = b.title;
-  $("#title").textContent = b.title;
+  if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
+  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, title: b.title, name: b.name, feeds: b.feeds || {} });
+  await loadViews(b.views || []);
+  document.title = b.name ? `${b.title}・${b.name}` : b.title;
   render();
   renderLive();
 }
@@ -264,12 +1006,29 @@ async function op(type, panel) {
 }
 
 // ── 操作 ──
-$("#board").addEventListener("click", async (e) => {
+grid.addEventListener("click", async (e) => {
+  const ta = e.target.closest("[data-to]");
+  if (ta) {
+    setTo(S.to === ta.dataset.to ? null : ta.dataset.to);
+    if (S.to && ta.dataset.task) reveal(panelOf(ta.dataset.task));
+    return;
+  }
+  const go = e.target.closest("[data-goto]")?.dataset.goto;
+  // 話題の欄の群の見出しはトークの発言へ、状況のアイコンはその仕事へ
+  if (go) return reveal(panelOf(go));
   const el = e.target.closest("dv-panel");
   if (!el) return;
   const p = S.panels.find((x) => x.id === el.dataset.id);
   if (!p) return;
   const act = e.target.closest("button")?.dataset.act;
+  if (act === "allow") return op("edit", { id: p.id, source: p.source });
+  if (act === "runnow") { fetch("/api/feeds/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id }) }); return; }
+  if (act === "tile") return tileFromPanel(p.id);
+  if (act === "fold") { S.unfold.delete(p.id); return render(); }
+  if (!act && el.classList.contains("folded")) { S.unfold.add(p.id); return render(); }
+  if (act === "unsize") { delete SIZES[p.id]; put("sizes", SIZES); return render(); }
+  if (act === "min") { if (MIN.has(p.id)) MIN.delete(p.id); else MIN.add(p.id); put("min", [...MIN]); return render(); }
+  if (act === "unpos") { for (const k of S.panels) if (k.about === p.id) delete POS[k.id]; put("pos", POS); return render(); }
   if (act === "pin") return op("edit", { id: p.id, pinned: !p.pinned });
   if (act === "accept") return op("edit", { id: p.id, state: "done" });
   if (act === "drop") { if (confirm(L.dropAsk)) op("drop", { id: p.id }); return; }
@@ -284,38 +1043,84 @@ $("#board").addEventListener("click", async (e) => {
     e.target.textContent = L.origHide;
     return;
   }
+  // トークの発言を押すと、それについて置かれたものを話題の欄で見せる
+  if (el.closest("#timeline")) {
+    const t = S.panels.find((x) => Array.isArray(x.data?.from) && x.data.from.includes(p.id));
+    let top = t; while (top?.about && S.panels.some((x) => x.id === top.about)) top = S.panels.find((x) => x.id === top.about);
+    return reveal(groupOf(p.id) || (top && groupOf(top.id)));
+  }
   // 見たら知らせの印を消す（パネルを触ったとき）
   if (markOf(p) === "notice") { S.seen[p.id] = p.aiSeq; saveSeen(); render(); }
 });
+// ボード：切り替えと新しいボード（前のボードの操作ログは残る）
+async function loadBoards() {
+  const r = await fetch("/api/boards");
+  if (!r.ok) { $("#boardPick").hidden = true; $("#newBoard").hidden = true; return; }
+  const b = await r.json();
+  $("#boards").innerHTML = b.boards.map((x) => `<option value="${esc(x.name)}" ${x.name === b.current ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+}
+async function boardsDo(body) {
+  const r = await (await fetch("/api/boards", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+  if (!r.ok) $("#err").textContent = L.refused(r.message);
+}
+$("#boards").onchange = (e) => boardsDo({ action: "open", name: e.target.value });
+// 更新して再起動：立ち直ったら、新しい画面を読み直す
+$("#restart").onclick = async () => {
+  if (!confirm(L.restartAsk)) return;
+  const r = await (await fetch("/api/restart", { method: "POST" })).json().catch(() => ({ ok: false, message: "" }));
+  if (!r.ok) { $("#err").textContent = L.refused(r.message); return; }
+  $("#err").textContent = L.restarting;
+  await new Promise((ok) => setTimeout(ok, 800));
+  for (let i = 0; i < 60; i++) {
+    try { if ((await fetch("/api/board")).ok) return location.reload(); } catch {}
+    await new Promise((ok) => setTimeout(ok, 500));
+  }
+};
+$("#newBoard").onclick = () => { if (confirm(L.newBoardAsk)) boardsDo({ action: "new" }); };
 $("#seenAll").onclick = () => { for (const p of S.panels) if (p.aiSeq) S.seen[p.id] = p.aiSeq; saveSeen(); render(); };
 
 // ── 流し込む：しゃべり流し（間があいたら送る）と、ブラウザの音声認識 ──
-const msg = $("#msg"), box = $("#stream");
+// 書いても OS の音声入力でも、止まって間があいたら置く。マイクは確定したらすぐ置く
+const msg = $("#msg");
 let timer = null, composing = false, sending = false;
-try { box.checked = localStorage.getItem("stream") !== "0"; } catch { box.checked = true; }
-box.onchange = () => { try { localStorage.setItem("stream", box.checked ? "1" : "0"); } catch {} arm(); };
-const arm = () => { clearTimeout(timer); if (box.checked) timer = setTimeout(send, STREAM_PAUSE); };
+const arm = () => { clearTimeout(timer); timer = setTimeout(send, STREAM_PAUSE); };
 async function send() {
   if (composing || sending) return arm();
   const raw = msg.value, text = raw.trim();
   if (!text) return;
   sending = true;
-  const r = await op("add", { view: "say", data: text });
+  const r = await op("add", { view: "say", data: text, ...(S.to ? { to: S.to } : {}) });
   sending = false;
   if (!r) return;
   // 送っているあいだに足された分は残す
   msg.value = msg.value.startsWith(raw) ? msg.value.slice(raw.length).trimStart() : msg.value;
+  grow();
   if (msg.value.trim()) arm();
 }
-msg.addEventListener("input", arm);
+// 入力欄は一行から、書いたぶんだけ伸びる
+const grow = () => { msg.style.height = "auto"; msg.style.height = `${msg.scrollHeight + 2}px`; };
+msg.addEventListener("input", () => { grow(); arm(); });
 msg.addEventListener("compositionstart", () => { composing = true; });
 msg.addEventListener("compositionend", () => { composing = false; arm(); });
-msg.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); clearTimeout(timer); send(); } });
+// Enter で置く。改行は Shift+Enter
+// 宛先：状況のアイコンを押すと決まり、もう一度押すか ✕ か Esc で外れる。外すまで続く
+function setTo(name) {
+  S.to = name;
+  const b = $("#to");
+  b.hidden = !name;
+  if (name) { b.textContent = L.toChip(name); b.title = L.toOff; }
+  msg.placeholder = name ? L.toPlaceholder(name) : L.placeholder;
+  renderLive();
+}
+$("#to").onclick = () => setTo(null);
+msg.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.to) setTo(null); });
+msg.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); clearTimeout(timer); send(); } });
 $("#send").onclick = () => { clearTimeout(timer); send(); };
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SR) {
   const mic = $("#mic");
+  mic.title = L.micTitle;
   let rec = null, on = false, interim = 0;
   mic.hidden = false;
   const setMic = (v) => { on = v; mic.setAttribute("aria-pressed", String(v)); mic.textContent = v ? L.micOn : L.micOff; };
@@ -332,8 +1137,10 @@ if (SR) {
         if (ev.results[i].isFinal) fin += ev.results[i][0].transcript; else mid += ev.results[i][0].transcript;
       }
       msg.value = msg.value.slice(0, Math.max(0, msg.value.length - interim)) + fin + mid;
+      grow();
       interim = mid.length;
-      if (mid) clearTimeout(timer); else if (fin) arm();
+      // 確定したらすぐ置く（まとめて整えるのは起こし係の間が受け持つ）
+      if (mid) clearTimeout(timer); else if (fin) { clearTimeout(timer); send(); }
     };
     rec.onend = () => { if (on) rec.start(); };
     rec.onerror = (ev) => { if (ev.error === "not-allowed") setMic(false); };
@@ -346,6 +1153,9 @@ if (SR) {
 function connect() {
   const es = new EventSource("/api/events");
   let t = null;
+  es.addEventListener("board", () => { loadBoards(); load(); });
+  es.addEventListener("views", async (e) => { await loadViews(JSON.parse(e.data)); render(); });
+  es.addEventListener("feed", (e) => { const f = JSON.parse(e.data); S.feeds[f.id] = f; clearTimeout(t); t = setTimeout(load, 120); });
   es.addEventListener("op", () => { clearTimeout(t); t = setTimeout(load, 120); });
   es.addEventListener("live", (e) => { S.live = JSON.parse(e.data); renderLive(); clearTimeout(t); t = setTimeout(load, 120); });
   es.onerror = () => { es.close(); setTimeout(connect, 2000); };
@@ -353,10 +1163,20 @@ function connect() {
 
 msg.placeholder = L.placeholder;
 $("#send").textContent = L.send;
-$("#streamLabel").textContent = L.stream;
-$("#hint").textContent = L.streamHint;
-$("#export").textContent = L.export;
-$("#seenAll").textContent = L.seenAll;
+// dyve 設定はアイコンだけ。名前は title と aria-label に
+const iconBtn = (id, icon, label) => { const b = $(id); b.innerHTML = icon; b.title = label; b.setAttribute("aria-label", label); };
+iconBtn("#seenAll", ICON.seen, L.seenAll);
+iconBtn("#export", ICON.export, L.export);
+iconBtn("#newBoard", ICON.newBoard, L.newBoard);
+iconBtn("#restart", ICON.restart, L.restart);
+$("#resetLayout").innerHTML = `${ICON.reset} ${esc(L.resetLayout)}`;
+$("#boardPick span").innerHTML = ICON.boards;
+$("#boardPick").title = L.boards;
+$("#boards").setAttribute("aria-label", L.boards);
+$("#densityLabel").textContent = L.density;
+$("#density").setAttribute("aria-label", L.density);
+loadBoards();
+renderLive();
 load().then(connect);
 </script>
 </body>
