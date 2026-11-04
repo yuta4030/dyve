@@ -6,7 +6,8 @@ import path from "node:path";
 import { Store } from "../src/store.js";
 import { marks, sourceApproved } from "../src/board.js";
 import { Feeds, parseOutput } from "../src/feeds.js";
-import { ensurePanels, listViews, readView } from "../src/panels.js";
+import { ensurePanels, listViews, readView, readSettings, setView, offViews, trashView, restoreView, listTrash, catalog } from "../src/panels.js";
+import { execFileSync } from "node:child_process";
 import { createServer } from "../src/server.js";
 import { claudeArgs, claudeSpawner } from "../src/agents.js";
 import { Waker } from "../src/waker.js";
@@ -120,4 +121,130 @@ test("パネルの仕事：アリスたちがパネル置き場で、そこだ�
   const log = fs.readFileSync(path.join(logDir, fs.readdirSync(logDir)[0]), "utf8");
   assert.match(log, new RegExp(`in ${panels}`));
   assert.match(log, /README\.md を読み/);
+});
+
+const panelsDir = () => ensurePanels(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-panels-")), "panels"));
+
+test("パネルの設定：渡した項目だけ変わり、置き場の外に持つ。本体の view は使わないにできない", () => {
+  const dir = panelsDir();
+  setView(dir, "bars", { off: true });
+  setView(dir, "bars", { w: 480, h: 300 });
+  assert.deepEqual(readSettings(dir).views.bars, { off: true, w: 480, h: 300 });
+  assert.deepEqual([...offViews(dir)], ["bars"]);
+  setView(dir, "bars", { off: false, h: null });
+  assert.deepEqual(readSettings(dir).views.bars, { w: 480 });
+  setView(dir, "bars", { w: null });
+  assert.equal(readSettings(dir).views.bars, undefined);
+  assert.equal(fs.existsSync(path.join(dir, "panel-settings.json")), false);
+  assert.equal(fs.existsSync(path.join(path.dirname(dir), "panel-settings.json")), true);
+  setView(dir, "topic", { w: 600 });
+  assert.throws(() => setView(dir, "text", { off: true }), /本体/);
+  assert.throws(() => setView(dir, "say", { w: 300 }), /大きさ/);
+  assert.throws(() => setView(dir, "bars", { w: 50 }), /幅/);
+  assert.throws(() => setView(dir, "bars", { h: 1.5 }), /高さ/);
+  assert.throws(() => setView(dir, "../x", { w: 300 }), /名前/);
+});
+
+test("view を消しても trash に残り、履歴に積まれ、戻せる", () => {
+  const dir = panelsDir();
+  const src = readView(dir, "bars");
+  const file = trashView(dir, "bars", 1700000000000);
+  assert.equal(readView(dir, "bars"), null);
+  assert.deepEqual(listTrash(dir).map((t) => t.name), ["bars"]);
+  assert.match(execFileSync("git", ["-C", dir, "log", "-1", "--format=%s"], { encoding: "utf8" }), /bars を消す/);
+  assert.equal(execFileSync("git", ["-C", dir, "status", "--short"], { encoding: "utf8" }), "");
+  assert.throws(() => restoreView(dir, "../../x.1.js"), /正しくない/);
+  fs.writeFileSync(path.join(dir, "views", "bars.js"), "// 別のもの");
+  assert.throws(() => restoreView(dir, file), /同じ名前/);
+  fs.rmSync(path.join(dir, "views", "bars.js"));
+  assert.equal(restoreView(dir, file), "bars");
+  assert.equal(readView(dir, "bars"), src);
+  assert.equal(listTrash(dir).length, 0);
+  assert.throws(() => trashView(dir, "nai"), /ない/);
+});
+
+test("管理の一覧：自分の view、描き方がないもの、本体の view を枚数つきで", () => {
+  const dir = panelsDir();
+  setView(dir, "bars", { off: true, w: 400 });
+  const { views } = catalog(dir, { here: { bars: 2, text: 1, gone: 1 }, all: { bars: 5, text: 3, gone: 1 } });
+  const by = Object.fromEntries(views.map((v) => [v.name, v]));
+  assert.deepEqual(views.slice(0, 2).map((v) => v.name), ["bars", "gone"]);
+  assert.deepEqual(by.bars, { name: "bars", kind: "user", off: true, w: 400, h: null, sizable: true, here: 2, all: 5, sample: null, hash: by.bars.hash });
+  assert.ok(by.bars.hash);
+  assert.equal(catalog(dir, { samples: { bars: [1] } }).views.find((v) => v.name === "bars").sample[0], 1);
+  assert.equal(by.gone.kind, "missing");
+  assert.equal(by.say.sizable, false);
+  assert.equal(by.text.here, 1);
+});
+
+test("使わないにした view：AI も人も新しく置けない。コマンドは止まる。パネルは消えない", async () => {
+  const dir = panelsDir();
+  const store = new Store();
+  const ran = [];
+  const exec = (cmd, opts, cb) => { ran.push(cmd); cb(null, "1", ""); };
+  const feeds = new Feeds({ store, exec, offView: (v) => offViews(dir).has(v) });
+  feeds.start();
+  const a = store.apply({ by: "human", type: "add", panel: { view: "bars", source: { shell: "echo 1", every: 60 } } }).op.panel.id;
+  assert.equal(ran.length, 1);
+  const server = createServer({ store, feeds, panels: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = async (url, body) => (await fetch(base + url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+  const mcp = async (name, args) => JSON.parse((await post("/mcp?as=manager", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { reason: "x", ...args } } })).result.content[0].text);
+  try {
+    assert.equal((await post("/api/panels", { action: "set", name: "bars", off: true })).ok, true);
+    assert.equal(feeds.timers.size, 0, "見張りは止まる");
+    assert.equal(feeds.run(a), false);
+    const refused = await mcp("panel_add", { view: "bars" });
+    assert.equal(refused.ok, false);
+    assert.match(refused.message, /使わない/);
+    assert.equal((await mcp("panel_add", { view: "text", data: "別の形で" })).ok, true);
+    assert.equal((await post("/api/op", { type: "add", panel: { view: "bars" } })).ok, false);
+    // すでにあるパネルは消えず、中身は書き換えられる
+    assert.equal(store.board.get(a).view, "bars");
+    assert.equal((await post("/api/op", { type: "edit", panel: { id: a, data: [1] } })).ok, true);
+    const board = await (await fetch(`${base}/api/board`)).json();
+    assert.equal(board.panelSet.views.bars.off, true);
+    const cat = await (await fetch(`${base}/api/panels`)).json();
+    assert.equal(cat.views.find((v) => v.name === "bars").here, 1);
+    assert.equal((await post("/api/panels", { action: "set", name: "text", off: true })).ok, false);
+    assert.equal((await post("/api/panels", { action: "set", name: "bars", off: false })).ok, true);
+    assert.equal(feeds.timers.size, 1);
+    assert.equal((await post("/api/panels", { action: "trash", name: "bars" })).ok, true);
+    assert.equal(readView(dir, "bars"), null);
+    const after = await (await fetch(`${base}/api/panels`)).json();
+    assert.equal(after.views.find((v) => v.name === "bars").kind, "missing");
+    assert.equal((await post("/api/panels", { action: "restore", file: after.trash[0].file })).ok, true);
+    assert.notEqual(readView(dir, "bars"), null);
+    assert.equal((await post("/api/panels", { action: "nai" })).ok, false);
+  } finally {
+    feeds.stop();
+    server.closeAll();
+  }
+});
+
+test("絵の見本：いちばん新しいデータ、コマンドの結果、ほかのボードの順に。ボードの一覧には載せない", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-panels-"));
+  const dir = ensurePanels(path.join(root, "panels"));
+  const { Desk, samplesOf } = await import("../src/desk.js");
+  const other = new Store(path.join(root, "old.jsonl"));
+  other.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "前のボード", value: 1 }] } });
+  other.apply({ by: "human", type: "add", panel: { view: "text", data: "x".repeat(30000) } });
+  assert.deepEqual(Object.keys(samplesOf(other.board)), ["bars"], "大きすぎるものは使わない");
+  const desk = new Desk({ file: path.join(root, "board.jsonl") });
+  const server = createServer({ store: desk.store, waker: desk.waker, desk, panels: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const sample = async (v) => (await (await fetch(`${base}/api/panels`)).json()).views.find((x) => x.name === v).sample;
+  try {
+    assert.equal((await sample("bars"))[0].label, "前のボード");
+    desk.store.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "古い", value: 1 }] } });
+    desk.store.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "新しい", value: 1 }] } });
+    assert.equal((await sample("bars"))[0].label, "新しい");
+    assert.equal(await sample("table"), null);
+    const list = await (await fetch(`${base}/api/boards`)).json();
+    assert.equal("samples" in list.boards[0], false);
+  } finally {
+    server.closeAll();
+  }
 });

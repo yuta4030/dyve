@@ -5,9 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleRpc, boardView } from "./mcp.js";
 import { toMarkdown } from "./export.js";
-import { listViews, readView } from "./panels.js";
+import { samplesOf, fitsSample } from "./desk.js";
+import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog } from "./panels.js";
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
+const MANAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "manage.html");
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 // desk：ボードを切り替えるときに使う（なければ一枚だけ）。{ current(), list(), open(name), create() }
@@ -22,12 +24,14 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
   };
   let cur;
   const use = (next) => {
+    if (cur?.store === next.store) return; // 同じボードを開き直しても、知らせを二重に付けない
     cur = next;
     next.store.onOp((op) => cur.store === next.store && send("op", op));
     next.waker?.onChange((live) => cur.waker === next.waker && send("live", live));
     next.feeds?.onChange((f) => cur.feeds === next.feeds && send("feed", f));
   };
   use({ store, waker, feeds });
+  const offView = (view) => !!panels && offViews(panels).has(view);
   // view のファイルが変わったら画面に知らせる（描き直しは画面がする）
   let watcher = null;
   if (panels) {
@@ -54,7 +58,12 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         return res.end(fs.readFileSync(UI));
       }
-      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, name: desk?.current() ?? null, ...boardView(cur.store, cur.waker), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
+      // 管理のページ：ボードの一覧とパネルの一覧
+      if (req.method === "GET" && (url.pathname === "/boards" || url.pathname === "/panels")) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        return res.end(fs.readFileSync(MANAGE));
+      }
+      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
       if (req.method === "GET" && url.pathname === "/api/history") return json(200, cur.store.board.history(url.searchParams.get("id")));
       if (req.method === "GET" && url.pathname === "/api/export.md") {
         res.writeHead(200, {
@@ -77,19 +86,53 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
       if (req.method === "POST" && url.pathname === "/api/op") {
         // 画面から来る操作は人のもの
         const body = await readJson(req);
+        if (body.type !== "drop" && body.panel?.view && offView(body.panel.view)) return json(409, { ok: false, code: "invalid", message: `view ${body.panel.view} は「使わない」にしている（パネルの管理で戻せる）` });
         const r = cur.store.apply({ by: "human", type: body.type, panel: body.panel });
         return json(r.ok ? 200 : 409, r.ok ? { ok: true, op: r.op } : r);
       }
       if (url.pathname === "/api/boards") {
         if (!desk) return json(404, { ok: false, code: "not_found", message: "ボードは一枚だけ" });
-        if (req.method === "GET") return json(200, { current: desk.current(), boards: desk.list() });
-        // 切り替え・新しいボードは人だけ（画面から）
+        if (req.method === "GET") return json(200, { current: desk.current(), boards: desk.list().map(noSamples), archived: desk.archived().map(noSamples), running: cur.waker?.runningTasks().length ?? 0 });
+        // ボードの管理は人だけ（画面から）
         const body = await readJson(req);
-        const next = body.action === "new" ? desk.create() : body.action === "open" ? desk.open(String(body.name || "")) : null;
-        if (!next) return json(400, { ok: false, code: "invalid", message: "action は new か open" });
-        use(next);
+        const name = String(body.name || "");
+        if (body.action === "new" || body.action === "open") {
+          use(body.action === "new" ? desk.create() : desk.open(name));
+        } else if (body.action === "title") desk.setTitle(name, body.title);
+        else if (body.action === "archive") desk.archive(name);
+        else if (body.action === "restore") desk.restore(name);
+        else return json(400, { ok: false, code: "invalid", message: "action は new・open・title・archive・restore のどれか" });
         send("board", { current: desk.current() });
         return json(200, { ok: true, current: desk.current() });
+      }
+      if (url.pathname === "/api/panels") {
+        if (!panels) return json(404, { ok: false, code: "not_found", message: "パネル置き場がない" });
+        if (req.method === "GET") {
+          const here = {}, all = {};
+          for (const p of cur.store.board.list()) here[p.view] = (here[p.view] || 0) + 1;
+          // 絵の見本：いまのボードのコマンドの結果、いまのボードのデータ、新しいボードの順に探す
+          const boards = desk?.list() ?? [{ views: here, samples: {} }];
+          const samples = {};
+          for (const [id, f] of Object.entries(cur.feeds?.view() ?? {})) {
+            const v = cur.store.board.get(id)?.view;
+            if (v && fitsSample(f.data)) samples[v] = f.data;
+          }
+          for (const from of [samplesOf(cur.store.board), ...boards.map((b) => b.samples)]) for (const [v, d] of Object.entries(from)) samples[v] ??= d;
+          for (const b of boards) for (const [v, n] of Object.entries(b.views)) all[v] = (all[v] || 0) + n;
+          return json(200, catalog(panels, { here, all, samples }));
+        }
+        // パネルの管理も人だけ（画面から）
+        const body = await readJson(req);
+        const name = String(body.name || "");
+        if (body.action === "set") {
+          setView(panels, name, { off: body.off, w: body.w, h: body.h });
+          cur.feeds?.sync();
+          send("panelset", readSettings(panels));
+        } else if (body.action === "trash") trashView(panels, name);
+        else if (body.action === "restore") restoreView(panels, String(body.file || ""));
+        else return json(400, { ok: false, code: "invalid", message: "action は set・trash・restore のどれか" });
+        send("views", listViews(panels));
+        return json(200, { ok: true });
       }
       if (req.method === "GET" && url.pathname.startsWith("/api/views/")) {
         const src = panels ? readView(panels, decodeURIComponent(url.pathname.slice(11))) : null;
@@ -119,8 +162,8 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         const as = url.searchParams.get("as") || "guest";
         const body = await readJson(req);
         const out = Array.isArray(body)
-          ? body.map((m) => handleRpc(cur.store, cur.waker, as, m)).filter(Boolean)
-          : handleRpc(cur.store, cur.waker, as, body);
+          ? body.map((m) => handleRpc(cur.store, cur.waker, as, m, { offView })).filter(Boolean)
+          : handleRpc(cur.store, cur.waker, as, body, { offView });
         if (out == null || (Array.isArray(out) && !out.length)) {
           res.writeHead(202);
           return res.end();
@@ -139,6 +182,8 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
   };
   return server;
 }
+
+const noSamples = ({ samples, ...b }) => b;
 
 function readJson(req) {
   return new Promise((resolve, reject) => {

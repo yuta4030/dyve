@@ -79,7 +79,7 @@ export function unwrapData(data) {
   return data;
 }
 
-function call(store, waker, as, name, args = {}) {
+function call(store, waker, as, name, args = {}, offView) {
   const { reason: why, ...rest } = args;
   switch (name) {
     case "board_read":
@@ -90,6 +90,7 @@ function call(store, waker, as, name, args = {}) {
     case "panel_edit":
     case "panel_drop": {
       if ("data" in rest) rest.data = unwrapData(rest.data);
+      if (name !== "panel_drop" && rest.view && offView?.(rest.view)) return { ok: false, code: "invalid", message: `view ${rest.view} は人が「使わない」にしている。text や list など別の view で置く` };
       const r = store.apply({ by: as, type: name.slice(6), panel: rest, reason: why });
       return r.ok ? { ok: true, seq: r.op.seq, id: r.op.panel.id } : r;
     }
@@ -99,7 +100,8 @@ function call(store, waker, as, name, args = {}) {
 }
 
 // 一つの JSON-RPC メッセージに答える。通知なら null
-export function handleRpc(store, waker, as, msg) {
+// offView(view)：人が「使わない」にした view か。ログを当て直すときには関係ないので、ボードではなくこの口で断る
+export function handleRpc(store, waker, as, msg, { offView } = {}) {
   const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
   const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return fail(-32600, "Invalid Request");
@@ -123,7 +125,7 @@ export function handleRpc(store, waker, as, msg) {
         return reply({ content: [{ type: "text", text: JSON.stringify({ ok: false, code: "forbidden", message: "MCP から人やボード自身として書くことはできない" }) }], isError: true });
       }
       try {
-        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments);
+        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView);
         return reply({ content: [{ type: "text", text: JSON.stringify(out) }], isError: out?.ok === false });
       } catch (e) {
         return e.rpc ? fail(e.rpc, e.message) : reply({ content: [{ type: "text", text: e.message }], isError: true });

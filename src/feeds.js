@@ -19,8 +19,10 @@ export function parseOutput(out) {
 
 export class Feeds {
   // exec(cmd, opts, cb)：差し替えられる（テストでは偽物）
-  constructor({ store, room = process.cwd(), exec = nodeExec, timeout = 20000 }) {
+  // offView(view)：人が「使わない」にした view のコマンドは走らせない
+  constructor({ store, room = process.cwd(), exec = nodeExec, timeout = 20000, offView = () => false }) {
     this.store = store;
+    this.offView = offView;
     this.room = room;
     this.exec = exec;
     this.timeout = timeout;
@@ -65,7 +67,7 @@ export class Feeds {
   sync() {
     const want = new Map();
     for (const p of this.store.board.list()) {
-      if (p.source && sourceApproved(this.store.board, p.id)) want.set(p.id, JSON.stringify(p.source));
+      if (p.source && sourceApproved(this.store.board, p.id) && !this.offView(p.view)) want.set(p.id, JSON.stringify(p.source));
     }
     for (const [id, t] of this.timers) {
       if (want.get(id) !== t.key) {
@@ -84,7 +86,7 @@ export class Feeds {
   // 一度走らせる（人が「今すぐ更新」を押したときも）
   run(id) {
     const p = this.store.board.get(id);
-    if (!p?.source || !sourceApproved(this.store.board, id)) return false;
+    if (!p?.source || !sourceApproved(this.store.board, id) || this.offView(p.view)) return false;
     const prev = this.out.get(id) || {};
     if (prev.running) return true;
     this.out.set(id, { ...prev, running: true });

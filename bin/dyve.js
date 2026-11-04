@@ -8,7 +8,7 @@ import fs from "node:fs";
 import { Store } from "../src/store.js";
 import { Desk } from "../src/desk.js";
 import { Feeds } from "../src/feeds.js";
-import { ensurePanels } from "../src/panels.js";
+import { ensurePanels, offViews } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
 import { loadCrew, readConfig, ensureCrew, namesOf, initialsOf, callsOf, teamsOf, checkName } from "../src/crew.js";
@@ -156,7 +156,7 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
     ? null
     : new Waker({ store, pause, scribePause, slots: Number(args.slots), spawn, session, integrate: merge, names, initials: initialsOf(crew, names), calls: callsOf(crew, names), teams: teamsOf(crew, names) });
   // 流し込み係：許可された shell コマンドを部屋で走らせる
-  const feed = (store) => new Feeds({ store, room: how.room });
+  const feed = (store) => new Feeds({ store, room: how.room, offView: (v) => offViews(panels).has(v) });
   const desk = new Desk({ file: path.resolve(args.data), wake, feed });
   // 使う dyve（ROOT）が部屋から切り出したもの（dyve で dyve を開発しているとき）なら、部屋のいまのコミットに更新してから立て直す。
   // npm などで入れた dyve は立て直すだけ（更新は npm で）
