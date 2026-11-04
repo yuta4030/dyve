@@ -21,13 +21,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visibl
 input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; min-width: 0; }
 a { color: var(--accent); }
 header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); }
-.bar { max-width: 980px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bar { max-width: 1080px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 nav { display: flex; gap: 2px; margin-left: 8px; }
 nav a { color: var(--mute); text-decoration: none; padding: 4px 12px; border-radius: 8px; }
 nav a:hover { color: var(--ink); }
 nav a[aria-current="page"] { color: var(--ink); background: var(--card); }
 #err { color: var(--warn); margin-left: auto; font-size: 13px; }
-main { max-width: 980px; margin: 0 auto; padding: 16px 16px 64px; }
+main { max-width: 1080px; margin: 0 auto; padding: 16px 16px 64px; }
 .tools { display: flex; gap: 8px; margin-bottom: 12px; }
 .tools input { flex: 1; }
 .note { color: var(--mute); font-size: 13px; margin: 0 0 12px; }
@@ -56,7 +56,31 @@ details.more > summary { font-size: 13px; font-weight: 600; color: var(--mute); 
 /* パネル */
 .view { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
 .view.off { opacity: .75; }
-.view .row { display: grid; grid-template-columns: minmax(8em, 1.4fr) 7em 6.5em minmax(13em, 1fr) 7.5em; gap: 8px 12px; align-items: center; padding: 8px 14px; }
+.view .row { display: grid; grid-template-columns: 200px minmax(6em, 1fr) 6.5em 5.5em minmax(12em, 1fr) 6.5em; gap: 8px 12px; align-items: center; padding: 8px 14px; }
+/* 絵：幅 340px で描いて 0.59 倍に縮める。全体を覆うボタンを押すと大きく出す */
+.thumb { position: relative; width: 200px; height: 110px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; user-select: none; }
+.thumb:hover, .thumb:focus-within { border-color: var(--mute); }
+.thumb .hit { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; cursor: zoom-in; }
+.thumb iframe, .thumb .mini { position: absolute; left: 0; top: 0; width: 340px; height: 187px; border: 0; transform: scale(.588); transform-origin: 0 0; }
+.thumb .mini { padding: 8px; font-size: 14px; line-height: 1.5; overflow: hidden; white-space: pre-wrap; }
+.mini ul { margin: 0; padding-left: 1.3em; }
+.mini table { border-collapse: collapse; width: 100%; }
+.mini th, .mini td { border: 1px solid var(--line); padding: 2px 6px; text-align: left; }
+.mini pre { margin: 0; font-size: 12px; color: var(--mute); }
+.mini .say { background: var(--card); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 4px; }
+.mini .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.mini h4 { margin: 0 0 4px; font-size: 16px; }
+.mini .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; white-space: normal; }
+.mini small { display: block; color: var(--mute); font-size: 12px; }
+.thumb.none { display: grid; place-items: center; color: var(--mute); font-size: 12px; }
+#zoom { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+#zoom[open] { display: flex; flex-direction: column; }
+#zoom::backdrop { background: rgba(0, 0, 0, .6); }
+#zoom .zbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+#zoom .zbar small { color: var(--mute); font-size: 12px; font-weight: 400; margin-right: auto; }
+#zbody { padding: 14px; overflow: auto; min-height: 120px; background: var(--bg); }
+#zbody iframe { display: block; width: 100%; height: 200px; border: 0; }
+#zbody .mini { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 .view .name { font-weight: 600; min-width: 0; }
 .view .name small { display: block; font-weight: 400; font-size: 12px; color: var(--mute); }
 .view .n { font-size: 12px; color: var(--mute); }
@@ -71,7 +95,7 @@ details.more > summary { font-size: 13px; font-weight: 600; color: var(--mute); 
 .inst .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inst .d { color: var(--mute); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inst button { min-height: 24px; font-size: 12px; }
-.heads { display: grid; grid-template-columns: minmax(8em, 1.4fr) 7em 6.5em minmax(13em, 1fr) 7.5em; gap: 12px; padding: 0 15px 4px; font-size: 12px; color: var(--mute); }
+.heads { display: grid; grid-template-columns: 200px minmax(6em, 1fr) 6.5em 5.5em minmax(12em, 1fr) 6.5em; gap: 12px; padding: 0 15px 4px; font-size: 12px; color: var(--mute); }
 .trash { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 13px; }
 .trash small { color: var(--mute); }
 
@@ -80,6 +104,7 @@ details.more > summary { font-size: 13px; font-weight: 600; color: var(--mute); 
   .board .acts { grid-row: auto; grid-column: 1; flex-wrap: wrap; margin-top: 6px; }
   .heads { display: none; }
   .view .row { grid-template-columns: minmax(0, 1fr) auto; }
+  .thumb { grid-column: 1 / -1; }
   .view .size, .view .end { grid-column: 1 / -1; justify-content: flex-start; }
   .inst { grid-template-columns: 3em minmax(0, 1fr) auto; }
   .inst .d { display: none; }
@@ -93,6 +118,7 @@ details.more > summary { font-size: 13px; font-weight: 600; color: var(--mute); 
   <span id="err" role="status"></span>
 </div></header>
 <main id="main"></main>
+<dialog id="zoom" aria-labelledby="zname"><div class="zbar"><b id="zname"></b><small id="zkind"></small><button id="zclose"></button></div><div id="zbody"></div></dialog>
 <script type="module">
 // 画面の言葉はここにまとめる
 const L = {
@@ -109,7 +135,10 @@ const L = {
   newAsk: (n) => `${n ? `いま ${n} 人が働いています。止まります。` : ""}新しいボードにしますか（いまのボードは残ります）`,
   // パネル
   panelsNote: "「使わない」にすると、その種類のパネルは画面から隠れ（データは残ります）、AI は置けなくなり、コマンドの流し込みも止まります。人の判断待ちや下に何か付いているものは隠れません。既定の大きさは空なら自動で、自分で動かしたものには効きません。",
-  heads: ["種類", "枚数", "使う", "既定の大きさ（px）", ""],
+  heads: ["見た目", "種類", "枚数", "使う", "既定の大きさ（px）", ""],
+  zoom: (n) => `${n} を大きく見る`, zoomClose: "閉じる", use: "使う", noSample: "まだ使われていません",
+  sample: { say: "話したことがここに流れます", text: "文字のパネル", list: ["一つ目", "二つ目", "三つ目"], table: { columns: ["名前", "値"], rows: [["a", 1], ["b", 2]] }, task: { text: "頼んだことがここに入ります" }, topic: { title: "話題の名前", note: "一行の補足" }, summary: { points: ["要点"], decided: ["決まったこと"], open: ["まだ決まっていないこと"] }, json: { key: "value" } },
+  sumHeads: { points: "要点", decided: "決まったこと", open: "まだ決まっていない" },
   kind: { user: "自分の view", missing: "描き方がない（JSON で出ます）", builtin: "本体の view" },
   desc: { say: "人の発言。トークに出ます", text: "文字", list: "箇条書き", table: "表", task: "仕事", topic: "話題。新しいタイルの大きさはここで決まります", summary: "いまの要点。要点のタイルに出ます", json: "そのままの JSON" },
   count: (h, a) => `ここ ${h}・全 ${a}`,
@@ -227,25 +256,130 @@ function boardClick(e) {
 }
 
 // ── パネル ──
-const P = { open: new Set(), panels: [], calls: {} };
+const P = { open: new Set(), panels: [], calls: {}, views: [] };
 const who = (by) => by === "human" ? L.you : by === "manager" ? L.manager : by === "scribe" ? L.scribe : by === "board" ? L.board : P.calls[by] || by;
 const excerpt = (d) => {
   const s = typeof d === "string" ? d : d?.title ?? d?.text ?? (d == null ? "" : JSON.stringify(d));
   return String(s).replace(/\s+/g, " ").slice(0, 160);
 };
+// 絵：本体の view はここで簡単に描き、利用者の view は本物を囲いの中で描く（ボードと同じ sandbox。ボードの API には触れない）
+const textOf = (d) => typeof d === "string" ? d : d?.text ?? d?.title ?? JSON.stringify(d);
+const items = (a) => `<ul>${(Array.isArray(a) ? a : []).map((x) => `<li>${esc(textOf(x))}</li>`).join("")}</ul>`;
+function mini(view, data, rows = 8) {
+  const d = data ?? L.sample[view] ?? data;
+  const raw = `<pre>${esc(JSON.stringify(d, null, 1))}</pre>`;
+  if (view === "say") return `<div class="say">${esc(textOf(d))}</div>`;
+  if (view === "text") return esc(textOf(d));
+  if (view === "list") return Array.isArray(d) ? items(d) : raw;
+  if (view === "table") return Array.isArray(d?.columns) && Array.isArray(d?.rows) ? `<table><tr>${d.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${d.rows.slice(0, rows).map((r) => `<tr>${(Array.isArray(r) ? r : []).map((c) => `<td>${esc(textOf(c))}</td>`).join("")}</tr>`).join("")}</table>` : raw;
+  if (view === "task") return `<div class="card"><small>${esc(d?.to ? `→ ${d.to}` : "")}</small>${esc(textOf(d))}</div>`;
+  if (view === "topic") return `<div class="card"><h4>${esc(typeof d === "string" ? d : d?.title)}</h4><small>${esc(d?.note ?? "")}</small></div>`;
+  if (view === "summary") return `<div class="cols">${Object.keys(L.sumHeads).map((k) => `<div><small>${esc(L.sumHeads[k])}</small>${items(d?.[k])}</div>`).join("")}</div>`;
+  return raw;
+}
+// 全体を覆うボタンを押すと大きく出す
+function thumb(v) {
+  if (v.kind === "user" && v.sample == null && !v.all) return `<div class="thumb none">${esc(L.noSample)}</div>`;
+  const inner = v.kind === "user"
+    ? `<iframe sandbox="allow-scripts" loading="lazy" tabindex="-1" aria-hidden="true" title="${esc(v.name)}" data-frame="${esc(v.name)}"></iframe>`
+    : `<div class="mini" aria-hidden="true">${mini(v.kind === "builtin" ? v.name : "json", v.sample)}</div>`;
+  return `<div class="thumb">${inner}<button class="hit" data-zoom="${esc(v.name)}" aria-label="${esc(L.zoom(v.name))}" title="${esc(L.zoom(v.name))}"></button></div>`;
+}
+const THEME = ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--accent-soft", "--warn", "--warn-soft", "--ok"];
+const RUNTIME = `window.dyve = (() => {
+  let fn = null, n = 0;
+  const wait = new Map(), root = document.getElementById("root"), init = JSON.parse(document.getElementById("init").textContent);
+  const ctx = { panel: init.panel, board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }), open: () => {} };
+  const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch {} };
+  new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
+  addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
+  return { view: (f) => { fn = f; draw(); } };
+})();`;
+const SRC = new Map(); // view の名前 -> { hash, src }
+async function viewSrc(v) {
+  if (SRC.get(v.name)?.hash !== v.hash) {
+    const r = await fetch(`/api/views/${encodeURIComponent(v.name)}`);
+    SRC.set(v.name, { hash: v.hash, src: r.ok ? await r.text() : "" });
+  }
+  return SRC.get(v.name).src;
+}
+async function fillFrame(f, v) {
+  const src = await viewSrc(v);
+  const cs = getComputedStyle(document.documentElement);
+  const vars = THEME.map((k) => `${k}:${cs.getPropertyValue(k)}`).join(";");
+  const init = JSON.stringify({ data: v.sample, panel: { id: "preview", view: v.name, data: v.sample } }).replace(/</g, "\\u003c");
+  const safe = String(src).replace(/<\/(script)/gi, "<\\/$1");
+  f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{${vars};color-scheme:dark}html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}</style>` +
+    `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe}<\/script></body>`;
+}
+// 大きく出す：見本のデータをそのままの大きさで。Esc・✕・外を押すと閉じる
+const zoom = $("#zoom"), zbody = $("#zbody");
+function openZoom(v) {
+  $("#zname").textContent = v.name;
+  $("#zkind").textContent = L.desc[v.name] || L.kind[v.kind];
+  zbody.innerHTML = "";
+  if (v.kind === "user") {
+    const f = document.createElement("iframe");
+    f.setAttribute("sandbox", "allow-scripts");
+    f.title = v.name;
+    f.dataset.frame = v.name;
+    zbody.append(f);
+    fillFrame(f, v);
+  } else {
+    zbody.innerHTML = `<div class="mini">${mini(v.kind === "builtin" ? v.name : "json", v.sample, Infinity)}</div>`;
+  }
+  zoom.showModal();
+  zbody.scrollTop = 0;
+}
+zoom.addEventListener("close", () => { zbody.innerHTML = ""; });
+zoom.addEventListener("click", (e) => { if (e.target === zoom) zoom.close(); });
+$("#zclose").textContent = L.zoomClose;
+$("#zclose").onclick = () => zoom.close();
+// 大きく出した絵は中身の高さに合わせる
+addEventListener("message", (e) => {
+  const f = $("iframe", zbody);
+  if (e.data?.dyve === "size" && f?.contentWindow === e.source && Number.isFinite(e.data.h)) f.style.height = `${Math.min(8000, Math.max(60, Math.ceil(e.data.h)))}px`;
+});
+// 囲いの中から読めるのはパネルの並びだけ（書けない）
+addEventListener("message", (e) => {
+  if (e.data?.dyve !== "board" || ![...document.querySelectorAll("iframe[data-frame]")].some((f) => f.contentWindow === e.source)) return;
+  e.source.postMessage({ dyve: "board", k: e.data.k, panels: P.panels }, "*");
+});
+
 function viewRow(v, marks) {
   const here = P.panels.filter((p) => p.view === v.name);
   const parents = new Set(P.panels.map((p) => p.about));
   const insts = here.map((p) => `<div class="inst"><code>${esc(p.id)}</code><span class="d">${esc(who(p.by))}</span><span class="t" title="${esc(excerpt(p.data))}">${esc(excerpt(p.data))}</span>
     <span class="d">${v.off && !marks[p.id] && !parents.has(p.id) ? esc(L.hidden) : esc(when(p.at))}</span><button class="quiet" data-drop="${esc(p.id)}">${esc(L.drop)}</button></div>`).join("");
-  return `<article class="view${v.off ? " off" : ""}"><div class="row">
+  return `<article class="view${v.off ? " off" : ""}" data-view="${esc(v.name)}"><div class="row">
+    ${thumb(v)}
     <div class="name">${esc(v.name)}<small>${esc(L.desc[v.name] || L.kind[v.kind])}</small></div>
     <div class="n">${esc(L.count(v.here, v.all))}</div>
-    <div>${v.kind === "builtin" ? `<span class="n">${esc(L.always)}</span>` : `<label><input type="checkbox" data-use="${esc(v.name)}" ${v.off ? "" : "checked"}> ${esc(L.heads[2])}</label>`}</div>
+    <div>${v.kind === "builtin" ? `<span class="n">${esc(L.always)}</span>` : `<label><input type="checkbox" data-use="${esc(v.name)}" ${v.off ? "" : "checked"}> ${esc(L.use)}</label>`}</div>
     <div class="size">${v.sizable ? `<label>${esc(L.w)} <input type="number" min="120" max="2000" step="10" data-size="w" data-name="${esc(v.name)}" value="${v.w ?? ""}" placeholder="${esc(L.auto)}"></label>
       <label>${esc(L.h)} <input type="number" min="60" max="2000" step="10" data-size="h" data-name="${esc(v.name)}" value="${v.h ?? ""}" placeholder="${esc(L.auto)}"></label>` : ""}</div>
     <div class="end">${v.kind === "user" ? `<a class="btn" href="/api/views/${encodeURIComponent(v.name)}" target="_blank" rel="noopener">${esc(L.code)}</a><button data-trash="${esc(v.name)}" data-all="${v.all}">${esc(L.trash)}</button>` : ""}</div>
-  </div>${here.length ? `<details data-open="${esc(v.name)}"${P.open.has(v.name) ? " open" : ""}><summary>${esc(L.items(here.length))}</summary>${insts}</details>` : ""}</article>`;
+  </div>${here.length ? `<details data-open="${esc(v.name)}"><summary>${esc(L.items(here.length))}</summary>${insts}</details>` : ""}</article>`;
+}
+// 変わった行だけ作り直す（絵を描き直すとちらつくので、話しているあいだも動かさない）
+function placeRows(box, views, marks) {
+  const old = new Map([...box.children].map((el) => [el.dataset.view, el]));
+  const next = views.map((v) => {
+    const html = viewRow(v, marks), sig = html + (v.hash ?? "") + JSON.stringify(v.sample);
+    const el = old.get(v.name);
+    if (el?._sig === sig) return el;
+    const t = document.createElement("template");
+    t.innerHTML = html.trim();
+    const n = t.content.firstElementChild;
+    n._sig = sig;
+    const d = $("details", n);
+    if (d) d.open = P.open.has(v.name);
+    const f = $("iframe[data-frame]", n);
+    if (f) fillFrame(f, v);
+    return n;
+  });
+  for (const el of [...box.children]) if (!next.includes(el)) el.remove();
+  next.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] || null); });
 }
 async function drawPanels() {
   const [r, b] = await Promise.all([fetch("/api/panels"), fetch("/api/board").then((x) => x.json())]);
@@ -253,13 +387,15 @@ async function drawPanels() {
   const c = await r.json();
   P.panels = b.panels;
   P.calls = b.calls || {};
-  const y = scrollY;
-  const head = `<div class="heads">${L.heads.map((h) => `<span>${esc(h)}</span>`).join("")}</div>`;
-  main.innerHTML = `<p class="note">${esc(L.panelsNote)}</p>${head}${c.views.map((v) => viewRow(v, b.marks || {})).join("")}` +
-    (c.trash.length ? `<details class="more"><summary>${esc(L.trashTitle(c.trash.length))}</summary>${c.trash.map((t) => `<div class="trash"><b>${esc(t.name)}</b><small>${esc(when(t.at))}</small><button data-restore="${esc(t.file)}">${esc(L.restore)}</button></div>`).join("")}</details>` : "");
-  scrollTo(0, y);
+  P.views = c.views;
+  if (!$("#rows")) main.innerHTML = `<p class="note">${esc(L.panelsNote)}</p><div class="heads">${L.heads.map((h) => `<span>${esc(h)}</span>`).join("")}</div><div id="rows"></div><div id="trashBox"></div>`;
+  placeRows($("#rows"), c.views, b.marks || {});
+  const open = $("#trashBox details")?.open;
+  $("#trashBox").innerHTML = c.trash.length ? `<details class="more"${open ? " open" : ""}><summary>${esc(L.trashTitle(c.trash.length))}</summary>${c.trash.map((t) => `<div class="trash"><b>${esc(t.name)}</b><small>${esc(when(t.at))}</small><button data-restore="${esc(t.file)}">${esc(L.restore)}</button></div>`).join("")}</details>` : "";
 }
 function panelClick(e) {
+  const z = e.target.closest("[data-zoom]");
+  if (z) { const v = P.views.find((x) => x.name === z.dataset.zoom); if (v) openZoom(v); return; }
   const t = e.target.closest("[data-trash]");
   if (t) { if (confirm(L.trashAsk(t.dataset.trash, Number(t.dataset.all)))) post("/api/panels", { action: "trash", name: t.dataset.trash }); return; }
   const r = e.target.closest("[data-restore]");
@@ -269,12 +405,12 @@ function panelClick(e) {
 }
 async function panelChange(e) {
   const use = e.target.closest("[data-use]");
-  if (use) return post("/api/panels", { action: "set", name: use.dataset.use, off: !use.checked }).then((ok) => ok || draw());
+  if (use) return post("/api/panels", { action: "set", name: use.dataset.use, off: !use.checked }).then((ok) => { if (!ok) use.checked = !use.checked; });
   const sz = e.target.closest("[data-size]");
   if (!sz) return;
   const n = sz.value.trim() === "" ? null : Math.round(Number(sz.value));
-  // 範囲の外なら断られる。覚えている値に戻すために描き直す
-  if (!await post("/api/panels", { action: "set", name: sz.dataset.name, [sz.dataset.size]: n })) { sz.blur(); draw(); }
+  // 範囲の外なら断られる。覚えている値に戻す
+  if (!await post("/api/panels", { action: "set", name: sz.dataset.name, [sz.dataset.size]: n })) sz.value = sz.defaultValue;
 }
 
 // ── 描く。打ち込んでいるあいだは描き直さず、離れてから ──

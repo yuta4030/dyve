@@ -63,4 +63,6 @@ test("管理のページも外のものを読まない", () => {
   const manage = fs.readFileSync(new URL("../src/manage.html", import.meta.url), "utf8");
   assert.doesNotMatch(manage, /(src|href)="https?:/);
   assert.doesNotMatch(html, /id="boards"|boardPick/);
+  // 利用者の view はボードと同じ囲いで描く
+  for (const m of manage.matchAll(/<iframe[^>]*>/g)) assert.match(m[0], /sandbox="allow-scripts"/);
 });

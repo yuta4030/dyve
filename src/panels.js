@@ -181,13 +181,15 @@ export function listTrash(dir) {
     .sort((a, b) => b.at.localeCompare(a.at));
 }
 
-// 管理の一覧：本体・置き場の view と、ボードで使われているのに描き方のないもの。here：このボードの枚数、all：全ボードの枚数
-export function catalog(dir, { here = {}, all = {} } = {}) {
+// 管理の一覧：本体・置き場の view と、ボードで使われているのに描き方のないもの。here：このボードの枚数、all：全ボードの枚数、samples：絵に使う見本のデータ
+export function catalog(dir, { here = {}, all = {}, samples = {} } = {}) {
   const { views } = readSettings(dir);
-  const user = listViews(dir).map((v) => v.name).filter((n) => !BUILTIN.includes(n)).sort();
+  const files = listViews(dir);
+  const hash = Object.fromEntries(files.map((v) => [v.name, v.hash]));
+  const user = files.map((v) => v.name).filter((n) => !BUILTIN.includes(n)).sort();
   const known = new Set([...BUILTIN, ...user]);
   const missing = [...new Set([...Object.keys(here), ...Object.keys(all)])].filter((n) => !known.has(n)).sort();
-  const row = (name, kind) => ({ name, kind, off: !!views[name]?.off, w: views[name]?.w ?? null, h: views[name]?.h ?? null, sizable: !NO_SIZE.has(name), here: here[name] || 0, all: all[name] || 0 });
+  const row = (name, kind) => ({ name, kind, off: !!views[name]?.off, w: views[name]?.w ?? null, h: views[name]?.h ?? null, sizable: !NO_SIZE.has(name), here: here[name] || 0, all: all[name] || 0, sample: samples[name] ?? null, hash: kind === "user" ? hash[name] : null });
   return {
     views: [...user.map((n) => row(n, "user")), ...missing.map((n) => row(n, "missing")), ...BUILTIN.map((n) => row(n, "builtin"))],
     trash: listTrash(dir),

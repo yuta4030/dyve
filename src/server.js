@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleRpc, boardView } from "./mcp.js";
 import { toMarkdown } from "./export.js";
+import { samplesOf, fitsSample } from "./desk.js";
 import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog } from "./panels.js";
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
@@ -91,7 +92,7 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
       }
       if (url.pathname === "/api/boards") {
         if (!desk) return json(404, { ok: false, code: "not_found", message: "ボードは一枚だけ" });
-        if (req.method === "GET") return json(200, { current: desk.current(), boards: desk.list(), archived: desk.archived(), running: cur.waker?.runningTasks().length ?? 0 });
+        if (req.method === "GET") return json(200, { current: desk.current(), boards: desk.list().map(noSamples), archived: desk.archived().map(noSamples), running: cur.waker?.runningTasks().length ?? 0 });
         // ボードの管理は人だけ（画面から）
         const body = await readJson(req);
         const name = String(body.name || "");
@@ -109,8 +110,16 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         if (req.method === "GET") {
           const here = {}, all = {};
           for (const p of cur.store.board.list()) here[p.view] = (here[p.view] || 0) + 1;
-          for (const b of desk?.list() ?? [{ views: here }]) for (const [v, n] of Object.entries(b.views)) all[v] = (all[v] || 0) + n;
-          return json(200, catalog(panels, { here, all }));
+          // 絵の見本：いまのボードのコマンドの結果、いまのボードのデータ、新しいボードの順に探す
+          const boards = desk?.list() ?? [{ views: here, samples: {} }];
+          const samples = {};
+          for (const [id, f] of Object.entries(cur.feeds?.view() ?? {})) {
+            const v = cur.store.board.get(id)?.view;
+            if (v && fitsSample(f.data)) samples[v] = f.data;
+          }
+          for (const from of [samplesOf(cur.store.board), ...boards.map((b) => b.samples)]) for (const [v, d] of Object.entries(from)) samples[v] ??= d;
+          for (const b of boards) for (const [v, n] of Object.entries(b.views)) all[v] = (all[v] || 0) + n;
+          return json(200, catalog(panels, { here, all, samples }));
         }
         // パネルの管理も人だけ（画面から）
         const body = await readJson(req);
@@ -173,6 +182,8 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
   };
   return server;
 }
+
+const noSamples = ({ samples, ...b }) => b;
 
 function readJson(req) {
   return new Promise((resolve, reject) => {

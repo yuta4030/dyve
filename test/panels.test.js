@@ -169,7 +169,9 @@ test("管理の一覧：自分の view、描き方がないもの、本体の vi
   const { views } = catalog(dir, { here: { bars: 2, text: 1, gone: 1 }, all: { bars: 5, text: 3, gone: 1 } });
   const by = Object.fromEntries(views.map((v) => [v.name, v]));
   assert.deepEqual(views.slice(0, 2).map((v) => v.name), ["bars", "gone"]);
-  assert.deepEqual(by.bars, { name: "bars", kind: "user", off: true, w: 400, h: null, sizable: true, here: 2, all: 5 });
+  assert.deepEqual(by.bars, { name: "bars", kind: "user", off: true, w: 400, h: null, sizable: true, here: 2, all: 5, sample: null, hash: by.bars.hash });
+  assert.ok(by.bars.hash);
+  assert.equal(catalog(dir, { samples: { bars: [1] } }).views.find((v) => v.name === "bars").sample[0], 1);
   assert.equal(by.gone.kind, "missing");
   assert.equal(by.say.sizable, false);
   assert.equal(by.text.here, 1);
@@ -217,6 +219,32 @@ test("使わないにした view：AI も人も新しく置けない。コマン
     assert.equal((await post("/api/panels", { action: "nai" })).ok, false);
   } finally {
     feeds.stop();
+    server.closeAll();
+  }
+});
+
+test("絵の見本：いちばん新しいデータ、コマンドの結果、ほかのボードの順に。ボードの一覧には載せない", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-panels-"));
+  const dir = ensurePanels(path.join(root, "panels"));
+  const { Desk, samplesOf } = await import("../src/desk.js");
+  const other = new Store(path.join(root, "old.jsonl"));
+  other.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "前のボード", value: 1 }] } });
+  other.apply({ by: "human", type: "add", panel: { view: "text", data: "x".repeat(30000) } });
+  assert.deepEqual(Object.keys(samplesOf(other.board)), ["bars"], "大きすぎるものは使わない");
+  const desk = new Desk({ file: path.join(root, "board.jsonl") });
+  const server = createServer({ store: desk.store, waker: desk.waker, desk, panels: dir });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const sample = async (v) => (await (await fetch(`${base}/api/panels`)).json()).views.find((x) => x.name === v).sample;
+  try {
+    assert.equal((await sample("bars"))[0].label, "前のボード");
+    desk.store.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "古い", value: 1 }] } });
+    desk.store.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "新しい", value: 1 }] } });
+    assert.equal((await sample("bars"))[0].label, "新しい");
+    assert.equal(await sample("table"), null);
+    const list = await (await fetch(`${base}/api/boards`)).json();
+    assert.equal("samples" in list.boards[0], false);
+  } finally {
     server.closeAll();
   }
 });

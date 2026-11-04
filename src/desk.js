@@ -10,6 +10,15 @@ const ARCHIVE = "archive";
 
 const textOf = (d) => (typeof d === "string" ? d : typeof d?.text === "string" ? d.text : "");
 
+// 管理の絵に使う見本：view ごとのいちばん新しいデータ。大きすぎるものは使わない
+const SAMPLE_MAX = 20000;
+export const fitsSample = (d) => d != null && JSON.stringify(d).length <= SAMPLE_MAX;
+export function samplesOf(board) {
+  const out = {};
+  for (const p of board.list()) if (fitsSample(p.data)) out[p.view] = p.data;
+  return out;
+}
+
 // 一覧で見分けるための中身の様子。ボードのログから導く
 export function summarize(board) {
   const ps = board.list();
@@ -24,6 +33,7 @@ export function summarize(board) {
     tasks: ps.filter((p) => p.state === "task").length,
     waiting: ps.filter((p) => p.state === "proposal").length,
     views,
+    samples: samplesOf(board),
     last: board.log.at(-1)?.at ?? null,
   };
 }
@@ -76,7 +86,7 @@ export class Desk {
     try {
       summary = summarize(new Store(file).board);
     } catch {
-      summary = { panels: 0, first: "", topics: [], points: [], tasks: 0, waiting: 0, views: {}, last: null, broken: true };
+      summary = { panels: 0, first: "", topics: [], points: [], tasks: 0, waiting: 0, views: {}, samples: {}, last: null, broken: true };
     }
     this.seen.set(file, { key, summary });
     return summary;
