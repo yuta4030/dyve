@@ -1,6 +1,6 @@
 {
   "name": "dyve",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "潜ったまま働けるボード。思考を声で流し込むと、AI が整理して見える化する",
   "type": "module",
   "bin": { "dyve": "bin/dyve.js" },
