@@ -26,7 +26,7 @@ button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent);
 a { color: var(--accent); }
 .empty { color: var(--mute); text-align: center; margin: 8% 8px 0; font-size: 14px; }
 
-/* ── 画面は全部タイル。並べ方と大きさは見る人が決め、ブラウザに覚える ── */
+/* ── 画面は全部パネル。並べ方と大きさはボードの view layout のパネルに持つ（.tile は画面に並ぶパネルの枠）── */
 /* ダッシュボードは上下左右に広がるキャンバス。一画面がます目の細かさ（--cols）の列ぶん。並べたものの外にも一画面ぶんの余白を持ち、そこへ動かせば広がる */
 #grid { --cols: 24; --colw: 40px; --span: 24; --rows: 40; position: relative; height: 100%; overflow: auto; padding: var(--gap); display: grid; gap: var(--gap);
         grid-template-columns: repeat(var(--span), var(--colw)); grid-template-rows: repeat(var(--rows), var(--row));
@@ -53,9 +53,9 @@ a { color: var(--accent); }
 .tile.locked .tile-head { cursor: default; }
 .tile.locked .tile-head .grip { visibility: hidden; }
 .tile.locked .sizer { display: none; }
-/* 最小化したタイル：見出しだけ残す */
-.tile.min .tile-body, .tile.min .sizer, .tile.min .opts { display: none; }
-/* タイルの歯車：奥まった設定 */
+/* 畳んだパネル：見出しだけ残す */
+.tile.folded .tile-body, .tile.folded .sizer, .tile.folded .opts { display: none; }
+/* 枠の歯車：奥まった設定 */
 .tile-head [data-ctl="menu"] svg { vertical-align: -2px; }
 .opts { position: absolute; z-index: 5; top: 28px; right: 6px; min-width: 190px; display: flex; flex-direction: column; gap: 6px;
         padding: 8px 10px; font-size: 12px; color: var(--mute); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
@@ -77,7 +77,7 @@ a { color: var(--accent); }
   .tile { grid-column: 1 / -1 !important; grid-row: span var(--h) !important; }
   #map { display: none !important; }
 }
-/* 全体マップ：右下に小さく。タイルの置き場所といま見ているところを描き、押すとそこへ行く */
+/* 全体マップ：右下に小さく。並んだパネルの置き場所といま見ているところを描き、押すとそこへ行く */
 #map { position: fixed; right: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column; gap: 4px; padding: 6px;
        background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line); border-radius: 8px;
        box-shadow: 0 4px 16px rgb(0 0 0 / .25); opacity: .75; transition: opacity .15s; }
@@ -130,7 +130,7 @@ dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
 .topics { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .topics button { min-height: 0; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 11px; color: var(--mute); }
 .topics button:hover { color: var(--ink); }
-/* 話題：話題の欄の群の頭になる */
+/* 話題：話題の欄のまとまりの頭になる */
 dv-panel .meta .topic-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; font-weight: 700; color: var(--ink); }
 dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #doing { width: 100%; margin: 4px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--mute); }
@@ -156,8 +156,6 @@ dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #tools .ib:hover { border-color: var(--mute); }
 #tools .ib[hidden] { display: none; }
 #tools select { font: inherit; font-size: 12px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; max-width: 14em; }
-#tools .closed { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; color: var(--mute); font-size: 12px; }
-#tools .closed button { min-height: 24px; padding: 0 8px; font-size: 12px; }
 /* この dyve について：押したときだけ出る */
 #infoPop { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); font-size: 13px; }
 #infoPop h3 { margin: 10px 0 4px; font-size: 13px; }
@@ -177,25 +175,22 @@ body.shot #grid, body.shot #map { display: none; }
 
 #toolsMore { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
 #toolsMore svg, .opts [data-ctl="lock"] svg { vertical-align: -2px; }
-/* 話題の欄：話題ごと（話題がなければ元の発言ごと）の群 */
+/* 話題の欄：話題ごと（話題がなければ元の発言ごと）のまとまり */
 .group { margin-bottom: 14px; }
 .group > .src { display: block; width: 100%; min-height: 0; padding: 0 2px; margin-bottom: 4px; border: none; background: none; text-align: left;
                 font-size: 12px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group > .src:hover { color: var(--ink); }
 .group > .items { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
 .group > .items > dv-panel { flex: none; width: 100%; max-width: 100%; min-width: 200px; min-height: 0; resize: both; overflow: auto; }
-/* 話題ひとつのタイル：タイルが枠になるので、パネルの枠と見出しのタイトルは出さない */
+/* 話題ひとつの枠：並んだ枠がそのまま枠になるので、パネルの枠と見出しのタイトルは出さない */
 .group.solo { margin: 0; }
 .group.solo > .items > dv-panel { border: none; background: none; padding: 0; resize: none; overflow: visible; }
 .group.solo > .items > dv-panel > .meta .topic-title { display: none; }
 iframe.uview { display: block; width: 100%; border: 0; background: transparent; }
 .src-line { margin: 2px 0 4px; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mute); overflow-wrap: anywhere; }
-/* 済みの仕事は畳む。見出しを押すと開く */
+/* 畳む：見出しの一行だけにする。済みの仕事と話題は、見る人が決めていなければ畳む。押すと開く */
 dv-panel.folded > :not(.meta) { display: none; }
-dv-panel.folded { padding-block: 4px; opacity: .75; }
-/* 最小化：見出しの一行だけにする（見る人が決める。ボードのデータには持たない） */
-dv-panel.min > :not(.meta) { display: none; }
-dv-panel.min { height: auto !important; padding-block: 4px; resize: none; }
+dv-panel.folded { height: auto !important; padding-block: 4px; resize: none; opacity: .75; }
 dv-panel .fold { color: var(--mute); }
 .hl { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius); }
 
@@ -210,7 +205,7 @@ dv-panel:hover > .meta .tools, dv-panel:focus-within > .meta .tools { opacity: 1
 @media (hover: none) { dv-panel .meta .tools { opacity: 1; } }
 dv-panel .kids { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 dv-panel .kids:empty { display: none; }
-/* 話題の中もタイルと同じます目：見出しをつまんで好きな場所へ、右下の角で大きさ。重なったら動かした方を優先して下へずらす。
+/* 話題の中も画面と同じます目：見出しをつまんで好きな場所へ、右下の角で大きさ。重なったら動かした方を優先して下へずらす。
    大きさを決めていないパネルは中身の高さだけ占める。置き場所は見る人のブラウザに覚える */
 dv-panel .kids.free { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: var(--row); gap: var(--gap); }
 dv-panel .kids.free.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) / -2); }
@@ -224,7 +219,7 @@ dv-panel .kids.free.editing { background-image: linear-gradient(var(--line) 1px,
 .kids.free > .cell:hover > .sizer { opacity: .5; }
 .kids.free > .cell > .sizer:hover { opacity: 1; }
 @media (hover: none) { .kids.free > .cell > .sizer { opacity: .5; } }
-.kids.free > .cell.min > .sizer { display: none; }
+.kids.free > .cell.folded > .sizer { display: none; }
 @media (max-width: 760px) {
   dv-panel .kids.free { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
   .kids.free > .cell { grid-column: 1 / -1 !important; grid-row: auto !important; }
@@ -297,7 +292,6 @@ dv-panel.waiting { border: 3px double var(--warn); }
           <div class="row"><span id="densityLabel"></span><select id="density"></select></div>
           <div class="row"><button id="resetLayout"></button></div>
         </div>
-        <div class="closed" id="closed"></div>
       </div>
     </div>
   </section>
@@ -308,12 +302,12 @@ dv-panel.waiting { border: 3px double var(--warn); }
 // 画面の言葉はここにまとめる
 const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
-  tile: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" },
+  builtin: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" },
   move: "ドラッグで好きな場所へ", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
-  locked: "固定中", lockOn: "固定する", lockOff: "固定を外す",
-  folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）", unfold: "畳む",
-  lock: "固定する（動かない・大きさも変わらない）", unlock: "固定を外す", close: "閉じる（dyve 設定から戻せます）",
+  pinnedNow: "ピン留め中", pinOn: "ピン留め", pinOff: "ピン留めを外す",
+  folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）",
+  pinTile: "ピン留め（AI が動かさない・書き換えない）", putBack: "話題に戻す",
   replyWait: "受け取りました", replyBusy: "取りかかっています…",
   toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
   toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
@@ -324,7 +318,6 @@ const L = {
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
   newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
   boards: "ボードの管理（切り替え・呼び名・しまう）", boardsNow: (n) => `ボードの管理（いま：${n}）`, panels: "パネルの管理（使う・使わない・既定の大きさ・消す）", offView: "この種類のパネルは「使わない」にしています（パネルの管理で戻せます）", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
-  closed: "閉じたもの：", reopen: (n) => `＋ ${n}`,
   restart: "更新して再起動（取り込んだ変更を使っている dyve に反映する）", restartAsk: "使っている dyve を更新して立て直しますか（走っているエージェントは止まります）",
   restarting: "立て直しています…",
   idle: "待機中", scribeBusy: "直しています", managerBusy: "整えています", managerWait: "間があいたら整えます", working: "動いています",
@@ -342,8 +335,8 @@ const L = {
   pin: "ピン留め", unpin: "ピン留めを外す", drop: "外す", dropAsk: "このパネルを外しますか（操作ログには残ります）",
   accept: "受け入れる", orig: "元の文", origHide: "元の文を隠す", to: (n) => `宛先：${n}`, ask: "頼んだこと",
   refused: (m) => `できませんでした：${m}`,
-  resetSize: "大きさを戻す", resetPos: "並べ直す", minimize: "最小化", restore: "元に戻す",
-  toTile: "タイルに出す", gone: "このパネルはもうありません",
+  resetSize: "大きさを戻す", resetPos: "並べ直す", fold: "畳む", unfold: "開く",
+  takeOut: "取り出す", gone: "このパネルはもうありません",
   split: "分ける", splitTitle: "合成した発言を、元の発言に戻す",
   info: "この dyve について", infoTitle: "動いている dyve", wordsTitle: "辞書（全部のボードで共通。清書係が使う）",
   meta: { version: "版", commit: "コミット", source: "起動元", running: "場所", room: "部屋", board: "ボード", startedAt: "起動", shoot: "パネルの絵" },
@@ -352,15 +345,15 @@ const L = {
   upToDate: "最新のコミットで動いています",
   shootOn: (b) => `撮れる（${b}）`, shootOff: "ブラウザがないので撮れない",
   wordsNone: "まだありません", wordHeard: "聞こえた形", wordWrite: "書き方", wordWhen: "条件（なくてよい）", wordAdd: "足す", wordDrop: "消す", wordBy: (w) => `${w} が追加`,
-  map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のタイルへ行く",
+  map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のパネルへ行く",
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
   every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
   viewError: (m) => `この view で描けませんでした：${m}`,
 };
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
-// タイルの並びと大きさ（12 列の格子で、幅は列の数、高さは行の数）
-const TILES = ["talk", "summary", "status", "quota", "tools"];
+// 組み込みのパネル（ボードの操作ログには持たず、画面が描く）。並びの key はこの名前か、パネルの id
+const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
   talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
@@ -390,14 +383,13 @@ const ICON = {
   info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
-const S = { to: null, panels: [], marks: {}, live: null, names: [], initials: {}, calls: {}, title: "", seen: {}, unfold: new Set(), feeds: {}, views: new Map() };
-// 見る人ごとの見た目（タイルの並び・大きさ、パネルの大きさ）。ボードのデータには持たない
+const S = { to: null, panels: [], marks: {}, live: null, names: [], initials: {}, calls: {}, title: "", seen: {}, feeds: {}, views: new Map() };
+// 見る人ごとのもの（見た位置）はブラウザに。並びはボードの view layout のパネルに持つ
 const keep = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 S.seen = {};
-const SIZES = keep("sizes", {});
-const MIN = new Set(keep("min", [])); // 最小化したパネルの id
-const TPOS = keep("tpos", {}); // 話題の中のパネルの置き場所：id -> { x, y, w, h? }（ます目。h がなければ中身の高さ）
+const SIZES = {}; // まとまりの中のパネルの大きさ：id -> [幅, 高さ]（ピクセル）
+const TPOS = {}; // 話題の中のパネルの置き場所：id -> { x, y, w, h? }（ます目。h がなければ中身の高さ）
 // 見た印はボードごとに覚える（id はボードごとに p1 から振られるため）
 const saveSeen = () => put(`seen:${S.name || ""}`, S.seen);
 const isPerson = (by) => by === "human";
@@ -528,11 +520,13 @@ function markOf(p) {
   return null;
 }
 
-function panelEl(p, kids) {
+// root：画面に並ぶパネルそのもの。畳むのは並んでいる枠の方なので、中では畳まない
+function panelEl(p, kids, { root = false } = {}) {
   const el = document.createElement("dv-panel");
   const mark = markOf(p);
-  const minable = p.view !== "say" && p.view !== "summary";
-  el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark, minable && MIN.has(p.id) && "min"].filter(Boolean).join(" ");
+  const foldable = !root && p.view !== "say" && p.view !== "summary";
+  const folded = foldable && isFolded(p.id);
+  el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark, folded && "folded"].filter(Boolean).join(" ");
   el.dataset.id = p.id;
   const tags = [];
   if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
@@ -541,15 +535,7 @@ function panelEl(p, kids) {
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
-  // 済みの仕事は結果ごと畳む。中に印（まだ見ていない知らせ・受け入れ待ちの提案）があれば畳まない
-  const sub = [];
-  const walk = (id) => { for (const k of kids(id)) { sub.push(k); walk(k.id); } };
-  walk(p.id);
-  const done = (p.view === "task" || p.view === "topic") && p.state === "done";
-  if (done && !S.unfold.has(p.id) && !sub.some((x) => markOf(x))) {
-    el.classList.add("folded");
-    tags.push(`<span class="fold">${esc(L.folded(sub.filter((x) => !isPerson(x.by)).length))}</span>`);
-  }
+  if (folded && isDone(p)) tags.push(`<span class="fold">${esc(L.folded(descOf(p.id, kids).filter((x) => !isPerson(x.by)).length))}</span>`);
   const feed = S.feeds[p.id];
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
@@ -564,10 +550,9 @@ function panelEl(p, kids) {
       ${p.view === "say" && S.panels.some((x) => x.into === p.id) ? `<button class="icon" data-act="split" title="${esc(L.splitTitle)}">${L.split}</button>` : ""}
       ${SIZES[p.id] ? `<button class="icon" data-act="unsize">${L.resetSize}</button>` : ""}
       ${p.view === "topic" && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
-      ${done && !el.classList.contains("folded") ? `<button class="icon" data-act="fold">${L.unfold}</button>` : ""}
       ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
-      ${p.view !== "say" && !S.roots?.has(p.id) && !(LAYOUT.extra || []).includes(`panel:${p.id}`) ? `<button class="icon" data-act="tile">${L.toTile}</button>` : ""}
-      ${minable ? `<button class="icon" data-act="min" aria-pressed="${MIN.has(p.id)}" title="${MIN.has(p.id) ? L.restore : L.minimize}" aria-label="${MIN.has(p.id) ? L.restore : L.minimize}">${MIN.has(p.id) ? ICON.restore : ICON.min}</button>` : ""}
+      ${p.view !== "say" && p.about && !(LAYOUT.out || []).includes(p.id) ? `<button class="icon" data-act="out">${L.takeOut}</button>` : ""}
+      ${foldable ? `<button class="icon" data-act="fold" aria-pressed="${folded}" title="${folded ? L.unfold : L.fold}" aria-label="${folded ? L.unfold : L.fold}">${folded ? ICON.restore : ICON.min}</button>` : ""}
       <button class="icon" data-act="pin" aria-pressed="${!!p.pinned}" title="${p.pinned ? L.unpin : L.pin}" aria-label="${p.pinned ? L.unpin : L.pin}">${ICON.pin}</button>
       <button class="icon" data-act="drop" title="${L.drop}" aria-label="${L.drop}">${ICON.drop}</button>
     </span></div>`;
@@ -608,7 +593,7 @@ function panelEl(p, kids) {
   return el;
 }
 
-// ── 話題の中のます目：タイルと同じ決まりで並べる ──
+// ── 話題の中のます目：画面と同じ決まりで並べる ──
 // 置き場所のあるものはそこへ（重なったら下へずらす）、まだないものはその下の空いたところへ順に詰める
 const cellsIn = (box) => [...box.children].filter((c) => c.matches(".cell"));
 function freeGrid(box) {
@@ -625,7 +610,7 @@ function freePos(box, g) {
     const id = c.dataset.id, t = TPOS[id], d = sizeOf(c.dataset.view);
     const w = clamp(t?.w || toCols(d.w || 360), 1, g.cols);
     const h = t?.h || (d.h ? toRows(d.h) : 0);
-    pos[id] = { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: h || 1, auto: !h || MIN.has(id), placed: !!t };
+    pos[id] = { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: h || 1, auto: !h || isFolded(id), placed: !!t };
     c.classList.toggle("auto", pos[id].auto);
     c.style.gridColumn = `${pos[id].x} / span ${w}`;
   }
@@ -656,7 +641,7 @@ function placeFree(box, pos) {
     const p = pos[c.dataset.id];
     if (!p) continue;
     c.classList.toggle("auto", p.auto);
-    c.classList.toggle("min", MIN.has(c.dataset.id));
+    c.classList.toggle("folded", isFolded(c.dataset.id));
     Object.assign(c.style, { gridColumn: `${p.x} / span ${p.w}`, gridRow: `${p.y} / span ${p.h}` });
   }
   box._pos = pos;
@@ -715,14 +700,13 @@ function render() {
   const desc = (id) => kids(id).flatMap((k) => [k, ...desc(k.id)]);
   const top = kids(null);
   const isSay = (p) => isPerson(p.by) && p.view === "say";
-  // 話題（と、発言から出たもの）はそれぞれ一枚のタイルになる。その根になっているパネル
-  S.roots = new Set(top.filter((p) => !isSay(p) && p.view !== "summary").map((p) => p.id));
+  S.kids = kids;
 
   // トーク：いちばん下を見ていたときだけ追いかける
   const tl = $("#timeline");
   const follow = tl.scrollTop + tl.clientHeight >= tl.scrollHeight - 40;
   tl.innerHTML = "";
-  // トークに出すのは人の発言だけ（人が置いたほかのパネルは自分のタイルへ）
+  // トークに出すのは人の発言だけ（人が置いたほかのパネルは自分の枠へ）
   const said = top.filter((p) => isSay(p) && !p.into); // 合流した発言は先頭に入っている
   if (!said.length) tl.innerHTML = `<p class="empty">${esc(L.emptyTalk)}</p>`;
   // 発言から出た仕事が束ねられている話題（data.from から導く）
@@ -771,8 +755,8 @@ function render() {
   if (sum) sb.append(panelEl(sum, kids));
   else sb.innerHTML = `<p class="empty">${esc(L.emptySummary)}</p>`;
 
-  // 話題ごと（なければ発言ごと）に群にして、群をそれぞれ一枚のタイルにする（"g:<根の id>"）。
-  // 新しい群は、ほかのタイルを押しのけずに空いているところへ出る（最近動いたものから上に）
+  // 話題ごと（なければ発言ごと）にまとめて、それぞれ画面に一枚で並べる（key は根のパネルの id）。
+  // 新しいまとまりは、ほかを押しのけずに空いているところへ出る（最近動いたものから上に）
   const groups = [];
   for (const p of top) {
     if (p === sum || p.view === "summary") continue;
@@ -781,26 +765,26 @@ function render() {
   }
   const lastOf = (g) => Math.max(...g.items.flatMap((p) => [p, ...desc(p.id)]).map((p) => p.rev || 0), g.src?.rev || 0);
   groups.sort((a, b) => lastOf(b) - lastOf(a));
-  const keys = groups.map((g) => gk(g.key));
+  const keys = groups.map((g) => g.key);
   let changed = false;
   for (const t of $$(".tile", grid)) {
     const k = t.dataset.tile;
     if (!isGroupTile(k) || keys.includes(k)) continue;
     t.remove();
-    // なくなった群の置き場所は忘れる（ほかのボードの群は、戻ったときのために覚えておく）
-    if (k.startsWith(gk("")) && LAYOUT.pos?.[k]) delete LAYOUT.pos[k];
+    // なくなったまとまりの置き場所は忘れる
+    if (LAYOUT.pos?.[k]) delete LAYOUT.pos[k];
     changed = true;
   }
   S.groupTiles = keys;
   for (const g of groups) {
-    const k = gk(g.key);
+    const k = g.key;
     if (!tileOf(k)) { setupTile(k); changed = true; }
     if (!LAYOUT.pos?.[k]) { LAYOUT.pos = { ...LAYOUT.pos, [k]: freeSpot(g.src ? GROUP_SIZE() : tileSize(g.items[0].view)) }; changed = true; }
   }
   if (changed) { saveLayout(); applyLayout(); }
   for (const g of groups) {
-    const t = tileOf(gk(g.key)), solo = !g.src && g.items.length === 1, root = g.items[0];
-    // 発言から出た群は、見出しがその発言。押すとトークの発言へ
+    const t = tileOf(g.key), solo = !g.src && g.items.length === 1, root = g.items[0];
+    // 発言から出たまとまりは、見出しがその発言。押すとトークの発言へ
     const h2 = $(".tile-head h2", t);
     h2.textContent = g.src ? `← ${textOf(g.src.data)}` : root.view === "topic" ? topicTitle(root) : `${who(root.by)}・${root.view}`;
     h2.title = h2.textContent;
@@ -811,7 +795,7 @@ function render() {
     const items = document.createElement("div");
     items.className = "items";
     for (const p of g.items) {
-      const el = panelEl(p, kids), sz = !solo && SIZES[p.id];
+      const el = panelEl(p, kids, { root: solo }), sz = !solo && SIZES[p.id];
       if (sz) Object.assign(el.style, { width: `${sz[0]}px`, height: `${sz[1]}px` });
       items.append(el);
     }
@@ -819,21 +803,24 @@ function render() {
     const body = $(".tile-body", t);
     body.innerHTML = "";
     body.append(box);
-    // 知らせの印は、その群のタイルの見出しに
+    // 知らせの印は、そのまとまりの見出しに
     const ms = g.items.flatMap((p) => [p, ...desc(p.id)]).filter((p) => !isPerson(p.by)).map(markOf);
-    $(".tile-head .badge", t).textContent = ms.includes("waiting") ? L.markShort.waiting : ms.some(Boolean) ? L.markShort.notice : "";
+    $(".tile-head .badge", t).textContent = (solo && isDone(root) ? "✓" : "") + (ms.includes("waiting") ? L.markShort.waiting : ms.some(Boolean) ? L.markShort.notice : "");
   }
-  // パネルから出したタイル
-  for (const k of LAYOUT.extra || []) {
+  // 取り出したパネル
+  for (const k of LAYOUT.out || []) {
     const t = tileOf(k);
     if (!t) continue;
-    const p = S.panels.find((x) => x.id === k.slice(6));
-    $(".tile-head h2", t).textContent = !p ? k.slice(6) : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
+    const p = panelById(k);
+    $(".tile-head h2", t).textContent = !p ? k : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
     const body = $(".tile-body", t);
     body.innerHTML = "";
     if (p && !shownPanels(S.panels, S.marks, offSet()).includes(p)) body.innerHTML = `<p class="empty">${esc(L.offView)}</p>`;
-    else if (p) body.append(panelEl(p, kids)); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
+    else if (p) body.append(panelEl(p, kids, { root: true })); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
   }
+  // 畳み方は中身（済み・印）でも変わる。変わったときだけ並べ直す
+  const folds = allTiles().map((k) => `${k}:${isFolded(k)}`).join();
+  if (folds !== S.folds) { S.folds = folds; if (!changed) applyLayout(); }
   drawMapSoon();
 }
 
@@ -878,31 +865,48 @@ function reveal(el) {
   setTimeout(() => el.classList.remove("hl"), 1600);
 }
 const panelOf = (id) => $$("dv-panel").find((x) => x.dataset.id === id);
-// 群のタイル。閉じていたら、人が押したときだけ開き直して見せる
-const groupOf = (id) => {
-  const k = gk(id), t = tileOf(k);
-  if (t && userHidden(k)) { LAYOUT.hidden = LAYOUT.hidden.filter((x) => x !== k); saveLayout(); applyLayout(); }
-  return t;
-};
+// まとまりの枠（key は根のパネルの id）
+const groupOf = (id) => tileOf(id);
 
-// ── タイル：見出しをつまんで好きな場所へ、右下の角で大きさ、見出しの右で文字の大きさと固定 ──
-// 置き場所はます目で持つ。重なったら、動かしたタイルを優先して重なった方を下へずらす。固定したタイルは動かない
+// ── 並び：画面に並ぶパネルは見出しをつまんで好きな場所へ、右下の角で大きさ、見出しの右で文字の大きさ・畳む・ピン留め ──
+// 置き場所はます目で持つ。重なったら、動かしたものを優先して重なった方を下へずらす。ピン留めしたものは動かない
+// DOM の .tile は、画面に並ぶパネルの枠（組み込みのパネル・話題などのまとまり・取り出したパネル）
 const grid = $("#grid");
-const LAYOUT = keep("layout2", null) || {};
+const LAYOUT = keep("layout3", null) || {};
 const tileOf = (k) => $(`.tile[data-tile="${CSS.escape(k)}"]`);
-// 置き場所：覚えたもの（baseOf）。最小化したタイルは見出しの高さだけを占める（posOf）。覚えるのはいつも元の大きさ
+// 置き場所：覚えたもの（baseOf）。畳んだものは見出しの高さだけを占める（posOf）。覚えるのはいつも元の大きさ
 const baseOf = (k) => ({ ...(HOME[k] || { x: 1, y: 1, w: 8, h: 8 }), ...LAYOUT.pos?.[k] });
-const isMin = (k) => (LAYOUT.min || []).includes(k);
+const panelById = (id) => S.panels.find((p) => p.id === id);
+const isDone = (p) => (p?.view === "task" || p?.view === "topic") && p.state === "done";
+const descOf = (id, kids) => kids(id).flatMap((k) => [k, ...descOf(k.id, kids)]);
+// 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）
+function isFolded(k) {
+  if (SHOT) return false;
+  const f = LAYOUT.fold?.[k];
+  if (f != null) return f;
+  const p = panelById(k);
+  return isDone(p) && !descOf(k, S.kids || (() => [])).some((x) => markOf(x));
+}
+const setFold = (k, on) => { LAYOUT.fold = { ...LAYOUT.fold, [k]: on }; saveLayout(); render(); applyLayout(); };
+// ピン留め：ボードのパネルはパネルの pinned（たどった上のどれかでも）。組み込みのパネルと発言から出たまとまりは並びの pinned（人だけが決める）
+const pinnable = (k) => { const p = panelById(k); return p && p.view !== "say" ? p : null; };
+function isPinned(k) {
+  const own = LAYOUT.pinned || [];
+  if (own.includes(k)) return true;
+  for (let p = panelById(k), seen = new Set(); p && !seen.has(p.id); p = panelById(p.about)) {
+    seen.add(p.id);
+    if (p.pinned || own.includes(p.id)) return true;
+  }
+  return false;
+}
 const minRows = () => { const d = DENSITY[dens()]; return Math.max(1, Math.ceil((32 + d.gap) / (d.row + d.gap))); };
-const posOf = (k) => (isMin(k) ? { ...baseOf(k), h: minRows() } : baseOf(k));
-const keepSize = (k, p) => (isMin(k) ? { ...p, h: baseOf(k).h } : p);
-// タイル：決まった六つと、利用者がパネルから出したもの（"panel:<id>"）
-const allTiles = () => [...TILES, ...(LAYOUT.extra || []), ...(S.groupTiles || [])];
-const isPanelTile = (k) => k.startsWith("panel:");
-const isGroupTile = (k) => k.startsWith("g:");
-// 群のタイルの名前はボードごと（id はボードごとに p1 から振られるため）
-const gk = (id) => `g:${S.name || ""}/${id}`;
-// 群のタイルの大きさ（一画面の三分の一の幅）と、置き場所：一画面の幅の中で、上から空いているところ
+const posOf = (k) => (isFolded(k) ? { ...baseOf(k), h: minRows() } : baseOf(k));
+const keepSize = (k, p) => (isFolded(k) ? { ...p, h: baseOf(k).h } : p);
+// 画面に並ぶパネル：組み込みのものと、取り出したものと、話題などのまとまり
+const allTiles = () => [...BUILTIN, ...(LAYOUT.out || []), ...(S.groupTiles || [])];
+const isOut = (k) => (LAYOUT.out || []).includes(k);
+const isGroupTile = (k) => !BUILTIN.includes(k) && !isOut(k);
+// まとまりの大きさ（一画面の三分の一の幅）と、置き場所：一画面の幅の中で、上から空いているところ
 const GROUP_SIZE = () => ({ w: Math.round(dens() / 3), h: Math.round(dens() * 0.6) });
 // その view の既定の大きさをます目に直す。決めていなければ base のまま
 function tileSize(view, base = GROUP_SIZE()) {
@@ -910,25 +914,23 @@ function tileSize(view, base = GROUP_SIZE()) {
   return { w: d.w ? clamp(Math.round((d.w + m.gap) / m.sx), 2, dens()) : base.w, h: d.h ? Math.max(2, Math.round((d.h + m.gap) / m.sy)) : base.h };
 }
 function freeSpot({ w, h }) {
-  const taken = allTiles().filter((x) => tileOf(x) && !tileOf(x).hidden && (LAYOUT.pos?.[x] || HOME[x])).map(posOf);
+  const taken = allTiles().filter((x) => tileOf(x) && (LAYOUT.pos?.[x] || HOME[x])).map(posOf);
   for (let y = 1; ; y++) for (let x = 1; x + w <= dens() + 1; x++) {
     const q = { x, y, w, h };
     if (!taken.some((o) => overlap(q, o))) return q;
   }
 }
-const tileName = (k) => L.tile[k] || $(`.tile[data-tile="${CSS.escape(k)}"] .tile-head h2`)?.textContent || k;
-const isLocked = (k) => (LAYOUT.locked || []).includes(k);
 const dens = () => (DENSITY[LAYOUT.density] ? LAYOUT.density : 24);
 const zoomOf = (k) => LAYOUT.zoom?.[k] || 1;
 // 置き場所はボードの view layout のパネルに持つ（エージェントも見て動かす）。ブラウザの分は、新しいボードの下敷きにだけ使う
 const SHOT = new URLSearchParams(location.search).get("shot");
 const LAYOUT_SYNC = { id: null, sent: null, timer: null };
 const layoutData = () => {
-  const mine = (k) => !isGroupTile(k) || k.startsWith(gk(""));
   const m = metrics();
-  const here = (id) => S.panels.some((p) => p.id === id);
-  const inner = { tpos: Object.fromEntries(Object.entries(TPOS).filter(([id]) => here(id))), sizes: Object.fromEntries(Object.entries(SIZES).filter(([id]) => here(id))), min: [...MIN].filter(here), unfold: [...S.unfold].filter(here) };
-  return { ...LAYOUT, inner, pos: Object.fromEntries(allTiles().filter(mine).map((k) => [k, baseOf(k)])), hidden: (LAYOUT.hidden || []).filter(mine), density: dens(),
+  const here = (k) => BUILTIN.includes(k) || S.panels.some((p) => p.id === k);
+  const only = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => here(k)));
+  return { v: 2, pos: Object.fromEntries(allTiles().map((k) => [k, baseOf(k)])), zoom: only(LAYOUT.zoom), fold: only(LAYOUT.fold), out: (LAYOUT.out || []).filter(here), pinned: (LAYOUT.pinned || []).filter(here),
+    inner: { tpos: only(TPOS), sizes: only(SIZES) }, density: dens(),
     metric: { sx: Math.round(m.sx), sy: Math.round(m.sy), rows: Math.floor(grid.clientHeight / m.sy) } };
 };
 // 比べるときは窓の大きさ（metric）と並び順を外す。窓の違うブラウザどうしで書き合わないように
@@ -942,11 +944,7 @@ function pushLayout() {
     if (key === LAYOUT_SYNC.sent) return;
     LAYOUT_SYNC.sent = key;
     const r = await fetch("/api/op", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(LAYOUT_SYNC.id ? { type: "edit", panel: { id: LAYOUT_SYNC.id, data } } : { type: "add", panel: { view: "layout", data } }) }).then((x) => x.json()).catch(() => null);
-    if (r?.ok && !LAYOUT_SYNC.id) {
-      LAYOUT_SYNC.id = r.op.panel.id;
-      // ブラウザに残っていた話題の中の置き場所はこのボードへ移した（id はボードごとなので、ほかのボードへ持ち越さない）
-      for (const k of ["tpos", "sizes", "min"]) try { localStorage.removeItem(k); } catch {}
-    }
+    if (r?.ok && !LAYOUT_SYNC.id) LAYOUT_SYNC.id = r.op.panel.id;
   }, 300);
 }
 // ボードの置き場所を受け取る。動かしている最中は人を優先する。変わったら true
@@ -967,10 +965,6 @@ function adoptLayout(lp) {
     for (const o of [TPOS, SIZES]) for (const k of Object.keys(o)) delete o[k];
     Object.assign(TPOS, inner.tpos);
     Object.assign(SIZES, inner.sizes);
-    MIN.clear();
-    for (const id of inner.min || []) MIN.add(id);
-    S.unfold.clear();
-    for (const id of inner.unfold || []) S.unfold.add(id);
   }
   return true;
 }
@@ -978,14 +972,14 @@ const saveLayout = () => { put("layout2", LAYOUT); pushLayout(); };
 const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 // moved を優先して置き、ほかは重ならないところまで下へずらす（すき間はそのまま残す）
-// last：いま現れたタイル。いちばん後に置き、すでに出ているタイルを押しのけずに自分がずれる
+// last：いま現れたもの。いちばん後に置き、すでに出ているものを押しのけずに自分がずれる
 function settle(pos, moved, last = null) {
-  const shown = allTiles().filter((k) => !tileOf(k).hidden);
-  const fixed = shown.filter((k) => isLocked(k));
+  const shown = allTiles();
+  const fixed = shown.filter((k) => isPinned(k));
   const tail = last && shown.includes(last) && !fixed.includes(last) && last !== moved ? [last] : [];
   return stack(pos, [...fixed, ...(moved && !fixed.includes(moved) ? [moved] : []), ...shown.filter((k) => !fixed.includes(k) && k !== moved && !tail.includes(k)).sort(byPlace(pos)), ...tail]);
 }
-// order の順に置き、先に置いたものと重なったら下へずらす（タイルと話題の中で共通）
+// order の順に置き、先に置いたものと重なったら下へずらす（画面と話題の中で共通）
 function stack(pos, order) {
   const placed = [];
   for (const k of order) {
@@ -1011,7 +1005,7 @@ function metrics() {
 // 広さを決める。drag のあいだは左と上を動かさず（動かすと指の下がずれる）、右と下は広げるだけ
 function frame(pos, during = false) {
   const m = metrics();
-  const shown = allTiles().filter((k) => !tileOf(k).hidden).map((k) => pos[k]);
+  const shown = allTiles().map((k) => pos[k]);
   const vr = Math.max(4, Math.floor(grid.clientHeight / m.sy));
   const x0 = Math.min(1, ...shown.map((p) => p.x)), y0 = Math.min(1, ...shown.map((p) => p.y));
   const x1 = Math.max(dens() + 1, ...shown.map((p) => p.x + p.w)), y1 = Math.max(vr + 1, ...shown.map((p) => p.y + p.h));
@@ -1033,21 +1027,20 @@ function place(pos, during = false) {
     Object.assign(t.style, { gridColumn: `${p.x - ox + 1} / span ${p.w}`, gridRow: `${p.y - oy + 1} / span ${p.h}`, order: String((p.y - oy) * 10000 + (p.x - ox)) });
     t.style.setProperty("--h", String(p.h));
     $(".tile-body", t).style.zoom = String(zoomOf(k));
-    t.classList.toggle("locked", isLocked(k));
-    t.classList.toggle("min", isMin(k));
-    const mb = $('[data-ctl="min"]', t);
-    if (mb) {
-      mb.setAttribute("aria-pressed", String(isMin(k)));
-      mb.title = isMin(k) ? L.restore : L.minimize;
-      mb.setAttribute("aria-label", mb.title);
-      mb.innerHTML = isMin(k) ? ICON.restore : ICON.min;
-    }
+    const pin = isPinned(k), fold = isFolded(k);
+    t.classList.toggle("locked", pin);
+    t.classList.toggle("folded", fold);
+    const mb = $('[data-ctl="fold"]', t);
+    mb.setAttribute("aria-pressed", String(fold));
+    mb.title = fold ? L.unfold : L.fold;
+    mb.setAttribute("aria-label", mb.title);
+    mb.innerHTML = fold ? ICON.restore : ICON.min;
     $(".zoom", t).value = String(Math.round(zoomOf(k) * 100));
-    const lk = $('[data-ctl="lock"]', t);
-    lk.setAttribute("aria-pressed", String(isLocked(k)));
-    lk.title = isLocked(k) ? L.unlock : L.lock;
-    lk.innerHTML = `${ICON.pin} ${esc(isLocked(k) ? L.lockOff : L.lockOn)}`;
-    for (const b of $$('[data-ctl="smaller"], [data-ctl="larger"], .zoom', t)) b.disabled = isLocked(k);
+    const lk = $('[data-ctl="pin"]', t);
+    lk.setAttribute("aria-pressed", String(pin));
+    lk.title = pin ? L.pinOff : L.pinTile;
+    lk.innerHTML = `${ICON.pin} ${esc(pin ? L.pinOff : L.pinOn)}`;
+    for (const b of $$('[data-ctl="smaller"], [data-ctl="larger"], .zoom', t)) b.disabled = pin;
   }
   if (!during && !narrow()) {
     grid.scrollLeft = Math.round((view.x - ox) * m.sx);
@@ -1056,21 +1049,16 @@ function place(pos, during = false) {
   }
   drawMapSoon();
 }
-// 閉じたタイル：人が閉じたもの（dyve 設定は閉じられない）。空のあいだの話題の欄は閉じたことにしない
-const userHidden = (k) => k !== "tools" && (LAYOUT.hidden || []).includes(k);
 function applyLayout(appear = null) {
   const d = DENSITY[dens()];
   grid.style.setProperty("--cols", String(dens()));
   grid.style.setProperty("--row", `${d.row}px`);
   grid.style.setProperty("--gap", `${d.gap}px`);
-  // パネルから出したタイルを作る・消す
-  for (const k of LAYOUT.extra || []) if (!tileOf(k)) setupTile(k);
-  for (const t of $$(".tile", grid)) if (isPanelTile(t.dataset.tile) && !(LAYOUT.extra || []).includes(t.dataset.tile)) t.remove();
-  for (const k of [...TILES, ...(S.groupTiles || [])]) if (tileOf(k)) tileOf(k).hidden = userHidden(k);
+  // 取り出したパネルの枠を作る・消す
+  for (const k of LAYOUT.out || []) if (!tileOf(k)) setupTile(k);
+  for (const t of $$(".tile[data-out]", grid)) if (!isOut(t.dataset.tile)) t.remove();
   const pos = Object.fromEntries(allTiles().map((k) => [k, posOf(k)]));
   place(settle(pos, null, appear));
-  const closed = [...TILES, ...(S.groupTiles || [])].filter(userHidden);
-  $("#closed").innerHTML = closed.length ? `<span>${esc(L.closed)}</span>` + closed.map((k) => `<button data-reopen="${esc(k)}">${esc(L.reopen(tileName(k)))}</button>`).join("") : "";
   $("#density").value = String(dens());
 }
 // 細かさを変えたら、置き場所・大きさを同じ割合で直す（見た目の大きさを保つ）
@@ -1099,7 +1087,7 @@ function cells() {
     y: Math.floor((cy - r.top - m.padT + grid.scrollTop) / m.sy) + CANVAS.oy,
   }) };
 }
-// つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）。タイルと話題の中で共通
+// つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）。画面と話題の中で共通
 // 4px 動くまでは動かしたことにしない（見出しを押しただけのときは、ます目も出さない）
 // scroller の端に指を寄せると、そちらへ送る（人が動かしているあいだだけ）
 function dragCells(e, { handle, k, start, at, step, arrange, place, onStart, onEnd, scroller = null }) {
@@ -1175,18 +1163,19 @@ function setupTile(k) {
     t = document.createElement("section");
     t.className = "tile";
     t.dataset.tile = k;
+    if (isOut(k)) t.dataset.out = "";
     t.innerHTML = `<div class="tile-body"></div>`;
     grid.append(t);
   }
   const head = document.createElement("div");
   head.className = "tile-head";
   head.title = L.move;
-  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.tile[k] || "")}</h2><span class="badge"></span>
+  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.builtin[k] || "")}</h2><span class="badge"></span>
     <span class="ctl">
-      <span class="lockmark" title="${esc(L.locked)}" aria-label="${esc(L.locked)}">${ICON.pin}</span>
-      <button class="icon" data-ctl="min" aria-pressed="false">${ICON.min}</button>
+      <span class="lockmark" title="${esc(L.pinnedNow)}" aria-label="${esc(L.pinnedNow)}">${ICON.pin}</span>
+      <button class="icon" data-ctl="fold" aria-pressed="false">${ICON.min}</button>
       <button class="icon" data-ctl="menu" aria-haspopup="true" aria-expanded="false" title="${esc(L.options)}" aria-label="${esc(L.options)}">${ICON.gear}</button>
-      ${k === "tools" ? "" : `<button class="icon" data-ctl="close" title="${esc(L.close)}" aria-label="${esc(L.close)}">${ICON.drop}</button>`}
+      ${isOut(k) ? `<button class="icon" data-ctl="back" title="${esc(L.putBack)}" aria-label="${esc(L.putBack)}">${ICON.drop}</button>` : ""}
     </span>`;
   t.prepend(head);
   const menu = document.createElement("div");
@@ -1196,9 +1185,9 @@ function setupTile(k) {
       <button data-ctl="smaller" title="${esc(L.smaller)}" aria-label="${esc(L.smaller)}">A−</button>
       <input class="zoom" type="number" min="${ZOOM.min * 100}" max="${ZOOM.max * 100}" step="10" title="${esc(L.zoomSet)}" aria-label="${esc(L.zoomSet)}">%
       <button data-ctl="larger" title="${esc(L.larger)}" aria-label="${esc(L.larger)}">A＋</button></div>
-    <div class="row"><button data-ctl="lock" aria-pressed="false"></button></div>`;
+    <div class="row"><button data-ctl="pin" aria-pressed="false"></button></div>`;
   head.after(menu);
-  // dyve 設定の奥まったもの（ます目・並びを戻す）はこのタイルの歯車へ
+  // dyve 設定の奥まったもの（ます目・並びを戻す）はこの枠の歯車へ
   if (k === "tools") menu.append($("#toolsMore"));
   const sizer = document.createElement("div");
   sizer.className = "sizer";
@@ -1206,11 +1195,11 @@ function setupTile(k) {
   t.append(sizer);
 
   head.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || e.target.closest(".ctl") || isLocked(k)) return;
+    if (e.button !== 0 || e.target.closest(".ctl") || isPinned(k)) return;
     drag(e, k, head, (p, dx, dy) => ({ ...p, x: Math.max(CANVAS.ox, p.x + dx), y: Math.max(CANVAS.oy, p.y + dy) }));
   });
   sizer.addEventListener("pointerdown", (e) => {
-    if (isLocked(k)) return;
+    if (isPinned(k)) return;
     drag(e, k, sizer, (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, 400), h: clamp(p.h + dy, 2, 400) }));
   });
   const onCtl = (e) => {
@@ -1223,19 +1212,21 @@ function setupTile(k) {
       e.target.closest("button").setAttribute("aria-expanded", String(open));
       return;
     }
-    if (c === "close" && isPanelTile(k)) {
-      // パネルから出したタイルは、閉じたらなくす（パネルは話題の欄に残る）
-      LAYOUT.extra = (LAYOUT.extra || []).filter((x) => x !== k);
-    } else if (c === "close") {
-      LAYOUT.hidden = [...new Set([...(LAYOUT.hidden || []), k])];
-    } else if (c === "min") {
-      const set = new Set(LAYOUT.min || []);
+    if (c === "fold") return setFold(k, !isFolded(k));
+    if (c === "back") {
+      // 取り出したパネルを話題に戻す（パネルは話題の中に残っている）
+      LAYOUT.out = (LAYOUT.out || []).filter((x) => x !== k);
+      delete LAYOUT.pos?.[k];
+      saveLayout();
+      applyLayout();
+      return render();
+    } else if (c === "pin") {
+      // ボードのパネルならパネルをピン留めする（ボードの操作）。組み込みのパネルと発言から出たまとまりは並びに持つ
+      const p = pinnable(k);
+      if (p) { closeMenus(); op("edit", { id: p.id, pinned: !p.pinned }); return; }
+      const set = new Set(LAYOUT.pinned || []);
       if (set.has(k)) set.delete(k); else set.add(k);
-      LAYOUT.min = [...set];
-    } else if (c === "lock") {
-      const set = new Set(LAYOUT.locked || []);
-      if (set.has(k)) set.delete(k); else set.add(k);
-      LAYOUT.locked = [...set];
+      LAYOUT.pinned = [...set];
     } else {
       const z = clamp(Math.round((zoomOf(k) + (c === "larger" ? 1 : -1) * ZOOM.step) * 10) / 10, ZOOM.min, ZOOM.max);
       LAYOUT.zoom = { ...LAYOUT.zoom, [k]: z };
@@ -1254,13 +1245,13 @@ function setupTile(k) {
     applyLayout();
   });
 }
-for (const k of TILES) setupTile(k);
-// パネルをタイルに出す：ます目の下の方に置く
-function tileFromPanel(id) {
-  const k = `panel:${id}`;
-  if ((LAYOUT.extra || []).includes(k)) return reveal(tileOf(k));
-  const bottom = Math.max(1, ...allTiles().filter((x) => tileOf(x) && !tileOf(x).hidden).map((x) => posOf(x).y + posOf(x).h));
-  LAYOUT.extra = [...(LAYOUT.extra || []), k];
+for (const k of BUILTIN) setupTile(k);
+// 取り出す：話題の中のパネルを、ます目の下の方に一枚で並べる
+function takeOut(id) {
+  const k = id;
+  if (isOut(k)) return reveal(tileOf(k));
+  const bottom = Math.max(1, ...allTiles().filter((x) => tileOf(x)).map((x) => posOf(x).y + posOf(x).h));
+  LAYOUT.out = [...(LAYOUT.out || []), k];
   LAYOUT.pos = { ...LAYOUT.pos, [k]: { x: 1, y: bottom, ...tileSize(S.panels.find((p) => p.id === id)?.view, { w: Math.round(dens() / 3), h: Math.round(dens() / 3) }) } };
   saveLayout();
   applyLayout();
@@ -1274,18 +1265,11 @@ function closeMenus() {
 // メニューの外を押すか Esc で閉じる
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".opts, [data-ctl=menu]")) closeMenus(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(); });
-$("#closed").addEventListener("click", (e) => {
-  const k = e.target.closest("[data-reopen]")?.dataset.reopen;
-  if (!k) return;
-  LAYOUT.hidden = (LAYOUT.hidden || []).filter((x) => x !== k);
-  saveLayout();
-  applyLayout();
-});
 $("#density").innerHTML = Object.keys(DENSITY).map((n) => `<option value="${n}">${esc(L.densities[n])}</option>`).join("");
 $("#density").onchange = (e) => setDensity(Number(e.target.value));
 $("#resetLayout").onclick = () => { for (const k of Object.keys(LAYOUT)) delete LAYOUT[k]; saveLayout(); CANVAS.homed = false; applyLayout(); };
 
-// ── 全体マップ：右下に小さく。タイルの置き場所といま見ているところ（枠）を描く。押す・なぞるとそこへ行く ──
+// ── 全体マップ：右下に小さく。並んだパネルの置き場所といま見ているところ（枠）を描く。押す・なぞるとそこへ行く ──
 const world = $("#map .world");
 world.title = L.map;
 $("#toTools").innerHTML = `${ICON.gear} ${esc(L.toTools)}`;
@@ -1295,7 +1279,7 @@ function drawMap() {
   mapRaf = 0;
   if (narrow()) return;
   const W = world.clientWidth, H = world.clientHeight;
-  const rects = allTiles().map((k) => [k, tileOf(k)]).filter(([, t]) => t && !t.hidden)
+  const rects = allTiles().map((k) => [k, tileOf(k)]).filter(([, t]) => t)
     .map(([k, t]) => ({ k, t, x: t.offsetLeft, y: t.offsetTop, w: t.offsetWidth, h: t.offsetHeight }));
   const v = { x: grid.scrollLeft, y: grid.scrollTop, w: grid.clientWidth, h: grid.clientHeight };
   const all = [...rects, v];
@@ -1328,7 +1312,7 @@ world.addEventListener("pointerdown", (e) => {
   world.addEventListener("pointermove", mv);
   world.addEventListener("pointerup", () => world.removeEventListener("pointermove", mv), { once: true });
 });
-// dyve 設定のタイルへ（どこにいても戻れる）
+// dyve 設定のパネルへ（どこにいても戻れる）
 $("#toTools").onclick = () => {
   const t = tileOf("tools");
   t.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
@@ -1352,7 +1336,7 @@ grid.addEventListener("pointerdown", (e) => {
   }, { once: true });
 });
 
-// 話題の中のパネル：見出しでつまんで動かし、右下の角で大きさを変える（タイルと同じ）。動かしたあとの click は捨てる（畳み・印の解除が走らないように）
+// 話題の中のパネル：見出しでつまんで動かし、右下の角で大きさを変える（画面と同じ）。動かしたあとの click は捨てる（畳み・印の解除が走らないように）
 let dragged = false;
 grid.addEventListener("pointerdown", (e) => {
   const head = e.target.closest(".kids.free > .cell > dv-panel > .meta");
@@ -1403,6 +1387,14 @@ async function load() {
   if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
   Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet });
   const adopted = adoptLayout(b.layout);
+  // 並びのないボード（新しいボード）は、ブラウザに覚えた組み込みのパネルの並びだけを下敷きにする（id はボードごとに振られるため）
+  if (!b.layout) {
+    const own = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => BUILTIN.includes(k)));
+    const base = { pos: own(LAYOUT.pos), zoom: own(LAYOUT.zoom), fold: own(LAYOUT.fold), pinned: (LAYOUT.pinned || []).filter((k) => BUILTIN.includes(k)), density: LAYOUT.density };
+    for (const k of Object.keys(LAYOUT)) delete LAYOUT[k];
+    Object.assign(LAYOUT, base, { out: [] });
+    for (const o of [TPOS, SIZES]) for (const k of Object.keys(o)) delete o[k];
+  }
   await loadViews(b.views || []);
   S.ready = true;
   if (SHOT && SHOT !== "board") return renderShot();
@@ -1423,7 +1415,6 @@ function renderShot() {
   st.setProperty("--cols", String(dens()));
   st.setProperty("--row", `${d.row}px`);
   st.setProperty("--gap", `${d.gap}px`);
-  for (const p of S.panels) S.unfold.add(p.id);
   const p = S.panels.find((x) => x.id === SHOT);
   if (p) document.body.append(panelEl(p, tree()));
   relayoutFree();
@@ -1446,7 +1437,7 @@ grid.addEventListener("click", async (e) => {
     return;
   }
   const go = e.target.closest("[data-goto]")?.dataset.goto;
-  // 話題の欄の群の見出しはトークの発言へ、状況のアイコンはその仕事へ
+  // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ
   if (go) return reveal(panelOf(go));
   const el = e.target.closest("dv-panel");
   if (!el) return;
@@ -1455,11 +1446,10 @@ grid.addEventListener("click", async (e) => {
   const act = e.target.closest("button")?.dataset.act;
   if (act === "allow") return op("edit", { id: p.id, source: p.source });
   if (act === "runnow") { fetch("/api/feeds/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id }) }); return; }
-  if (act === "tile") return tileFromPanel(p.id);
-  if (act === "fold") { S.unfold.delete(p.id); pushLayout(); return render(); }
-  if (!act && el.classList.contains("folded")) { S.unfold.add(p.id); pushLayout(); return render(); }
+  if (act === "out") return takeOut(p.id);
+  if (act === "fold") return setFold(p.id, !isFolded(p.id));
+  if (!act && el.classList.contains("folded")) return setFold(p.id, false);
   if (act === "unsize") { delete SIZES[p.id]; pushLayout(); return render(); }
-  if (act === "min") { if (MIN.has(p.id)) MIN.delete(p.id); else MIN.add(p.id); pushLayout(); return render(); }
   if (act === "unpos") { for (const k of tree()(p.id)) delete TPOS[k.id]; pushLayout(); return render(); }
   if (act === "pin") return op("edit", { id: p.id, pinned: !p.pinned });
   if (act === "accept") return op("edit", { id: p.id, state: "done" });

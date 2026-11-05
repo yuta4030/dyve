@@ -1,6 +1,6 @@
 // MCP の口：エージェントがボードを読み書きする入口。人と同じ操作だけを出す。
 // Streamable HTTP の POST だけを受け、JSON で返す（ストリームは使わない）
-import { isPerson, marks } from "./board.js";
+import { isPerson, marks, layoutOf } from "./board.js";
 import { legend, boardPng, changeLayout, layoutPanel } from "./view.js";
 
 const VERSION = "0.3.0";
@@ -41,7 +41,7 @@ export const TOOLS = [
   },
   {
     name: "board_view",
-    description: "ボード全体を絵で見る。タイルの枠と番号の PNG と、タイルと話題の中のパネルの対応表を返す。橙の太枠は人が固定したタイル。real: true なら、人が見ている画面に近い本当の絵も付ける（ブラウザがあるときだけ）",
+    description: "画面の並びを絵で見る。画面に並ぶパネルの枠と番号の PNG と、対応表（top：画面に並ぶパネル、inner：話題の中のパネル）を返す。橙の太枠は人がピン留めしたもの。real: true なら、人が見ている画面に近い本当の絵も付ける（ブラウザがあるときだけ）",
     inputSchema: { type: "object", properties: { real: { type: "boolean" } } },
   },
   {
@@ -51,16 +51,14 @@ export const TOOLS = [
   },
   {
     name: "board_layout",
-    description: "画面の見た目を変える。人が画面でできることは全部できる（固定する・外すだけは人のもの）。人が固定したタイルとピン留めしたパネル、その中のものは変えられず refused で返る。それ以外はいつでもどれだけ変えてよい。key・id は board_view の対応表のもの",
+    description: "画面の並びを変える。人が画面でできることは全部できる（ピン留めだけは人のもの）。ピン留めされたものとその中は変えられず refused で返る。それ以外はいつでもどれだけ変えてよい。key は board_view の対応表のもの（組み込みのパネルの名前か、パネルの id）",
     inputSchema: { type: "object", properties: {
-      moves: { type: "object", description: "タイルを動かす・大きさを変える：{ key: { x?, y?, w?, h? } }（ます目。w・h は 2 以上）" },
-      min: { type: "object", description: "タイルを最小化する・戻す：{ key: true|false }" },
-      hidden: { type: "object", description: "タイルを閉じる・開き直す：{ key: true|false }（dyve 設定は閉じられない）" },
-      zoom: { type: "object", description: "タイルの中身の拡大率：{ key: 0.1〜5 }" },
-      tiles: { type: "object", description: "パネルをタイルに出す・なくす：{ add?: [パネルの id], remove?: [panel:<id> の key] }" },
-      panels: { type: "object", description: "話題の中のパネル：{ id: { x?, y?, w?, h?, position?, size?, min?, unfold? } }。x・y・w・h は話題の中のます目（h: null は中身の高さ）、position: null で自動の並びへ戻す、size は [幅, 高さ]（ピクセル。null で戻す）、min で最小化、unfold で済みのものを開く・畳む" },
-      density: { type: "integer", enum: [12, 24, 48], description: "ます目の細かさ。全体が同じ見た目の大きさで直る。固定したものがあると変えられない" },
-      reset: { type: "boolean", description: "並びを既定に戻す（固定したものは残す）" },
+      moves: { type: "object", description: "動かす・大きさを変える：{ key: { x?, y?, w?, h? } }（ます目。w・h は 2 以上）。話題の中のパネルなら話題の中のます目で、h: null は中身の高さ、position: null で自動の並びへ戻す、size: [幅, 高さ]（ピクセル。null で戻す）も使える" },
+      fold: { type: "object", description: "畳む・開く：{ key: true|false }。畳むと見出しだけ残る。済みの仕事と話題は、何も言わなければ畳まれる" },
+      zoom: { type: "object", description: "画面に並ぶパネルの中身の拡大率：{ key: 0.1〜5 }" },
+      out: { type: "object", description: "取り出す・戻す：{ 話題の中のパネルの id: true|false }。取り出すと画面に一枚で並ぶ" },
+      density: { type: "integer", enum: [12, 24, 48], description: "ます目の細かさ。全体が同じ見た目の大きさで直る。ピン留めしたものがあると変えられない" },
+      reset: { type: "boolean", description: "並びを既定に戻す（ピン留めしたものは残す）" },
       reason,
     }, required: ["reason"] },
   },
@@ -90,7 +88,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 ## 画面
 - 人の発言はトーク、summary はいまの要点に出る。それ以外は about のないパネル（話題）ごとに一枚にまとまり、about したものはその中に出る。仕事の結果は仕事と並べて話題の直下に出る
 - 人は一瞥で読む。文章を書かず、短い list・table を選ぶ。一枚は数行まで
-- 並びは見た目で、人が画面でできることは board_layout で全部できる。人が固定・ピン留めしたものは変わらない
+- 画面に並ぶものは全部パネル（トーク・いまの要点・状況・残量・dyve 設定も組み込みのパネル）。並べ方・大きさ・畳む・取り出すは見た目で、人が画面でできることは board_layout で全部できる。人がピン留めしたものとその中は変わらない
 
 ## 印
 - 印はボードが導く。未着手＝結果のない仕事、受け入れ待ち＝提案と許可待ちのコマンド、知らせ＝人が最後に見たあとに AI が置いた・変えたもの。置けば知らせになるので、印を付ける操作はない
@@ -113,7 +111,7 @@ export function boardView(store, waker, { since, about } = {}) {
   return {
     seq: board.seq,
     panels,
-    layout: lp ? { id: lp.id, rev: lp.rev, data: lp.data } : null,
+    layout: lp ? { id: lp.id, rev: lp.rev, data: layoutOf(lp.data) } : null,
     marks: marks(board, { running: waker?.runningTasks() ?? [] }),
     live: waker?.status() ?? null,
     names: waker?.names ?? [],
@@ -167,7 +165,7 @@ const asText = (v) => ({ type: "text", text: JSON.stringify(v) });
 const asImage = (buf) => ({ type: "image", data: buf.toString("base64"), mimeType: "image/png" });
 async function boardPicture(store, real, shoot) {
   const lg = legend(store.board);
-  if (!lg) return { content: [asText({ ok: false, code: "not_found", message: "置き場所がまだない（画面が一度も開かれていない）" })], isError: true };
+  if (!lg) return { content: [asText({ ok: false, code: "not_found", message: "並びがまだない（画面が一度も開かれていない）" })], isError: true };
   const content = [asImage(boardPng(lg)), asText(lg)];
   if (real) {
     try {
@@ -179,12 +177,12 @@ async function boardPicture(store, real, shoot) {
   }
   return { content };
 }
-// パネルの絵の幅：タイルになっているなら、その幅で撮る（話題の中の並びは幅で変わる）
+// パネルの絵の幅：画面に並んでいるなら、その幅で撮る（話題の中の並びは幅で変わる）
 function shotSize(board, id) {
-  const d = layoutPanel(board)?.data, sx = d?.metric?.sx, sy = d?.metric?.sy;
+  const lp = layoutPanel(board), d = lp && layoutOf(lp.data), sx = d?.metric?.sx, sy = d?.metric?.sy;
   let p = board.get(id);
   while (p?.about && board.get(p.about)) p = board.get(p.about);
-  const pos = d?.pos && Object.entries(d.pos).find(([k]) => k.endsWith(`/${id}`) || k === `panel:${id}` || k.endsWith(`/${p?.id}`))?.[1];
+  const pos = d?.pos?.[id] ?? d?.pos?.[p?.id];
   return pos && sx && sy ? { width: Math.max(320, pos.w * sx + 24), height: Math.min(1600, Math.max(320, pos.h * sy + 24)) } : { width: 900, height: 800 };
 }
 async function panelPicture(store, id, shoot) {
