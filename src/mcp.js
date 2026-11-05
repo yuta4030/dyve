@@ -8,10 +8,10 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
 const panelFields = {
-  view: { type: "string", description: "描き方：本体の say（発言）, text（文字列）, list（文字列の配列）, table（{columns, rows}）, task（仕事：{text, to?, from?}）, topic（話題：{title, note?}。仕事を束ねる）, summary（いまの要点：{points, decided, open}）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える" },
+  view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（いまの要点）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
   data: {
     type: ["string", "array", "object", "number", "boolean", "null"],
-    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は配列、table は {columns, rows}、task は {text, to?}、summary は {points, decided, open}",
+    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}、topic は {title, note?}、summary は {points, decided, open}",
   },
   about: { type: "string", description: "どのパネルについてのものか（関係する場所に置く）" },
   state: { type: "string", enum: ["task", "proposal", "done"], description: "仕事・提案・済み" },
@@ -21,7 +21,7 @@ const panelFields = {
 export const TOOLS = [
   {
     name: "board_read",
-    description: "ボードを読む。since を渡すと、その seq より後に変わったパネルだけ。about を渡すと、そのパネルとそれについてのパネルだけ",
+    description: "ボードを読む。since を渡すと、その seq より後に変わったパネルだけ。about を渡すと、そのパネルとそれについてのパネルだけ。marks は印、live はいまの状況（動いているエージェント・残量）",
     inputSchema: { type: "object", properties: { since: { type: "integer" }, about: { type: "string" } } },
   },
   {
@@ -76,9 +76,32 @@ export const TOOLS = [
   },
 ];
 
-const INSTRUCTIONS =
-  "人が声で流し込んだ思考を置くボード。パネルの並びでできていて、変更は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。絵は board_view（全体）と panel_view（一枚）で見る。" +
-  "どの操作にも reason を付ける。人がピン留めしたものは変えない。答えを人に求めて待たない。";
+// ボードの決まりはここに一つだけ書く。どのエージェントも MCP の説明として読む。役ごとの定義（agents・skills）には役割だけを書く
+const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場所。パネルの並びでできている。人も AI も同じ操作で書く。
+書く操作は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。読むのは board_read、絵で見るのは board_view（全体）と panel_view（一枚）。
+
+## パネル
+- 形は { id, by, view, data, about?, state?, pinned, source? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
+- about：どのパネルについてのものか。関係するパネルに about して置く
+- 話題（view topic、about なし、data { title, note? }）は仕事を束ねる。仕事は view task・state task で話題に about して置き、元の発言は data.from に id の配列で持つ
+- state：task（仕事）→ proposal（提案。受け入れるのは人だけ）／done（済み。畳まれる）。結果は仕事に about して置く
+- 人の発言は view say・by human。書き換えるのは清書係だけ
+
+## 画面
+- 人の発言はトーク、summary はいまの要点に出る。それ以外は about のないパネル（話題）ごとに一枚にまとまり、about したものはその中に出る。仕事の結果は仕事と並べて話題の直下に出る
+- 人は一瞥で読む。文章を書かず、短い list・table を選ぶ。一枚は数行まで
+- 並びは見た目で、人が画面でできることは board_layout で全部できる。人が固定・ピン留めしたものは変わらない
+
+## 印
+- 印はボードが導く。未着手＝結果のない仕事、受け入れ待ち＝提案と許可待ちのコマンド、知らせ＝人が最後に見たあとに AI が置いた・変えたもの。置けば知らせになるので、印を付ける操作はない
+
+## 守ること
+- どの操作にも reason（人が後から読む）を付ける
+- 人に質問して答えを待たない。聞きたいことは関係するパネルに about して短く置く
+- 人がいま考えているところについていく。古い話を蒸し返さない
+- ピン留めされたものは変えない。人が置いたパネルは外せない。人が書き換えた直後のものに手を入れない
+- 外に届くこと（push・送信・起票など）はしない。要るなら state proposal で置き、人に決めてもらう
+- 少なく、短く`;
 
 export function boardView(store, waker, { since, about } = {}) {
   const board = store.board;
