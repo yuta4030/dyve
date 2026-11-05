@@ -93,6 +93,7 @@ a { color: var(--accent); }
 #map .bar { display: flex; justify-content: flex-end; gap: 2px; }
 #map .bar #zoomNow { margin-right: auto; min-width: 3.4em; font-variant-numeric: tabular-nums; }
 #map .bar button { min-height: 22px; padding: 0 6px; font-size: 11px; }
+#map .bar button[hidden] { display: none; }
 
 /* 浮かせる：トーク・状況・残量・dyve 設定はボードの外の層に小さく出す。ボードの拡大縮小は掛からない。追従は層ごと少し遅れて付いてくる */
 #floats { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
@@ -188,6 +189,14 @@ dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #tools select { font: inherit; font-size: 12px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; max-width: 14em; }
 /* この dyve について：押したときだけ出る */
 #infoPop { width: min(560px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); font-size: 13px; }
+/* パネルを移す・親のパネルにまとめる */
+#movePop { position: fixed; inset: auto; margin: 0; width: min(320px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); font-size: 13px; }
+#movePop h3 { margin: 8px 0 4px; font-size: 12px; color: var(--mute); }
+#movePop h3:first-child { margin-top: 0; }
+#movePop button { display: block; width: 100%; text-align: left; margin-bottom: 2px; }
+#movePop label { display: flex; gap: 6px; align-items: baseline; padding: 1px 0; overflow-wrap: anywhere; }
+#movePop input[type="text"] { width: 100%; margin: 4px 0; box-sizing: border-box; }
+#movePop form button { text-align: center; }
 #infoPop h3 { margin: 10px 0 4px; font-size: 13px; }
 #infoPop h3:first-child { margin-top: 0; }
 #infoPop dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
@@ -332,6 +341,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
 </div></main>
 <div id="floats"></div>
 <div id="infoPop" popover></div>
+<div id="movePop" popover></div>
 <nav id="map"><div class="world"></div><div class="bar"><button class="icon" id="zoomNow"></button><button class="icon" id="zoomOut"></button><button class="icon" id="zoomIn"></button><button class="icon" id="zoomAll"></button></div><div class="bar"><button class="icon" id="toTools"></button></div></nav>
 <script type="module">
 // 画面の言葉はここにまとめる
@@ -371,7 +381,7 @@ const L = {
   accept: "受け入れる", orig: "元の文", origHide: "元の文を隠す", to: (n) => `宛先：${n}`, ask: "頼んだこと",
   refused: (m) => `できませんでした：${m}`,
   resetSize: "大きさを戻す", resetPos: "並べ直す", fold: "畳む", unfold: "開く", autoPos: "自動の並びに戻す",
-  takeOut: "取り出す", gone: "このパネルはもうありません",
+  gone: "このパネルはもうありません",
   split: "分ける", splitTitle: "合成した発言を、元の発言に戻す",
   info: "この dyve について", infoTitle: "動いている dyve", wordsTitle: "辞書（全部のボードで共通。清書係が使う）",
   meta: { version: "版", commit: "コミット", source: "起動元", running: "場所", room: "部屋", board: "ボード", startedAt: "起動", shoot: "パネルの絵" },
@@ -381,6 +391,9 @@ const L = {
   shootOn: (b) => `撮れる（${b}）`, shootOff: "ブラウザがないので撮れない",
   wordsNone: "まだありません", wordHeard: "聞こえた形", wordWrite: "書き方", wordWhen: "条件（なくてよい）", wordAdd: "足す", wordDrop: "消す", wordBy: (w) => `${w} が追加`,
   boardZoom: { now: "ボードの倍率（押すと 100% に戻す）。Ctrl＋ホイールかピンチで変えられる", out: "ボードを縮める", in: "ボードを広げる", all: "全体", allTitle: "全体が入る大きさにする" },
+  moveTo: "移す", moveTitle: "別の話題や外へ移す・親のパネルにまとめる", moveHead: "移す先", moveOut: "外へ移す（話題から出す）", moveShow: "話題に残したまま、一枚でも見せる", moveNone: "ほかに話題がありません",
+  bundleHead: "親のパネルを作ってまとめる", bundleTitle: "親のパネルの名前", bundleName: "まとめ", bundleGo: "作る",
+  unbundle: "ほどく", unbundleTitle: "中のパネルを元の場所へ戻して、この親のパネルを外す",
   float: "浮かせ方", floatModes: { front: "前面", follow: "追従", off: "並べる" },
   floatTitle: { front: "画面の同じ場所に留めて、ボードの上に重ねる", follow: "ボードと一緒に流れて、止まると元の場所へ戻ってくる", off: "浮かせず、ボードのます目に並べる" },
   floatHome: "元の場所に戻す",
@@ -573,6 +586,7 @@ function markOf(p) {
   return null;
 }
 
+const MOVABLE = (p) => !["say", "summary", "layout"].includes(p.view);
 // root：画面に並ぶパネルそのもの。畳むのは並んでいる枠の方なので、中では畳まない
 function panelEl(p, kids, { root = false } = {}) {
   const el = document.createElement("dv-panel");
@@ -604,7 +618,8 @@ function panelEl(p, kids, { root = false } = {}) {
       ${SIZES[p.id] ? `<button class="icon" data-act="unsize">${L.resetSize}</button>` : ""}
       ${p.view === "topic" && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
       ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
-      ${p.view !== "say" && p.about && !(LAYOUT.out || []).includes(p.id) ? `<button class="icon" data-act="out">${L.takeOut}</button>` : ""}
+      ${p.view === "topic" && p.data?.bundled ? `<button class="icon" data-act="unbundle" title="${esc(L.unbundleTitle)}">${L.unbundle}</button>` : ""}
+      ${MOVABLE(p) ? `<button class="icon" data-act="move" title="${esc(L.moveTitle)}">${L.moveTo}</button>` : ""}
       ${foldable ? `<button class="icon" data-act="fold" aria-pressed="${folded}" title="${folded ? L.unfold : L.fold}" aria-label="${folded ? L.unfold : L.fold}">${folded ? ICON.restore : ICON.min}</button>` : ""}
       <button class="icon" data-act="pin" aria-pressed="${!!p.pinned}" title="${p.pinned ? L.unpin : L.pin}" aria-label="${p.pinned ? L.unpin : L.pin}">${ICON.pin}</button>
       <button class="icon" data-act="drop" title="${L.drop}" aria-label="${L.drop}">${ICON.drop}</button>
@@ -1081,7 +1096,7 @@ const fit = (taken, w, h, y0 = 1) => {
     if (!taken.some((o) => overlap(q, o))) return q;
   }
 };
-// pos（置き場所を決めたもの）のまわりに、自動のものを置く
+// pos（置き場所を決めたもの）のまわりに、自動のものを置く。高さは一画面までだが、いまの話題だけは中身の全部を見せる（枠の中でスクロールさせない）
 function autoLayout(pos) {
   const keys = allTiles().filter((k) => isAuto(k) && tileOf(k));
   for (const k of Object.keys(AUTO)) if (!keys.includes(k)) delete AUTO[k];
@@ -1097,7 +1112,7 @@ function autoLayout(pos) {
     t.classList.toggle("folded", isFolded(k));
   }
   for (const k of order) for (const b of $$(".kids.free", tileOf(k))) layoutFree(b);
-  const h = Object.fromEntries(order.map((k) => [k, isFolded(k) ? minRows() : clamp(needRows(tileOf(k), m), 3, vr)]));
+  const h = Object.fromEntries(order.map((k) => [k, isFolded(k) ? minRows() : clamp(needRows(tileOf(k), m), 3, k === S.talking?.[0] ? Infinity : vr)]));
   const taken = Object.entries(pos).filter(([k]) => !keys.includes(k)).map(([, p]) => p);
   // 済んだもの・畳んだものは、まだのものより上の隙間には入れない（見る場所がまぎれないように）
   let floor = 1;
@@ -1934,6 +1949,80 @@ async function op(type, panel) {
   return b;
 }
 
+// ── パネルを移す・親のパネルにまとめる：about を変えるだけなので、人の操作としてログに残り、AI も panel_edit で同じことができる ──
+// 移せる先：話題のうち、いまの親と、自分とその下のものを除く
+function moveTargets(panels, id) {
+  const of = new Map(panels.map((p) => [p.id, p]));
+  const under = (x) => { const seen = new Set(); for (let c = x; c && !seen.has(c.id); c = of.get(c.about)) { if (c.id === id) return true; seen.add(c.id); } return false; };
+  return panels.filter((p) => p.view === "topic" && p.id !== of.get(id)?.about && !under(p));
+}
+// 一緒にまとめられるもの：同じ親の下のものと、画面に並ぶもの（発言・要点・並びは除く。自分の親は除く）
+function bundleCandidates(panels, id) {
+  const of = new Map(panels.map((p) => [p.id, p])), cur = of.get(id);
+  const ok = (p) => !["say", "summary", "layout"].includes(p.view) && p.id !== id && p.id !== cur?.about;
+  return panels.filter((p) => ok(p) && (!p.about || p.about === cur?.about));
+}
+// 親のパネルの置き場所：全部が同じ親の下ならその中、ばらばらなら外。元の親は data.bundled に残し、ほどくと戻る
+function bundlePlan(panels, ids) {
+  const of = new Map(panels.map((p) => [p.id, p]));
+  const abouts = new Set(ids.map((i) => of.get(i)?.about ?? null));
+  return { about: abouts.size === 1 ? [...abouts][0] : null, bundled: Object.fromEntries(ids.map((i) => [i, of.get(i)?.about ?? null])) };
+}
+async function movePanel(id, about) {
+  const p = panelById(id);
+  if (!p) return null;
+  delete TPOS[id];
+  LAYOUT.out = (LAYOUT.out || []).filter((x) => x !== id);
+  // rel は同じ親の下のものとの関係なので、移したら外す
+  const r = await op("edit", { id, about, ...(p.rel ? { rel: null } : {}) });
+  pushLayout();
+  return r;
+}
+async function bundle(ids, title) {
+  const { about, bundled } = bundlePlan(S.panels, ids);
+  const made = await op("add", { view: "topic", data: { title, bundled }, ...(about ? { about } : {}) });
+  if (made) for (const id of ids) await movePanel(id, made.op.panel.id);
+}
+async function unbundle(p) {
+  const inside = S.panels.filter((x) => x.about === p.id), back = p.data.bundled;
+  const mine = inside.filter((x) => x.id in back);
+  for (const x of mine) await movePanel(x.id, panelById(back[x.id]) ? back[x.id] : null);
+  // あとから置かれたものがあれば、親のパネルは残す
+  if (mine.length === inside.length) await op("drop", { id: p.id });
+}
+const movePop = $("#movePop");
+const panelLabel = (p) => {
+  if (p.view === "topic") return topicTitle(p);
+  const d = p.data, t = Array.isArray(d) ? d.join("・") : d?.text ?? d?.title ?? textOf(d);
+  return `${who(p.by)}・${String(t).slice(0, 30)}`;
+};
+function openMove(p, btn) {
+  const targets = moveTargets(S.panels, p.id), isTopic = (c) => (c.view === "topic" ? 0 : 1), cand = bundleCandidates(S.panels, p.id).sort((a, b) => isTopic(a) - isTopic(b));
+  const go = (id, label) => `<button data-move="${esc(id)}">${esc(label)}</button>`;
+  movePop.innerHTML = `<h3>${esc(L.moveHead)}</h3>${p.about ? go("", L.moveOut) : ""}${p.about && !isOut(p.id) ? `<button data-show>${esc(L.moveShow)}</button>` : ""}${targets.map((t) => go(t.id, topicTitle(t))).join("")}${!p.about && !targets.length ? `<p class="empty">${esc(L.moveNone)}</p>` : ""}` +
+    `<h3>${esc(L.bundleHead)}</h3><form>${cand.map((c) => `<label><input type="checkbox" value="${esc(c.id)}"><span>${esc(panelLabel(c))}</span></label>`).join("")}` +
+    `<input type="text" aria-label="${esc(L.bundleTitle)}" placeholder="${esc(L.bundleTitle)}" value="${esc(L.bundleName)}"><button>${esc(L.bundleGo)}</button></form>`;
+  movePop.dataset.id = p.id;
+  movePop.showPopover();
+  const r = btn.getBoundingClientRect(), w = movePop.offsetWidth, h = movePop.offsetHeight;
+  movePop.style.left = `${clamp(r.right - w, 8, Math.max(8, innerWidth - w - 8))}px`;
+  movePop.style.top = `${clamp(r.bottom + h + 8 > innerHeight ? r.top - h - 4 : r.bottom + 4, 8, Math.max(8, innerHeight - h - 8))}px`;
+}
+movePop.addEventListener("click", (e) => {
+  if (e.target.closest("[data-show]")) { movePop.hidePopover(); return takeOut(movePop.dataset.id); }
+  const to = e.target.closest("[data-move]")?.dataset.move;
+  if (to === undefined) return;
+  movePop.hidePopover();
+  movePanel(movePop.dataset.id, to || null);
+});
+movePop.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const ids = [movePop.dataset.id, ...$$("input:checked", movePop).map((c) => c.value)];
+  const title = $('input[type="text"]', movePop).value.trim() || L.bundleName;
+  movePop.hidePopover();
+  bundle(ids, title);
+});
+
 // ── 操作 ──
 const onClick = async (e) => {
   const ta = e.target.closest("[data-to]");
@@ -1952,7 +2041,8 @@ const onClick = async (e) => {
   const act = e.target.closest("button")?.dataset.act;
   if (act === "allow") return op("edit", { id: p.id, source: p.source });
   if (act === "runnow") { fetch("/api/feeds/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id }) }); return; }
-  if (act === "out") return takeOut(p.id);
+  if (act === "move") return openMove(p, e.target.closest("button"));
+  if (act === "unbundle") return unbundle(p);
   if (act === "fold") return setFold(p.id, !isFolded(p.id));
   if (!act && el.classList.contains("folded")) return setFold(p.id, false);
   if (act === "unsize") { delete SIZES[p.id]; pushLayout(); return render(); }

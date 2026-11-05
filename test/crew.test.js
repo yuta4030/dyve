@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { readConfig, loadCrew, ensureCrew, namesOf, initialsOf, agentOf, callsOf, teamsOf, NAMES } from "../src/crew.js";
 import { Store } from "../src/store.js";
 import { Waker } from "../src/waker.js";
-import { claudeArgs, claudeSpawner, claudeSession, systemPrompt, workspace, integrate } from "../src/agents.js";
+import { claudeArgs, claudeSpawner, claudeSession, exitError, systemPrompt, workspace, integrate } from "../src/agents.js";
 
 // 設定（config.json）と指示の置き場（agents/）を一時ディレクトリに作る
 function home(conf, bodies = {}) {
@@ -268,4 +268,12 @@ test("取り次ぎ：data.team ならそのチームの空いている人、data
   assert.equal(w.resolve("アリス"), "アリス");
   assert.equal(w.resolve("k2down の アリス"), "アリス@k2down");
   assert.equal(w.resolve("ゾーイ"), null);
+});
+
+test("落ちた理由は claude の文から取り、JSON の切れ端を出さない", () => {
+  const json = JSON.stringify({ duration_api_ms: 0, usage: {} });
+  assert.equal(exitError(1, { result: "You've hit your 5-hour limit" }, "", json), "終了コード 1：You've hit your 5-hour limit");
+  assert.equal(exitError(1, { usage: {} }, "", json), "終了コード 1");
+  assert.equal(exitError(1, { usage: {} }, "warn\nboom\n", json), "終了コード 1：boom");
+  assert.equal(exitError(1, null, "", "not json"), "終了コード 1：not json");
 });

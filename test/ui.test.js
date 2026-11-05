@@ -119,3 +119,35 @@ test("追従の遅れは時間で縮み、止まる", () => {
   assert.ok(step(-100, 16, 180) < 0 && step(-100, 16, 180) > -100, "向きは変わらない");
   assert.equal(step(0.4, 16, 180), 0);
 });
+
+const fn = (name, ...args) => (...vals) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`)(...vals);
+
+test("パネルを移す：話題だけが先になり、いまの親と自分の下へは移せない", () => {
+  const moveTargets = fn("moveTargets")();
+  const ps = [{ id: "a", view: "topic" }, { id: "b", view: "topic" }, { id: "c", view: "topic", about: "x" }, { id: "x", view: "list", about: "a" }, { id: "n", view: "text" }];
+  assert.deepEqual(moveTargets(ps, "x").map((p) => p.id), ["b"], "いまの親 a と、自分の下の c は除く");
+  assert.deepEqual(moveTargets(ps, "a").map((p) => p.id), ["b"], "自分自身と自分の下は除く");
+  assert.deepEqual(moveTargets(ps, "n").map((p) => p.id), ["a", "b", "c"]);
+});
+
+test("親のパネルにまとめる：同じ親の下と画面に並ぶものから選び、ほどく先を覚える", () => {
+  const cand = fn("bundleCandidates")();
+  const plan = fn("bundlePlan")();
+  const ps = [{ id: "t", view: "topic" }, { id: "u", view: "topic" }, { id: "x", view: "list", about: "t" }, { id: "y", view: "text", about: "t" }, { id: "z", view: "text", about: "u" }, { id: "s", view: "say" }, { id: "m", view: "summary" }, { id: "l", view: "layout" }];
+  assert.deepEqual(cand(ps, "x").map((p) => p.id), ["u", "y"], "親 t は選べない。発言・要点・並びも選べない");
+  assert.deepEqual(plan(ps, ["x", "y"]), { about: "t", bundled: { x: "t", y: "t" } }, "同じ親の下なら、その中に作る");
+  assert.deepEqual(plan(ps, ["x", "u"]), { about: null, bundled: { x: "t", u: null } }, "ばらばらなら外に作り、それぞれの元の親を覚える");
+});
+
+test("いまの話題だけ、枠の高さの上限を外す。ほかは一画面まで", () => {
+  assert.match(html, /clamp\(needRows\(tileOf\(k\), m\), 3, k === S\.talking\?\.\[0\] \? Infinity : vr\)/);
+});
+
+test("dyve 設定を浮かせても、マップの下のボードの倍率のボタンは隠さない", () => {
+  assert.match(html, /\$\("#toTools"\)\.hidden = isFloat\("tools"\)/);
+  assert.doesNotMatch(html, /\$\("#toTools"\)\.parentElement\.hidden/);
+});
+
+test("浮かせ方の既定は追従（先頭）", () => {
+  assert.match(html, /const FLOAT_MODES = \["follow", "front", "off"\]/);
+});

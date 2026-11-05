@@ -317,14 +317,21 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
         let r = null;
         try { r = JSON.parse(stdout); } catch {}
         const usage = r ? usageOf(r) : null;
-        const last = (tail || stdout).trim().split("\n").at(-1);
-        const res = code === 0 ? { code, usage } : { code, usage, error: `終了コード ${code}${last ? `：${last.slice(0, 200)}` : ""}` };
+        const res = code === 0 ? { code, usage } : { code, usage, error: exitError(code, r, tail, stdout) };
         // ログを書き切ってから終わったことにする（書き込みは非同期なので、先に知らせるとログが空のまま読まれる）
         if (out) out.end(() => resolve(res)); else resolve(res);
       });
     });
     return { done, kill: () => child?.kill("SIGTERM") };
   };
+}
+
+// 落ちた理由：claude の出力（JSON）に理由の文があればそれ（上限で止まったなど）、なければ stderr の最後の行。JSON の切れ端は出さない
+export function exitError(code, result, tail = "", stdout = "") {
+  const lastLine = (s) => String(s).trim().split("\n").at(-1);
+  const said = typeof result?.result === "string" ? result.result.trim() : "";
+  const why = said || lastLine(tail) || (result ? "" : lastLine(stdout));
+  return `終了コード ${code}${why ? `：${why.slice(0, 200)}` : ""}`;
 }
 
 // 起こしっぱなしの会話（清書係）。一本のプロセスに発言を流し込み、前の発言は会話に残る
