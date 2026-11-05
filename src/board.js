@@ -52,9 +52,9 @@ export function sourceApproved(board, id) {
 // pos は置き場所を決めたもの（組み込みのパネルと、人か AI が動かしたもの）だけ。ほかは画面が並べるたびに、順番と中身から置き直す（自動の並び）
 // pinned に入るのは、ボードのパネルでピン留めできないもの（組み込みのパネルと、発言から出たまとまり）だけ。ほかはパネルの pinned を使う
 export const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
-// 浮かせる組み込みのパネルと浮かせ方（先頭の follow が既定）。follow：ボードと流れて元の場所へ戻る、front：画面に留めて重ねる、off：ます目に並べる
+// 浮かせる組み込みのパネルと浮かせ方（先頭の front が既定）。front：画面に留めて重ねる、off：ます目に並べる
 export const FLOATS = ["talk", "status", "quota", "tools"];
-export const FLOAT_MODES = ["follow", "front", "off"];
+export const FLOAT_MODES = ["front", "off"];
 export function layoutOf(data, panels = null) {
   const d = data || {};
   if (d.v === 3) return d;

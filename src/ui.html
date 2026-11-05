@@ -95,10 +95,10 @@ a { color: var(--accent); }
 #map .bar button { min-height: 22px; padding: 0 6px; font-size: 11px; }
 #map .bar button[hidden] { display: none; }
 
-/* 浮かせる：トーク・状況・残量・dyve 設定はボードの外の層に小さく出す。ボードの拡大縮小は掛からない。追従は層ごと少し遅れて付いてくる */
-#floats { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
+/* 浮かせる：トーク・状況・残量・dyve 設定はボードの外の層に小さく出す。ボードの拡大縮小は掛からない */
+#floats { --float-alpha: 80%; position: fixed; inset: 0; z-index: 7; pointer-events: none; }
 #floats > .tile { position: absolute; pointer-events: auto; font-size: 13px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px);
-                  background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: 0 6px 24px rgb(0 0 0 / .4); }
+                  background: color-mix(in srgb, var(--card) var(--float-alpha), transparent); backdrop-filter: blur(3px); box-shadow: 0 6px 24px rgb(0 0 0 / .4); }
 #floats > .tile.folded { height: auto !important; }
 #floats > .tile.dragging { opacity: .8; }
 #floats .tile-head { min-height: 22px; padding-top: 0; }
@@ -125,7 +125,15 @@ a { color: var(--accent); }
 .tile[data-tile="talk"] .tile-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 #timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px; display: flex; flex-direction: column; gap: 6px; }
 #input { flex: none; border-top: 1px solid var(--line); padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 6px; }
-#msg { width: 100%; resize: none; min-height: 36px; max-height: 30vh; font: inherit; color: var(--ink); background: var(--card);
+#input .say { display: flex; align-items: flex-end; gap: 6px; }
+#send { flex: none; width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+/* 宛先も知らせもないときは、下の行を出さない */
+#input .bar:not(:has(#to:not([hidden]))):not(:has(#err:not(:empty))) { display: none; }
+/* マイクはトークの見出しに。聞いているあいだは色で知らせる */
+.tile-head .ctl #mic { opacity: 1; }
+.tile-head .ctl #mic[hidden] { display: none; }
+.tile-head .ctl #mic[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-radius: 50%; }
+#msg { flex: 1; min-width: 0; width: 100%; box-sizing: border-box; resize: none; min-height: 36px; max-height: 30vh; font: inherit; color: var(--ink); background: var(--card);
        border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
 #msg:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 #input .bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mute); }
@@ -305,12 +313,14 @@ dv-panel.waiting { border: 3px double var(--warn); }
     <div class="tile-body">
       <div id="timeline"></div>
       <div id="input">
-        <textarea id="msg" rows="1"></textarea>
+        <div class="say">
+          <textarea id="msg" rows="1"></textarea>
+          <button id="send" class="primary"></button>
+        </div>
         <div class="bar">
-          <button id="mic" aria-pressed="false" hidden></button>
+          <button id="mic" class="icon" aria-pressed="false" hidden></button>
           <button id="to" hidden></button>
           <span class="grow"><span id="err" role="status"></span></span>
-          <button id="send" class="primary"></button>
         </div>
       </div>
     </div>
@@ -394,8 +404,8 @@ const L = {
   moveTo: "移す", moveTitle: "別の話題や外へ移す・親のパネルにまとめる", moveHead: "移す先", moveOut: "外へ移す（話題から出す）", moveShow: "話題に残したまま、一枚でも見せる", moveNone: "ほかに話題がありません",
   bundleHead: "親のパネルを作ってまとめる", bundleTitle: "親のパネルの名前", bundleName: "まとめ", bundleGo: "作る",
   unbundle: "ほどく", unbundleTitle: "中のパネルを元の場所へ戻して、この親のパネルを外す",
-  float: "浮かせ方", floatModes: { front: "前面", follow: "追従", off: "並べる" },
-  floatTitle: { front: "画面の同じ場所に留めて、ボードの上に重ねる", follow: "ボードと一緒に流れて、止まると元の場所へ戻ってくる", off: "浮かせず、ボードのます目に並べる" },
+  float: "浮かせ方", floatModes: { front: "前面", off: "並べる" },
+  floatTitle: { front: "画面の同じ場所に留めて、ボードの上に重ねる", off: "浮かせず、ボードのます目に並べる" },
   floatHome: "元の場所に戻す",
   map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のパネルへ行く",
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
@@ -408,14 +418,13 @@ const STREAM_PAUSE = 2500;
 const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
 // 浮かせる組み込みのパネル（いまの要点はボードに残す）。どれも同じ扱い
 const FLOATS = ["talk", "status", "quota", "tools"];
-const FLOAT_MODES = ["follow", "front", "off"]; // 先頭が既定
+const FLOAT_MODES = ["front", "off"]; // 先頭が既定
 // 置き場所はピクセルで、近い端からの距離で持つ（窓の大きさが変わっても端に付いたまま）。h がなければ中身の高さ。stack は右上から順に積む
 const FLOAT_HOME = {
   talk: { left: 14, bottom: 14, w: 300, h: 260 }, status: { right: 14, stack: true, w: 224 },
   quota: { right: 14, stack: true, w: 224 }, tools: { right: 14, stack: true, w: 224 },
 };
 const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
-const FOLLOW_LAG = { max: 240, tau: 180 }; // 追従：遅れの上限（ピクセル）と戻る速さ（ミリ秒）
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
   talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
@@ -430,6 +439,8 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<)]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 const ICON = {
+  mic: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  send: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"/><path d="M12 15v6"/></svg>',
   gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   min: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>',
@@ -808,7 +819,47 @@ function tree() {
 }
 
 // 人の発言はトークに、要点は要点に、それ以外は話題の欄に。どこに出すかはデータに持たず導く
+// 読んでいる場所：作り直すと中のスクロールは 0 に戻るので、前に覚えて後で戻す。トークはいちばん下なら追いかける方に任せる
+function scrollMarks() {
+  const marks = [];
+  for (const el of $$("#timeline, .tile-body, dv-panel, dv-panel table, dv-panel pre")) {
+    if (!el.scrollTop && !el.scrollLeft) continue;
+    if (el.id === "timeline" && el.scrollTop + el.clientHeight >= el.scrollHeight - 40) continue;
+    const tile = el.closest(".tile")?.dataset.tile, panel = el.closest("dv-panel")?.dataset.id;
+    const sel = el.id === "timeline" ? "#timeline" : `.tile[data-tile="${CSS.escape(tile)}"] ${el.matches(".tile-body") ? "> .tile-body" : `dv-panel[data-id="${CSS.escape(panel)}"]${el.matches("dv-panel") ? "" : ` ${el.localName}`}`}`;
+    marks.push({ sel, top: el.scrollTop, left: el.scrollLeft });
+  }
+  return marks;
+}
+// 読んでいるパネル：マウスの下か、画面のまん中のもの。並びや枠の幅が変わっても、このパネルを画面の同じ位置に残す
+function readingPanel() {
+  if (narrow() || !CANVAS.homed) return null;
+  const g = stage.getBoundingClientRect();
+  const inView = (el) => { const r = el?.getBoundingClientRect(); return r && r.width > 0 && r.bottom > g.top + 24 && r.top < g.bottom - 24 && r.right > g.left + 24 && r.left < g.right - 24; };
+  let el = HOVER.id ? $(`#grid dv-panel[data-id="${CSS.escape(HOVER.id)}"]`) : null;
+  if (!inView(el)) el = document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)?.closest("#grid dv-panel");
+  if (!el || !inView(el)) return null;
+  const r = el.getBoundingClientRect();
+  return { id: el.dataset.id, left: r.left, top: r.top };
+}
+function backToPanel(read) {
+  const el = read && $(`#grid dv-panel[data-id="${CSS.escape(read.id)}"]`);
+  if (!el) return;
+  // 読んでいる枠はすべらせない（測るのもずれる）
+  for (const a of el.closest(".tile")?.getAnimations() || []) a.finish();
+  const r = el.getBoundingClientRect();
+  if (!r.width) return;
+  stage.scrollLeft += r.left - read.left;
+  stage.scrollTop += r.top - read.top;
+}
+function backToMarks(marks) {
+  for (const m of marks) {
+    const el = $(m.sel);
+    if (el) { el.scrollTop = m.top; el.scrollLeft = m.left; }
+  }
+}
 function render() {
+  const reading = scrollMarks(), read = readingPanel();
   FREE.disconnect();
   const kids = tree();
   const desc = (id) => kids(id).flatMap((k) => [k, ...desc(k.id)]);
@@ -934,6 +985,11 @@ function render() {
   }
   // 中身が変わると高さも変わるので、毎回並べ直す（読んでいるパネルは画面の同じ位置に残る）。人が動かしている最中は待つ
   if (!$(".editing")) applyLayout();
+  // 中のます目を並べてから戻す（並ぶ前は高さが足りず、0 に押し戻される）。次のコマで伸びることがあるので、もう一度
+  if (reading.length) relayoutFree();
+  backToMarks(reading);
+  backToPanel(read);
+  if (reading.length || read) requestAnimationFrame(() => { backToMarks(reading); backToPanel(read); });
   sendFocus();
 }
 
@@ -1096,12 +1152,12 @@ const fit = (taken, w, h, y0 = 1) => {
     if (!taken.some((o) => overlap(q, o))) return q;
   }
 };
-// pos（置き場所を決めたもの）のまわりに、自動のものを置く。高さは一画面までだが、いまの話題だけは中身の全部を見せる（枠の中でスクロールさせない）
+// pos（置き場所を決めたもの）のまわりに、自動のものを置く。高さは中身の全部（枠の中でスクロールさせない。いまの話題が変わっても縮まない）
 function autoLayout(pos) {
   const keys = allTiles().filter((k) => isAuto(k) && tileOf(k));
   for (const k of Object.keys(AUTO)) if (!keys.includes(k)) delete AUTO[k];
   if (!keys.length) return pos;
-  const m = metrics(), vr = Math.max(6, Math.floor(stage.clientHeight / m.sy) - 1);
+  const m = metrics();
   const order = autoOrder(keys), w = {};
   // 幅を先に当ててから測る（折り返しは幅で変わる）。話題の中のます目もその幅で置き直す
   for (const k of order) {
@@ -1112,7 +1168,7 @@ function autoLayout(pos) {
     t.classList.toggle("folded", isFolded(k));
   }
   for (const k of order) for (const b of $$(".kids.free", tileOf(k))) layoutFree(b);
-  const h = Object.fromEntries(order.map((k) => [k, isFolded(k) ? minRows() : clamp(needRows(tileOf(k), m), 3, k === S.talking?.[0] ? Infinity : vr)]));
+  const h = Object.fromEntries(order.map((k) => [k, isFolded(k) ? minRows() : Math.max(needRows(tileOf(k), m), 3)]));
   const taken = Object.entries(pos).filter(([k]) => !keys.includes(k)).map(([, p]) => p);
   // 済んだもの・畳んだものは、まだのものより上の隙間には入れない（見る場所がまぎれないように）
   let floor = 1;
@@ -1136,13 +1192,16 @@ function setZoom(k, z) {
 // 置き場所はボードの view layout のパネルに持つ（エージェントも見て動かす）。ブラウザの分は、新しいボードの下敷きにだけ使う
 const SHOT = new URLSearchParams(location.search).get("shot");
 const LAYOUT_SYNC = { id: null, sent: null, timer: null };
+const LAYOUT_OWN = ["v", "pos", "zoom", "fold", "out", "pinned", "inner", "density", "metric"];
 const layoutData = () => {
   const m = metrics();
+  // ここで作らない項目（float や、新しい版が足したもの）はそのまま返す。別の版のタブが消さないように
+  const rest = Object.fromEntries(Object.entries(LAYOUT).filter(([k]) => !LAYOUT_OWN.includes(k)));
   const here = (k) => BUILTIN.includes(k) || S.panels.some((p) => p.id === k);
   const only = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => here(k)));
   // 置き場所は決めたものだけ持つ（組み込みのパネルはいつも）。自動のものは人のいま（/api/focus）で知らせる
-  return { v: 3, pos: Object.fromEntries(allTiles().filter((k) => !isAuto(k)).map((k) => [k, baseOf(k)])), zoom: only(LAYOUT.zoom), fold: only(LAYOUT.fold), out: (LAYOUT.out || []).filter(here), pinned: (LAYOUT.pinned || []).filter(here),
-    inner: { tpos: only(TPOS), sizes: only(SIZES) }, density: dens(), ...(LAYOUT.float ? { float: LAYOUT.float } : {}),
+  return { ...rest, v: 3, pos: Object.fromEntries(allTiles().filter((k) => !isAuto(k)).map((k) => [k, baseOf(k)])), zoom: only(LAYOUT.zoom), fold: only(LAYOUT.fold), out: (LAYOUT.out || []).filter(here), pinned: (LAYOUT.pinned || []).filter(here),
+    inner: { tpos: only(TPOS), sizes: only(SIZES) }, density: dens(),
     metric: { sx: Math.round(m.sx), sy: Math.round(m.sy), rows: Math.floor(stage.clientHeight / m.sy) } };
 };
 // 比べるときは窓の大きさ（metric）と並び順を外す。窓の違うブラウザどうしで書き合わないように
@@ -1434,11 +1493,6 @@ function floatAnchor(r, W, H, keepH) {
   return { ...(cx < W / 2 ? { left: n(r.left) } : { right: n(W - r.right) }), ...(cy < H / 2 ? { top: n(r.top) } : { bottom: n(H - r.bottom) }),
     w: n(r.width), ...(keepH ? { h: n(r.height) } : {}) };
 }
-// 追従の遅れがどれだけ縮むか。小さくなったら 0
-function followStep(v, dt, tau) {
-  const n = v * Math.exp(-dt / tau);
-  return Math.abs(n) < 0.5 ? 0 : n;
-}
 // 枠を今の浮かせ方の場所へ移す（ます目と層のあいだを動かすだけ。発言の途中の文字や入力欄のフォーカスは残す）
 const FLOAT_STYLE = ["left", "right", "top", "bottom", "width", "height"];
 function syncFloats() {
@@ -1455,7 +1509,6 @@ function syncFloats() {
     tl.scrollTop = keepTop;
     if (active?.isConnected && active !== document.activeElement) active.focus({ preventScroll: true });
   }
-  if (floatMode() !== "follow") setFollow(0, 0);
   for (const b of $$("button", $("#floatMode"))) b.setAttribute("aria-pressed", String(b.dataset.float === floatMode()));
   $("#toTools").hidden = isFloat("tools");
 }
@@ -1514,26 +1567,6 @@ function setFloatMode(mode) {
   applyLayout();
   render();
 }
-// 追従：ボードと一緒に流れ、止まると元の場所へ戻る。見ている場所はキャンバスの上で測る（広さが変わってスクロール量だけ変わったときは動かない）
-const FOLLOW = { x: 0, y: 0, ax: null, ay: null, sx: 0, raf: 0, last: 0 };
-function setFollow(x, y) {
-  FOLLOW.x = x; FOLLOW.y = y;
-  floats.style.transform = x || y ? `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)` : "";
-}
-function followFrame(now) {
-  const dt = now - FOLLOW.last;
-  FOLLOW.last = now;
-  setFollow(followStep(FOLLOW.x, dt, FOLLOW_LAG.tau), followStep(FOLLOW.y, dt, FOLLOW_LAG.tau));
-  FOLLOW.raf = FOLLOW.x || FOLLOW.y ? requestAnimationFrame(followFrame) : 0;
-}
-stage.addEventListener("scroll", () => {
-  const sx = CANVAS.sx * CANVAS.z, ax = stage.scrollLeft + CANVAS.ox * sx, ay = stage.scrollTop + CANVAS.oy * CANVAS.sy * CANVAS.z;
-  const same = FOLLOW.sx === sx && FOLLOW.ax != null, dx = ax - FOLLOW.ax, dy = ay - FOLLOW.ay;
-  Object.assign(FOLLOW, { ax, ay, sx });
-  if (!same || floatMode() !== "follow" || REDUCE || narrow() || Math.abs(dx) + Math.abs(dy) < 3) return;
-  setFollow(clamp(FOLLOW.x - dx, -FOLLOW_LAG.max, FOLLOW_LAG.max), clamp(FOLLOW.y - dy, -FOLLOW_LAG.max, FOLLOW_LAG.max));
-  if (!FOLLOW.raf) { FOLLOW.last = performance.now(); FOLLOW.raf = requestAnimationFrame(followFrame); }
-}, { passive: true });
 
 function drag(e, k, handle, step) {
   const c = cells();
@@ -1662,6 +1695,7 @@ function setupTile(k) {
   });
 }
 for (const k of BUILTIN) setupTile(k);
+$('.tile[data-tile="talk"] .ctl').prepend($("#mic"));
 for (const k of FLOATS) FLOAT_RO.observe(tileOf(k));
 $("#floatMode").innerHTML = `<span>${esc(L.float)}</span>` + FLOAT_MODES.map((m) => `<button data-float="${m}" title="${esc(L.floatTitle[m])}">${esc(L.floatModes[m])}</button>`).join("");
 $("#floatMode").addEventListener("click", (e) => { const m = e.target.closest("button")?.dataset.float; if (m) setFloatMode(m); });
@@ -1904,6 +1938,11 @@ async function loadViews(list) {
 async function load() {
   const r = await fetch("/api/board");
   const b = await r.json();
+  // 立て直して画面の版が変わった。書きかけや聞いている最中は待つ（次の知らせでまた見る）
+  if (b.build) {
+    S.build ??= b.build;
+    if (b.build !== S.build && !$("#msg").value.trim() && !S.listening) return location.reload();
+  }
   if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
   mergeSeen(b.seen, false);
   Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet });
@@ -2166,7 +2205,8 @@ if (SR) {
   mic.title = L.micTitle;
   let rec = null, on = false, interim = 0;
   mic.hidden = false;
-  const setMic = (v) => { on = v; S.listening = v; mic.setAttribute("aria-pressed", String(v)); mic.textContent = v ? L.micOn : L.micOff; sendFocus(); };
+  const setMic = (v) => { on = v; S.listening = v; mic.setAttribute("aria-pressed", String(v)); mic.setAttribute("aria-label", v ? L.micOn : L.micOff); sendFocus(); };
+  mic.innerHTML = ICON.mic;
   setMic(false);
   mic.onclick = () => {
     if (on) { setMic(false); rec?.stop(); return; }
@@ -2238,8 +2278,8 @@ document.addEventListener("keydown", touched, true);
 document.addEventListener("visibilitychange", () => sendFocus(true));
 stage.addEventListener("scroll", () => sendFocus(), { passive: true });
 $("#timeline").addEventListener("scroll", () => sendFocus(), { passive: true });
-grid.addEventListener("pointerover", (e) => { HOVER.k = e.target.closest("#grid > .tile")?.dataset.tile ?? null; });
-grid.addEventListener("pointerleave", () => { HOVER.k = null; });
+grid.addEventListener("pointerover", (e) => { HOVER.k = e.target.closest("#grid > .tile")?.dataset.tile ?? null; HOVER.id = e.target.closest("dv-panel")?.dataset.id ?? null; });
+grid.addEventListener("pointerleave", () => { HOVER.k = null; HOVER.id = null; });
 setInterval(() => sendFocus(), 60e3);
 
 // ── 生きている知らせ ──
@@ -2256,7 +2296,9 @@ function connect() {
 }
 
 msg.placeholder = L.placeholder;
-$("#send").textContent = L.send;
+$("#send").innerHTML = ICON.send;
+$("#send").title = L.send;
+$("#send").setAttribute("aria-label", L.send);
 // dyve 設定はアイコンだけ。名前は title と aria-label に
 const iconBtn = (id, icon, label) => { const b = $(id); b.innerHTML = icon; b.title = label; b.setAttribute("aria-label", label); };
 iconBtn("#seenAll", ICON.seen, L.seenAll);

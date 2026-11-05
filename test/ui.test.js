@@ -113,13 +113,6 @@ test("つまんで離したら、近い端で覚える。高さを決めてい�
   assert.deepEqual(anchor(r(780, 680, 200, 100), 1000, 800, true), { right: 20, bottom: 20, w: 200, h: 100 });
 });
 
-test("追従の遅れは時間で縮み、止まる", () => {
-  const step = fnOf("followStep")();
-  assert.ok(Math.abs(step(100, 180, 180) - 100 / Math.E) < 1e-9);
-  assert.ok(step(-100, 16, 180) < 0 && step(-100, 16, 180) > -100, "向きは変わらない");
-  assert.equal(step(0.4, 16, 180), 0);
-});
-
 const fn = (name, ...args) => (...vals) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`)(...vals);
 
 test("パネルを移す：話題だけが先になり、いまの親と自分の下へは移せない", () => {
@@ -139,8 +132,8 @@ test("親のパネルにまとめる：同じ親の下と画面に並ぶもの�
   assert.deepEqual(plan(ps, ["x", "u"]), { about: null, bundled: { x: "t", u: null } }, "ばらばらなら外に作り、それぞれの元の親を覚える");
 });
 
-test("いまの話題だけ、枠の高さの上限を外す。ほかは一画面まで", () => {
-  assert.match(html, /clamp\(needRows\(tileOf\(k\), m\), 3, k === S\.talking\?\.\[0\] \? Infinity : vr\)/);
+test("自動で並ぶ枠の高さに上限を付けない（いまの話題が変わっても縮まない）", () => {
+  assert.match(html, /Math\.max\(needRows\(tileOf\(k\), m\), 3\)/);
 });
 
 test("dyve 設定を浮かせても、マップの下のボードの倍率のボタンは隠さない", () => {
@@ -148,6 +141,16 @@ test("dyve 設定を浮かせても、マップの下のボードの倍率のボ
   assert.doesNotMatch(html, /\$\("#toTools"\)\.parentElement\.hidden/);
 });
 
-test("浮かせ方の既定は追従（先頭）", () => {
-  assert.match(html, /const FLOAT_MODES = \["follow", "front", "off"\]/);
+test("浮かせ方の既定は前面（先頭）。追従はない", () => {
+  assert.match(html, /const FLOAT_MODES = \["front", "off"\]/);
+  assert.doesNotMatch(html, /followStep|FOLLOW/);
+});
+
+test("並びの知らない項目は消さずに書き戻す", () => {
+  assert.match(html, /return \{ \.\.\.rest, v: 3, pos:/);
+});
+
+test("再描画の前に読んでいる場所を覚え、後で戻す", () => {
+  assert.match(html, /function render\(\) \{\n  const reading = scrollMarks\(\), read = readingPanel\(\);/);
+  assert.match(html, /backToMarks\(reading\);\n  backToPanel\(read\);/);
 });

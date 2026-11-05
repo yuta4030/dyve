@@ -57,7 +57,7 @@ export const TOOLS = [
       moves: { type: "object", description: "動かす・大きさを変える：{ key: { x?, y?, w?, h? } }（ます目。w・h は 2 以上）。動かしたものはその場所に留まり、自動の並びから外れる。position: null で自動の並びへ戻す。話題の中のパネルなら話題の中のます目で、h: null は中身の高さ、size: [幅, 高さ]（ピクセル。null で戻す）も使える" },
       fold: { type: "object", description: "畳む・開く：{ key: true|false }。畳むと見出しだけ残る。済みの仕事と話題は、何も言わなければ畳まれる" },
       zoom: { type: "object", description: "画面に並ぶパネルの中身の拡大率：{ key: 0.1〜5 }" },
-      float: { type: "object", description: "浮かせる（talk・status・quota・tools）：{ mode?: follow|front|off（既定は follow）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
+      float: { type: "object", description: "浮かせる（talk・status・quota・tools）：{ mode?: front|off（既定は front）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
       out: { type: "object", description: "取り出す・戻す：{ 話題の中のパネルの id: true|false }。取り出すと画面に一枚で並ぶ" },
       density: { type: "integer", enum: [12, 24, 48], description: "ます目の細かさ。全体が同じ見た目の大きさで直る。ピン留めしたものがあると変えられない" },
       reset: { type: "boolean", description: "並びを既定に戻す。全部が自動の並びに戻る（ピン留めしたものは残す）" },
@@ -95,7 +95,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - 人は一瞥で読む。文章を書かず、短い list・table を選ぶ。一枚は数行まで
 - 画面に並ぶものは全部パネル（トーク・いまの要点・状況・残量・dyve 設定も組み込みのパネル）
 - パネルは about を変えれば移せる（話題から話題へ、about を null で外へ）。いくつかを一枚にまとめるときは、親にする topic を置いて about を寄せる
-- トーク・状況・残量・dyve 設定は浮いていて、ボードのどこを見ていても画面に出ている。ボードの拡大縮小は掛からない。浮かせ方は追従（follow。既定。ボードと流れて元の場所へ戻る）・前面（front。画面に留めて重ねる）・並べる（off。ます目に並べる）
+- トーク・状況・残量・dyve 設定は浮いていて、ボードのどこを見ていても画面に出ている。ボードの拡大縮小は掛からない。浮かせ方は前面（front。既定。画面に留めて重ねる）・並べる（off。ます目に並べる）
 
 ## 人のいま
 - 起こされたときの文や board_read の focus に、人のいまが付く：いる・離れている、聞いているか、見ているパネル（viewing・inside）、話している話題（talking）、まだ見ていないもの（unseen）

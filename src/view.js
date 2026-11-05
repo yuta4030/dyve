@@ -11,7 +11,7 @@ export const layoutPanel = (board) => board.list().find((p) => p.view === "layou
 const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const DENSITIES = [12, 24, 48];
 const ZOOM_MIN = 0.1, ZOOM_MAX = 5;
-const floatModeOf = (d) => d.float?.mode ?? FLOAT_MODES[0];
+const floatModeOf = (d) => (FLOAT_MODES.includes(d.float?.mode) ? d.float.mode : FLOAT_MODES[0]);
 const FOLDLESS = ["say", "summary"]; // 発言と要点は、それだけを畳まない（並んでいる枠ごとなら畳める）
 
 function titleOf(board, k) {

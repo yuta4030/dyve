@@ -276,8 +276,8 @@ test("board_layout：浮かせ方と、浮かせたものの置き場所・拡�
   const b = new Board();
   laid(b, { v: 3, density: 24, pos: { talk: POS.talk, tools: POS.talk, status: POS.talk, quota: POS.talk }, pinned: [] });
   const s = storeOf(b);
-  assert.equal(legend(b).floatMode, "follow", "決めていなければ追従");
-  assert.equal(legend(b).top.find((t) => t.key === "talk").floating, "follow");
+  assert.equal(legend(b).floatMode, "front", "決めていなければ前面");
+  assert.equal(legend(b).top.find((t) => t.key === "talk").floating, "front");
   const r = changeLayout(s, "manager", { float: { mode: "front", pos: { tools: { right: 10, top: 20, w: 200 }, nope: { left: 1, top: 1, w: 200 }, talk: { left: 1, right: 1, top: 1, w: 200 } }, zoom: { quota: 0.8 } } }, "比べる");
   assert.ok(r.ok);
   assert.deepEqual(r.changed.sort(), ["float", "quota", "tools"]);
