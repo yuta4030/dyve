@@ -27,12 +27,14 @@ a { color: var(--accent); }
 .empty { color: var(--mute); text-align: center; margin: 8% 8px 0; font-size: 14px; }
 
 /* ── 画面は全部パネル。並べ方と大きさはボードの view layout のパネルに持つ（.tile は画面に並ぶパネルの枠）── */
-/* ダッシュボードは上下左右に広がるキャンバス。一画面がます目の細かさ（--cols）の列ぶん。並べたものの外にも一画面ぶんの余白を持ち、そこへ動かせば広がる */
-#grid { --cols: 24; --colw: 40px; --span: 24; --rows: 40; position: relative; height: 100%; overflow: auto; padding: var(--gap); display: grid; gap: var(--gap);
+/* ダッシュボードは上下左右に広がるキャンバス（#grid）。#stage がそれを窓から見せる。一画面がます目の細かさ（--cols）の列ぶん。並べたものの外にも一画面ぶんの余白を持ち、そこへ動かせば広がる */
+/* ボードの倍率はキャンバスごと transform で縮める。並びと折り返しは倍率で変わらない */
+#stage { height: 100%; overflow: auto; touch-action: pan-x pan-y; }
+#grid { --cols: 24; --colw: 40px; --span: 24; --rows: 40; position: relative; width: max-content; height: max-content; transform-origin: 0 0; padding: var(--gap); display: grid; gap: var(--gap);
         grid-template-columns: repeat(var(--span), var(--colw)); grid-template-rows: repeat(var(--rows), var(--row));
         grid-auto-columns: var(--colw); grid-auto-rows: var(--row); }
 /* 動かしているあいだだけ、ます目を薄く見せる */
-#grid.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) - 1px); background-attachment: local; }
+#grid.editing { background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% calc(var(--row) + var(--gap)); background-position: 0 calc(var(--gap) - 1px); }
 .tile { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
         background: color-mix(in srgb, var(--card) 55%, var(--bg)); border: 1px solid var(--line); border-radius: var(--radius); }
 .tile[hidden] { display: none; }
@@ -73,7 +75,8 @@ a { color: var(--accent); }
          opacity: .5; border-bottom-right-radius: var(--radius); }
 .sizer:hover { opacity: 1; }
 @media (max-width: 760px) {
-  #grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-columns: auto; overflow-x: hidden; }
+  #stage { overflow-x: hidden; }
+  #grid { width: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-columns: auto; }
   .tile { grid-column: 1 / -1 !important; grid-row: span var(--h) !important; }
   #map { display: none !important; }
 }
@@ -87,7 +90,8 @@ a { color: var(--accent); }
 #map .world > span.tools { background: color-mix(in srgb, var(--ink) 55%, transparent); }
 #map .world > span.badge { background: var(--accent); }
 #map .world > .view { background: none; border: 1.5px solid var(--accent); border-radius: 3px; pointer-events: none; }
-#map .bar { display: flex; justify-content: flex-end; }
+#map .bar { display: flex; justify-content: flex-end; gap: 2px; }
+#map .bar #zoomNow { margin-right: auto; min-width: 3.4em; font-variant-numeric: tabular-nums; }
 #map .bar button { min-height: 22px; padding: 0 6px; font-size: 11px; }
 
 /* トーク：発言の流れと入力 */
@@ -171,7 +175,7 @@ dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #infoPop .warn { color: var(--warn, #b45309); }
 /* パネルの絵を撮るとき：その一枚だけ */
 body.shot { display: block; height: auto; overflow: auto; padding: 12px; }
-body.shot #grid, body.shot #map { display: none; }
+body.shot #stage, body.shot #map { display: none; }
 
 #toolsMore { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
 #toolsMore svg, .opts [data-ctl="lock"] svg { vertical-align: -2px; }
@@ -261,7 +265,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
 </style>
 </head>
 <body>
-<main id="grid">
+<main id="stage"><div id="grid">
   <section class="tile" data-tile="talk">
     <div class="tile-body">
       <div id="timeline"></div>
@@ -298,15 +302,15 @@ dv-panel.waiting { border: 3px double var(--warn); }
       </div>
     </div>
   </section>
-</main>
+</div></main>
 <div id="infoPop" popover></div>
-<nav id="map"><div class="world"></div><div class="bar"><button class="icon" id="toTools"></button></div></nav>
+<nav id="map"><div class="world"></div><div class="bar"><button class="icon" id="zoomNow"></button><button class="icon" id="zoomOut"></button><button class="icon" id="zoomIn"></button><button class="icon" id="zoomAll"></button></div><div class="bar"><button class="icon" id="toTools"></button></div></nav>
 <script type="module">
 // 画面の言葉はここにまとめる
 const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
   builtin: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" },
-  move: "ドラッグで好きな場所へ", size: "ドラッグで大きさを変える",
+  move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   pinnedNow: "ピン留め中", pinOn: "ピン留め", pinOff: "ピン留めを外す",
   folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）",
@@ -348,6 +352,7 @@ const L = {
   upToDate: "最新のコミットで動いています",
   shootOn: (b) => `撮れる（${b}）`, shootOff: "ブラウザがないので撮れない",
   wordsNone: "まだありません", wordHeard: "聞こえた形", wordWrite: "書き方", wordWhen: "条件（なくてよい）", wordAdd: "足す", wordDrop: "消す", wordBy: (w) => `${w} が追加`,
+  boardZoom: { now: "ボードの倍率（押すと 100% に戻す）。Ctrl＋ホイールかピンチで変えられる", out: "ボードを縮める", in: "ボードを広げる", all: "全体", allTitle: "全体が入る大きさにする" },
   map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のパネルへ行く",
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
   every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
@@ -478,6 +483,7 @@ const RUNTIME = `window.dyve = (() => {
   const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch (e) { root.textContent = init.err + e.message; } };
   addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
   addEventListener("error", (e) => { root.textContent = init.err + e.message; });
+  addEventListener("wheel", (e) => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); parent.postMessage({ dyve: "zoom", dy: e.deltaY, mode: e.deltaMode, x: e.clientX, y: e.clientY }, "*"); }, { passive: false });
   new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
   return { view: (f) => { fn = f; draw(); } };
 })();`;
@@ -496,7 +502,7 @@ function userFrame(p, data) {
     `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe(S.views.get(p.view).src)}<\/script></body>`;
   return f;
 }
-// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい（書くことはできない）
+// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい・ボードの倍率を変えたい（書くことはできない）
 addEventListener("message", (e) => {
   const f = $$("iframe.uview").find((x) => x.contentWindow === e.source);
   const m = e.data || {};
@@ -510,6 +516,9 @@ addEventListener("message", (e) => {
     e.source.postMessage({ dyve: "board", k: m.k, panels }, "*");
   } else if (m.dyve === "open" && typeof m.id === "string") {
     reveal(panelOf(m.id));
+  } else if (m.dyve === "zoom" && [m.dy, m.x, m.y].every(Number.isFinite)) {
+    const r = f.getBoundingClientRect(), s = r.width / (f.offsetWidth || r.width) || 1;
+    zoomAround(zoomNow() * wheelFactor(m.dy, m.mode), r.left + m.x * s, r.top + m.y * s);
   }
 });
 
@@ -937,7 +946,7 @@ const groupOf = (id) => tileOf(id);
 // ── 並び：画面に並ぶパネルは見出しをつまんで好きな場所へ、右下の角で大きさ、見出しの右で文字の大きさ・畳む・ピン留め ──
 // 置き場所はます目で持つ。重なったら、動かしたものを優先して重なった方を下へずらす。ピン留めしたものは動かない
 // DOM の .tile は、画面に並ぶパネルの枠（組み込みのパネル・話題などのまとまり・取り出したパネル）
-const grid = $("#grid");
+const grid = $("#grid"), stage = $("#stage");
 const LAYOUT = keep("layout3", null) || {};
 const tileOf = (k) => $(`.tile[data-tile="${CSS.escape(k)}"]`);
 // 置き場所：覚えたもの（baseOf）。畳んだものは見出しの高さだけを占める（posOf）。覚えるのはいつも元の大きさ
@@ -1003,14 +1012,14 @@ function autoW(k, m) {
   if (k === S.talking?.[0]) w = Math.max(w, Math.round(n / 2));
   return clamp(w, 2, n);
 }
-// 中身の高さ（ます目の行の数）。中身の拡大率も掛かった見えている大きさで測る
+// 中身の高さ（ます目の行の数）。中身の拡大率も掛かった見えている大きさで測る（ボードの倍率は外す）
 function needRows(t, m) {
   const head = $(".tile-head", t), body = $(".tile-body", t);
   const kids = [...body.children].filter((c) => c.getClientRects().length);
   if (!kids.length) return 2;
   const top = Math.min(...kids.map((c) => c.getBoundingClientRect().top)), bottom = Math.max(...kids.map((c) => c.getBoundingClientRect().bottom));
   const cs = getComputedStyle(body), z = zoomOf(t.dataset.tile);
-  const px = head.offsetHeight + (bottom - top) + ((parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)) * z + 4;
+  const px = head.offsetHeight + (bottom - top) / zoomNow() + ((parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)) * z + 4;
   return Math.ceil((px + m.gap) / m.sy);
 }
 function autoOrder(keys) {
@@ -1031,7 +1040,7 @@ function autoLayout(pos) {
   const keys = allTiles().filter((k) => isAuto(k) && tileOf(k));
   for (const k of Object.keys(AUTO)) if (!keys.includes(k)) delete AUTO[k];
   if (!keys.length) return pos;
-  const m = metrics(), vr = Math.max(6, Math.floor(grid.clientHeight / m.sy) - 1);
+  const m = metrics(), vr = Math.max(6, Math.floor(stage.clientHeight / m.sy) - 1);
   const order = autoOrder(keys), w = {};
   // 幅を先に当ててから測る（折り返しは幅で変わる）。話題の中のます目もその幅で置き直す
   for (const k of order) {
@@ -1068,7 +1077,7 @@ const layoutData = () => {
   // 置き場所は決めたものだけ持つ（組み込みのパネルはいつも）。自動のものは人のいま（/api/focus）で知らせる
   return { v: 3, pos: Object.fromEntries(allTiles().filter((k) => !isAuto(k)).map((k) => [k, baseOf(k)])), zoom: only(LAYOUT.zoom), fold: only(LAYOUT.fold), out: (LAYOUT.out || []).filter(here), pinned: (LAYOUT.pinned || []).filter(here),
     inner: { tpos: only(TPOS), sizes: only(SIZES) }, density: dens(),
-    metric: { sx: Math.round(m.sx), sy: Math.round(m.sy), rows: Math.floor(grid.clientHeight / m.sy) } };
+    metric: { sx: Math.round(m.sx), sy: Math.round(m.sy), rows: Math.floor(stage.clientHeight / m.sy) } };
 };
 // 比べるときは窓の大きさ（metric）と並び順を外す。窓の違うブラウザどうしで書き合わないように
 const sorted = (v) => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v;
@@ -1134,36 +1143,44 @@ function stack(pos, order) {
 const byPlace = (pos) => (a, b) => pos[a].y - pos[b].y || pos[a].x - pos[b].x;
 // ── キャンバス：上下左右に広がる。CANVAS.ox・oy はます目の一列目・一行目にあたる置き場所（左や上へ広げると 1 より小さくなる）──
 // 並べたものの外に一画面ぶんの余白を足して決め、そこへ動かせばさらに広がる。広がっても見ているところは動かさない
-const CANVAS = { ox: 1, oy: 1, sx: 0, sy: 0, homed: false };
+const CANVAS = { ox: 1, oy: 1, sx: 0, sy: 0, z: 1, pos: null, homed: false };
+// ボードの倍率：キャンバスごと縮める・広げる。スクロールと同じで見る人のものなので、並び（ボード）には持たずブラウザに覚える
+const BOARD_ZOOM = { min: 0.1, max: 3, step: 1.25 };
+const VIEW = { z: 1, back: null };
+const zoomNow = () => (narrow() ? 1 : VIEW.z);
 const narrow = () => matchMedia("(max-width: 760px)").matches;
-// ます目の寸法。一画面（パディングの内側）がちょうど dens() 列になる幅を一列とする
+// ます目の寸法。一画面（パディングの内側）がちょうど dens() 列になる幅を一列とする。倍率を掛ける前の値で、並びは倍率で変わらない
 function metrics() {
   const cs = getComputedStyle(grid);
   const gap = parseFloat(cs.columnGap) || 0, row = parseFloat(cs.gridAutoRows) || 18;
   const padL = parseFloat(cs.paddingLeft) || 0, padT = parseFloat(cs.paddingTop) || 0;
-  const colW = Math.max(8, (grid.clientWidth - padL - (parseFloat(cs.paddingRight) || 0) - gap * (dens() - 1)) / dens());
+  const colW = Math.max(8, (stage.clientWidth - padL - (parseFloat(cs.paddingRight) || 0) - gap * (dens() - 1)) / dens());
   return { gap, row, padL, padT, colW, sx: colW + gap, sy: row + gap };
 }
 // 広さを決める。drag のあいだは左と上を動かさず（動かすと指の下がずれる）、右と下は広げるだけ
 function frame(pos, during = false) {
   const m = metrics();
   const shown = allTiles().map((k) => pos[k]);
-  const vr = Math.max(4, Math.floor(grid.clientHeight / m.sy));
+  const vr = Math.max(4, Math.floor(stage.clientHeight / m.sy)), z = zoomNow();
+  // 余白はいつも画面一枚ぶん以上（縮めても、どこでも指の下に持ってこられる）
+  const mx = Math.ceil(dens() / z), my = Math.ceil(vr / z);
   const x0 = Math.min(1, ...shown.map((p) => p.x)), y0 = Math.min(1, ...shown.map((p) => p.y));
   const x1 = Math.max(dens() + 1, ...shown.map((p) => p.x + p.w)), y1 = Math.max(vr + 1, ...shown.map((p) => p.y + p.h));
-  const ox = during ? CANVAS.ox : x0 - dens(), oy = during ? CANVAS.oy : y0 - vr;
-  let span = x1 + dens() - ox, rows = y1 + vr - oy;
+  const ox = during ? CANVAS.ox : x0 - mx, oy = during ? CANVAS.oy : y0 - my;
+  let span = x1 + mx - ox, rows = y1 + my - oy;
   if (during) { span = Math.max(span, Number(grid.style.getPropertyValue("--span")) || 0); rows = Math.max(rows, Number(grid.style.getPropertyValue("--rows")) || 0); }
   grid.style.setProperty("--colw", `${m.colW}px`);
   grid.style.setProperty("--span", String(span));
   grid.style.setProperty("--rows", String(rows));
-  return { m, ox, oy };
+  grid.style.transform = z === 1 ? "" : `scale(${z})`;
+  return { m, ox, oy, z };
 }
 function place(pos, during = false, snap = null) {
   // いま見ている左上（置き場所で）を覚えておき、広さが変わったあとも同じところを見せる。はじめは (1, 1) を左上に
-  const view = CANVAS.homed ? { x: grid.scrollLeft / CANVAS.sx + CANVAS.ox, y: grid.scrollTop / CANVAS.sy + CANVAS.oy } : { x: 1, y: 1 };
-  const { m, ox, oy } = frame(pos, during);
-  Object.assign(CANVAS, { ox, oy, sx: m.sx, sy: m.sy });
+  const view = CANVAS.homed ? { x: stage.scrollLeft / (CANVAS.sx * CANVAS.z) + CANVAS.ox, y: stage.scrollTop / (CANVAS.sy * CANVAS.z) + CANVAS.oy } : { x: 1, y: 1 };
+  const { m, ox, oy, z } = frame(pos, during);
+  Object.assign(CANVAS, { ox, oy, sx: m.sx, sy: m.sy, z });
+  if (!during) CANVAS.pos = pos;
   for (const k of allTiles()) {
     const p = pos[k], t = tileOf(k);
     Object.assign(t.style, { gridColumn: `${p.x - ox + 1} / span ${p.w}`, gridRow: `${p.y - oy + 1} / span ${p.h}`, order: String((p.y - oy) * 10000 + (p.x - ox)) });
@@ -1188,15 +1205,15 @@ function place(pos, during = false, snap = null) {
     ab.parentElement.hidden = isAuto(k) || BUILTIN.includes(k) || pin;
   }
   if (!during && !narrow()) {
-    grid.scrollLeft = Math.round((view.x - ox) * m.sx);
-    grid.scrollTop = Math.round((view.y - oy) * m.sy);
+    stage.scrollLeft = Math.round((view.x - ox) * m.sx * z);
+    stage.scrollTop = Math.round((view.y - oy) * m.sy * z);
     CANVAS.homed = true;
     // 読んでいるパネルは画面の同じ位置に残す。並びが変わったら、見ているところの方がついていく
     const a = snap?.anchor && tileOf(snap.anchor.k);
     if (a && !a.hidden) {
       const r = a.getBoundingClientRect();
-      grid.scrollLeft += r.left - snap.anchor.left;
-      grid.scrollTop += r.top - snap.anchor.top;
+      stage.scrollLeft += r.left - snap.anchor.left;
+      stage.scrollTop += r.top - snap.anchor.top;
     }
   }
   if (snap?.before) flip(snap.before);
@@ -1206,7 +1223,7 @@ function place(pos, during = false, snap = null) {
 const HOVER = { k: null };
 const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function anchorOf() {
-  const g = grid.getBoundingClientRect();
+  const g = stage.getBoundingClientRect();
   const vis = (t) => { const r = t.getBoundingClientRect(); return r.width > 0 && r.bottom > g.top + 24 && r.top < g.bottom - 24 && r.right > g.left + 24 && r.left < g.right - 24; };
   let t = HOVER.k && tileOf(HOVER.k);
   if (!t || t.hidden || !vis(t)) t = document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)?.closest("#grid > .tile");
@@ -1222,7 +1239,9 @@ function flip(before) {
     if (!b || !b.width || t.classList.contains("dragging")) continue;
     const a = t.getBoundingClientRect(), dx = b.left - a.left, dy = b.top - a.top;
     if (Math.abs(dx) + Math.abs(dy) < 2) continue;
-    t.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.2,.7,.2,1)" });
+    // ずれは見えている大きさで測っている。枠はキャンバスの中で動くので倍率で割る
+    const z = zoomNow();
+    t.animate([{ transform: `translate(${dx / z}px, ${dy / z}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.2,.7,.2,1)" });
   }
 }
 function applyLayout(appear = null) {
@@ -1239,7 +1258,7 @@ function applyLayout(appear = null) {
   // いまの要点は、中身があふれるときだけ下へ伸ばす（半画面まで。覚えた大きさは変えない）
   const st = tileOf("summary");
   if (st && !narrow() && !isFolded("summary")) {
-    const m = metrics(), half = Math.floor(grid.clientHeight / m.sy / 2);
+    const m = metrics(), half = Math.floor(stage.clientHeight / m.sy / 2);
     pos.summary = { ...pos.summary, h: Math.max(pos.summary.h, Math.min(half, needRows(st, m))) };
   }
   place(autoLayout(settle(pos, null, appear)), false, snap);
@@ -1264,13 +1283,18 @@ function setDensity(next) {
   applyLayout();
   relayoutFree();
 }
-// 指の下の置き場所（キャンバスの上で。スクロールと広がりを差し引く）
+// 窓の中の点（px, py）にある置き場所（端数つき。スクロール・倍率・広がりを差し引く）
+function cellAt(px, py) {
+  const m = metrics(), z = zoomNow();
+  return { x: ((stage.scrollLeft + px) / z - m.padL) / m.sx + CANVAS.ox, y: ((stage.scrollTop + py) / z - m.padT) / m.sy + CANVAS.oy };
+}
+// 指の下の置き場所
 function cells() {
-  const m = metrics(), r = grid.getBoundingClientRect();
-  return { cols: narrow() ? 1 : dens(), at: (cx, cy) => ({
-    x: Math.floor((cx - r.left - m.padL + grid.scrollLeft) / m.sx) + CANVAS.ox,
-    y: Math.floor((cy - r.top - m.padT + grid.scrollTop) / m.sy) + CANVAS.oy,
-  }) };
+  const r = stage.getBoundingClientRect();
+  return { cols: narrow() ? 1 : dens(), at: (cx, cy) => {
+    const c = cellAt(cx - r.left, cy - r.top);
+    return { x: Math.floor(c.x), y: Math.floor(c.y) };
+  } };
 }
 // つまんでいるあいだ、はじめの置き場所から毎回置き直す（行ったり来たりしても崩れない）。画面と話題の中で共通
 // 4px 動くまでは動かしたことにしない（見出しを押しただけのときは、ます目も出さない）
@@ -1325,7 +1349,7 @@ function drag(e, k, handle, step) {
   const c = cells();
   if (c.cols === 1) return;
   dragCells(e, {
-    handle, k, step, at: c.at, scroller: grid,
+    handle, k, step, at: c.at, scroller: stage,
     place: (pos) => place(pos, true),
     start: Object.fromEntries(allTiles().map((x) => [x, posOf(x)])),
     arrange: (pos, m) => settle(pos, m),
@@ -1469,7 +1493,7 @@ function drawMap() {
   const W = world.clientWidth, H = world.clientHeight;
   const rects = allTiles().map((k) => [k, tileOf(k)]).filter(([, t]) => t)
     .map(([k, t]) => ({ k, t, x: t.offsetLeft, y: t.offsetTop, w: t.offsetWidth, h: t.offsetHeight }));
-  const v = { x: grid.scrollLeft, y: grid.scrollTop, w: grid.clientWidth, h: grid.clientHeight };
+  const z = zoomNow(), v = { x: stage.scrollLeft / z, y: stage.scrollTop / z, w: stage.clientWidth / z, h: stage.clientHeight / z };
   const all = [...rects, v];
   const x0 = Math.min(...all.map((r) => r.x)), y0 = Math.min(...all.map((r) => r.y));
   const x1 = Math.max(...all.map((r) => r.x + r.w)), y1 = Math.max(...all.map((r) => r.y + r.h));
@@ -1483,13 +1507,14 @@ function drawMap() {
   }).join("") + `<span class="view" style="${at(v)}"></span>`;
 }
 const drawMapSoon = () => { if (!mapRaf) mapRaf = requestAnimationFrame(drawMap); };
-grid.addEventListener("scroll", drawMapSoon, { passive: true });
+stage.addEventListener("scroll", drawMapSoon, { passive: true });
 // マップの上の点を、画面のまん中に持ってくる
 const mapGo = (ev) => {
   if (!MAPF) return;
   const r = world.getBoundingClientRect();
   const cx = (ev.clientX - r.left - MAPF.mx) / MAPF.s + MAPF.x0, cy = (ev.clientY - r.top - MAPF.my) / MAPF.s + MAPF.y0;
-  grid.scrollTo(cx - grid.clientWidth / 2, cy - grid.clientHeight / 2);
+  const z = zoomNow();
+  stage.scrollTo(cx * z - stage.clientWidth / 2, cy * z - stage.clientHeight / 2);
 };
 world.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
@@ -1507,6 +1532,108 @@ $("#toTools").onclick = () => {
   t.classList.add("hl");
   setTimeout(() => t.classList.remove("hl"), 1600);
 };
+
+// ── ボードの倍率：Ctrl（⌘）＋ホイール・トラックパッドのピンチ・指のピンチ、マップの下のボタン、見出しのダブルクリック ──
+// 手前に回すと縮む。マウスの一刻みとピンチの細かい動きを同じ式で受ける
+function wheelFactor(dy, mode = 0) {
+  return Math.exp(-Math.max(-20, Math.min(20, dy * (mode === 1 ? 33 : 1))) * 0.01);
+}
+// w × h を窓 cw × ch に収める倍率
+function fitZoom(w, h, cw, ch, lo, hi) {
+  return Math.max(lo, Math.min(hi, Math.min(cw / (w || 1), ch / (h || 1))));
+}
+// 置き場所 cell が窓の中の点（px, py）に来るように、倍率を変える
+function zoomTo(next, cell, px, py) {
+  if (narrow() || !CANVAS.pos || $(".editing")) return;
+  const m = metrics(), z = clamp(next, BOARD_ZOOM.min, BOARD_ZOOM.max);
+  VIEW.z = z;
+  put("boardZoom", z);
+  place(CANVAS.pos);
+  stage.scrollLeft = ((cell.x - CANVAS.ox) * m.sx + m.padL) * z - px;
+  stage.scrollTop = ((cell.y - CANVAS.oy) * m.sy + m.padT) * z - py;
+  showZoom();
+  sendFocus();
+}
+// 指の下のものを動かさずに倍率を変える
+function zoomAround(next, cx, cy) {
+  const r = stage.getBoundingClientRect(), px = cx - r.left, py = cy - r.top;
+  VIEW.back = null;
+  zoomTo(next, cellAt(px, py), px, py);
+}
+const zoomCenter = (next) => { const r = stage.getBoundingClientRect(); zoomAround(next, r.left + stage.clientWidth / 2, r.top + stage.clientHeight / 2); };
+// 並んでいるもの全部が窓に入る大きさにする
+function zoomAll() {
+  if (!CANVAS.pos) return;
+  const ps = allTiles().map((k) => CANVAS.pos[k]).filter(Boolean), m = metrics();
+  const x0 = Math.min(...ps.map((p) => p.x)), y0 = Math.min(...ps.map((p) => p.y));
+  const x1 = Math.max(...ps.map((p) => p.x + p.w)), y1 = Math.max(...ps.map((p) => p.y + p.h));
+  const z = fitZoom((x1 - x0) * m.sx + m.gap, (y1 - y0) * m.sy + m.gap, stage.clientWidth, stage.clientHeight, BOARD_ZOOM.min, 1);
+  VIEW.back = null;
+  zoomTo(z, { x: (x0 + x1) / 2, y: (y0 + y1) / 2 }, stage.clientWidth / 2, stage.clientHeight / 2);
+}
+// パネル一枚を窓いっぱいにする（小さくはしない）。同じものでもう一度押すと、元の倍率と場所へ戻る
+function zoomToPanel(el) {
+  const cw = stage.clientWidth, ch = stage.clientHeight, key = el.dataset.id || el.dataset.tile;
+  if (VIEW.back?.key === key) {
+    const { z, cell } = VIEW.back;
+    VIEW.back = null;
+    return zoomTo(z, cell, 0, 0);
+  }
+  const back = VIEW.back || { z: zoomNow(), cell: cellAt(0, 0) };
+  const r = el.getBoundingClientRect(), g = stage.getBoundingClientRect(), now = zoomNow();
+  const z = fitZoom(r.width / now + 16, r.height / now + 16, cw, ch, 1, BOARD_ZOOM.max);
+  const mid = cellAt(r.left - g.left + r.width / 2, r.top - g.top + r.height / 2);
+  zoomTo(z, mid, cw / 2, ch / 2);
+  // 窓より高いものは、頭から読めるように上を合わせる
+  const after = el.getBoundingClientRect();
+  if (after.height > ch) stage.scrollTop += after.top - g.top - 8;
+  VIEW.back = { ...back, key };
+}
+function showZoom() {
+  $("#zoomNow").textContent = `${Math.round(zoomNow() * 100)}%`;
+}
+for (const [id, label, title] of [["#zoomOut", "−", L.boardZoom.out], ["#zoomIn", "＋", L.boardZoom.in], ["#zoomAll", L.boardZoom.all, L.boardZoom.allTitle]]) {
+  $(id).textContent = label;
+  $(id).title = title;
+  $(id).setAttribute("aria-label", title);
+}
+$("#zoomNow").title = L.boardZoom.now;
+$("#zoomNow").onclick = () => zoomCenter(1);
+$("#zoomOut").onclick = () => zoomCenter(zoomNow() / BOARD_ZOOM.step);
+$("#zoomIn").onclick = () => zoomCenter(zoomNow() * BOARD_ZOOM.step);
+$("#zoomAll").onclick = zoomAll;
+addEventListener("wheel", (e) => {
+  if ((!e.ctrlKey && !e.metaKey) || narrow() || SHOT) return;
+  e.preventDefault();
+  zoomAround(zoomNow() * wheelFactor(e.deltaY, e.deltaMode), e.clientX, e.clientY);
+}, { passive: false });
+grid.addEventListener("dblclick", (e) => {
+  if (!e.target.closest(".tile-head, dv-panel > .meta") || e.target.closest("button, a, input, select, summary, #timeline") || !e.target.isConnected) return;
+  const el = e.target.closest("dv-panel, .tile");
+  // 話題ひとつの枠は、枠がそのままパネルの枠
+  if (el) zoomToPanel(el.matches(".group.solo > .items > dv-panel") ? el.closest(".tile") : el);
+});
+// 指のピンチ：はじめに指のあいだにあった場所を、指についてこさせる（広げる・縮める・動かすを一度に）
+let pinch = null;
+const twoFingers = (e) => {
+  const [a, b] = e.touches;
+  return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+};
+stage.addEventListener("touchstart", (e) => {
+  if (e.touches.length !== 2 || narrow()) { pinch = null; return; }
+  const f = twoFingers(e), r = stage.getBoundingClientRect();
+  pinch = { d: f.d, z: zoomNow(), cell: cellAt(f.x - r.left, f.y - r.top) };
+  VIEW.back = null;
+}, { passive: true });
+stage.addEventListener("touchmove", (e) => {
+  if (!pinch || e.touches.length !== 2) return;
+  e.preventDefault();
+  const f = twoFingers(e), r = stage.getBoundingClientRect();
+  zoomTo(pinch.z * f.d / pinch.d, pinch.cell, f.x - r.left, f.y - r.top);
+}, { passive: false });
+stage.addEventListener("touchend", (e) => { if (e.touches.length < 2) pinch = null; });
+VIEW.z = clamp(Number(keep("boardZoom", 1)) || 1, BOARD_ZOOM.min, BOARD_ZOOM.max);
+showZoom();
 applyLayout();
 // 窓の大きさが変わったら列の幅を測り直す（見ているところは保つ）
 addEventListener("resize", () => applyLayout());
@@ -1786,7 +1913,7 @@ if (SR) {
 // ── 人のいま：どこを見ているか・何の話か・何を見たかを、ボードに知らせる（操作ログには積まず、誰も起こさない）──
 const FOCUS = { client: Math.random().toString(36).slice(2, 10), timer: 0, input: Date.now(), sent: "", at: 0, away: false };
 function focusNow() {
-  const g = grid.getBoundingClientRect();
+  const g = stage.getBoundingClientRect();
   const inView = (r) => r.width > 0 && r.bottom > g.top + 16 && r.top < g.bottom - 16 && r.right > g.left + 16 && r.left < g.right - 16;
   const viewing = allTiles().filter((k) => !BUILTIN.includes(k) && tileOf(k) && inView(tileOf(k).getBoundingClientRect()));
   const inside = viewing.flatMap((k) => $$("dv-panel", tileOf(k)).filter((el) => el.dataset.id !== k && inView(el.getBoundingClientRect())).map((el) => el.dataset.id));
@@ -1827,7 +1954,7 @@ const touched = () => { FOCUS.input = Date.now(); if (FOCUS.away) sendFocus(true
 document.addEventListener("pointerdown", touched, true);
 document.addEventListener("keydown", touched, true);
 document.addEventListener("visibilitychange", () => sendFocus(true));
-grid.addEventListener("scroll", () => sendFocus(), { passive: true });
+stage.addEventListener("scroll", () => sendFocus(), { passive: true });
 $("#timeline").addEventListener("scroll", () => sendFocus(), { passive: true });
 grid.addEventListener("pointerover", (e) => { HOVER.k = e.target.closest("#grid > .tile")?.dataset.tile ?? null; });
 grid.addEventListener("pointerleave", () => { HOVER.k = null; });
