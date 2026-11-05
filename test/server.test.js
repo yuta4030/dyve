@@ -48,6 +48,8 @@ test("MCP の口：初期化・道具の一覧・書き込みは名乗った立�
     const rpc = async (as, method, params, id = 1) => (await post(`${base}/mcp?as=${encodeURIComponent(as)}`, { jsonrpc: "2.0", id, method, params })).json();
     const init = await rpc("manager", "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } });
     assert.equal(init.result.protocolVersion, "2025-06-18");
+    // ボードの決まりは MCP の説明に一つだけ持つ（定義には役割だけ）
+    assert.match(init.result.instructions, /## パネル[\s\S]*## 守ること/);
     const note = await post(`${base}/mcp?as=manager`, { jsonrpc: "2.0", method: "notifications/initialized" });
     assert.equal(note.status, 202);
     const tools = await rpc("manager", "tools/list");

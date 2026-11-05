@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import zlib from "node:zlib";
-import { Board } from "../src/board.js";
+import { Board, layoutOf } from "../src/board.js";
 import { Words } from "../src/words.js";
 import { handleRpc } from "../src/mcp.js";
 import { legend, boardPng, changeLayout } from "../src/view.js";
@@ -18,7 +18,7 @@ const human = (b, type, panel) => b.apply({ by: "human", type, panel });
 const ai = (b, type, panel, by = "scribe") => b.apply({ by, type, panel, reason: "試す" });
 const tools = (store, as, name, args, opts = {}) => handleRpc(store, null, as, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, opts);
 const laid = (board, data) => human(board, "add", { view: "layout", data }).op.panel.id;
-const POS = { talk: { x: 1, y: 1, w: 8, h: 8 }, "g:b/p9": { x: 9, y: 1, w: 8, h: 8 } };
+const POS = { talk: { x: 1, y: 1, w: 8, h: 8 }, p9: { x: 9, y: 1, w: 8, h: 8 } };
 
 test("画面の script は全体が JavaScript として読める", () => {
   for (const f of ["ui.html", "manage.html"]) {
@@ -68,69 +68,72 @@ test("合成した発言：マネージャは先頭だけを読み、書き出�
   assert.match(md, /補足/, `合流した発言の下のもの ${k} も落とさない`);
 });
 
-test("置き場所：AI は作れず、固定を変えられず、固定されたタイルを動かせない", () => {
+test("並び：AI は作れず、ピン留めを変えられず、ピン留めしたものを動かせない。古い形は組み込みのパネルだけ引き継ぐ", () => {
   const b = new Board();
   assert.equal(ai(b, "add", { view: "layout", data: {} }).code, "forbidden");
-  const id = laid(b, { density: 24, pos: POS, locked: ["talk"] });
+  const id = laid(b, { v: 2, density: 24, pos: POS, pinned: ["talk"] });
   assert.equal(human(b, "add", { view: "layout", data: {} }).code, "invalid", "一枚だけ");
   const cur = b.get(id).data;
-  assert.equal(ai(b, "edit", { id, data: { ...cur, locked: [] } }).code, "forbidden");
+  assert.equal(ai(b, "edit", { id, data: { ...cur, pinned: [] } }).code, "forbidden");
   assert.equal(ai(b, "edit", { id, data: { ...cur, pos: { ...POS, talk: { x: 2, y: 1, w: 8, h: 8 } } } }).code, "pinned");
+  assert.equal(ai(b, "edit", { id, data: { pos: POS } }).code, "invalid", "v: 2 の形だけ");
   assert.equal(ai(b, "drop", { id }).code, "forbidden");
   assert.equal(ai(b, "edit", { id, view: "text" }).code, "forbidden");
+  const old = layoutOf({ density: 48, pos: { talk: { x: 1, y: 1, w: 4, h: 4 }, "g:b/p9": { x: 5, y: 1, w: 4, h: 4 } }, locked: ["talk"], min: ["talk"], hidden: ["status"], inner: { tpos: { p3: { x: 1, y: 1, w: 2 } }, min: ["p3"] } });
+  assert.deepEqual(old, { v: 2, density: 48, pos: { talk: { x: 1, y: 1, w: 4, h: 4 } }, zoom: {}, fold: {}, out: [], pinned: [], inner: { tpos: { p3: { x: 1, y: 1, w: 2 } }, sizes: {} } });
 });
 
-test("board_layout：固定とピン留めは断り、残りは動かし、重なりを知らせる", () => {
+test("board_layout：ピン留めは断り、残りは動かし、重なりを知らせる", () => {
   const b = new Board();
   for (let i = 0; i < 8; i++) human(b, "add", { view: "say", data: String(i) });
   const pinned = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
   human(b, "edit", { id: pinned, pinned: true });
-  const pos = { talk: { x: 1, y: 1, w: 8, h: 8 }, tools: { x: 9, y: 1, w: 8, h: 8 }, [`g:b/${pinned}`]: { x: 17, y: 1, w: 8, h: 8 } };
-  laid(b, { density: 24, pos, locked: ["talk"] });
+  const pos = { talk: { x: 1, y: 1, w: 8, h: 8 }, tools: { x: 9, y: 1, w: 8, h: 8 }, [pinned]: { x: 17, y: 1, w: 8, h: 8 } };
+  laid(b, { v: 2, density: 24, pos, pinned: ["talk"] });
   const s = storeOf(b);
   assert.equal(changeLayout(s, "manager", { moves: { talk: { x: 3, y: 3 } } }, "r").code, "pinned");
-  const r = changeLayout(s, "manager", { moves: { talk: { x: 3 }, tools: { x: 2, y: 2 }, [`g:b/${pinned}`]: { x: 1 }, nope: { x: 1 } } }, "並べ直す");
+  const r = changeLayout(s, "manager", { moves: { talk: { x: 3 }, tools: { x: 2, y: 2 }, [pinned]: { x: 1 }, nope: { x: 1 } } }, "並べ直す");
   assert.ok(r.ok);
   assert.deepEqual(r.changed, ["tools"]);
-  assert.deepEqual(r.refused.map((x) => x.key).sort(), [`g:b/${pinned}`, "nope", "talk"].sort());
+  assert.deepEqual(r.refused.map((x) => x.key).sort(), [pinned, "nope", "talk"].sort());
   assert.deepEqual(r.overlaps, [["talk", "tools"]]);
-  const l = legend(b).tiles;
-  assert.equal(l.find((t) => t.key === "talk").fixed, true);
-  assert.equal(l.find((t) => t.key === `g:b/${pinned}`).title, "話題");
+  const l = legend(b).top;
+  assert.equal(l.find((t) => t.key === "talk").pinned, true);
+  assert.equal(l.find((t) => t.key === pinned).pinned, true, "パネルのピン留めも同じ");
+  assert.equal(l.find((t) => t.key === pinned).title, "話題");
   assert.equal(changeLayout(s, "manager", { moves: { tools: { w: 1 } } }, "r").code, "invalid");
 });
 
-test("board_layout：人が画面でできる操作を全部できる（固定は除く）", () => {
+test("board_layout：人が画面でできる操作を全部できる（ピン留めは除く）", () => {
   const b = new Board();
   const topic = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
   const res = ai(b, "add", { view: "list", about: topic, data: ["a"] }, "アリス").op.panel.id;
-  const pos = { tools: { x: 1, y: 1, w: 4, h: 4 }, status: { x: 5, y: 1, w: 4, h: 4 }, [`g:b/${topic}`]: { x: 9, y: 1, w: 8, h: 8 } };
-  const id = laid(b, { density: 24, pos });
+  const pos = { tools: { x: 1, y: 1, w: 4, h: 4 }, status: { x: 5, y: 1, w: 4, h: 4 }, [topic]: { x: 9, y: 1, w: 8, h: 8 } };
+  const id = laid(b, { v: 2, density: 24, pos });
   const s = storeOf(b), data = () => b.get(id).data;
   const ok = (change) => { const r = changeLayout(s, "manager", change, "試す"); assert.ok(r.ok, JSON.stringify(r)); return r; };
-  ok({ min: { status: true } });
-  assert.deepEqual(data().min, ["status"]);
-  ok({ min: { status: false }, hidden: { status: true }, zoom: { status: 1.5 } });
-  assert.deepEqual([data().min, data().hidden, data().zoom.status], [[], ["status"], 1.5]);
-  assert.deepEqual(changeLayout(s, "manager", { hidden: { tools: true }, moves: { status: { x: 2 } } }, "r").refused.map((x) => x.key), ["tools"]);
-  ok({ hidden: { status: false } });
-  // タイルに出す・なくす
-  ok({ tiles: { add: [res] } });
-  assert.ok(data().extra.includes(`panel:${res}`) && data().pos[`panel:${res}`]);
-  assert.equal(changeLayout(s, "manager", { tiles: { add: [topic] } }, "r").code, "invalid", "話題はもうタイル");
-  ok({ tiles: { remove: [`panel:${res}`] } });
-  assert.deepEqual(data().extra, []);
+  // 畳む：組み込みのパネルも、話題も、話題の中のパネルも同じ
+  ok({ fold: { status: true, [topic]: true, [res]: true }, zoom: { status: 1.5 } });
+  assert.deepEqual([data().fold, data().zoom.status], [{ status: true, [topic]: true, [res]: true }, 1.5]);
+  ok({ fold: { status: false } });
+  assert.equal(data().fold.status, false);
+  assert.equal(legend(b).inner.find((p) => p.id === res).folded, true);
+  // 取り出す・戻す
+  ok({ out: { [res]: true } });
+  assert.ok(data().out.includes(res) && data().pos[res]);
+  assert.equal(changeLayout(s, "manager", { out: { [topic]: true } }, "r").code, "invalid", "話題はもう並んでいる");
+  ok({ out: { [res]: false } });
+  assert.deepEqual([data().out, data().pos[res]], [[], undefined]);
   // 話題の中
-  ok({ panels: { [res]: { x: 2, y: 3, w: 6, h: 4, size: [300, 200], min: true, unfold: true } } });
-  assert.deepEqual(data().inner.tpos[res], { x: 2, y: 3, w: 6, h: 4 });
-  assert.deepEqual([data().inner.sizes[res], data().inner.min, data().inner.unfold], [[300, 200], [res], [res]]);
-  ok({ panels: { [res]: { h: null, size: null, min: false, unfold: false } } });
+  ok({ moves: { [res]: { x: 2, y: 3, w: 6, h: 4, size: [300, 200] } } });
+  assert.deepEqual([data().inner.tpos[res], data().inner.sizes[res]], [{ x: 2, y: 3, w: 6, h: 4 }, [300, 200]]);
+  ok({ moves: { [res]: { h: null, size: null } } });
   assert.deepEqual(data().inner.tpos[res], { x: 2, y: 3, w: 6 });
-  ok({ panels: { [res]: { position: null } } });
+  ok({ moves: { [res]: { position: null } } });
   assert.equal(data().inner.tpos[res], undefined);
-  assert.equal(legend(b).panels.find((p) => p.id === res).title.includes("a"), true);
+  assert.equal(legend(b).inner.find((p) => p.id === res).title.includes("a"), true);
   // ます目の細かさ・並びを戻す
-  ok({ panels: { [res]: { x: 3, y: 5, w: 4 } } });
+  ok({ moves: { [res]: { x: 3, y: 5, w: 4 } } });
   ok({ density: 48 });
   assert.equal(data().density, 48);
   assert.deepEqual(data().pos.tools, { x: 1, y: 1, w: 8, h: 8 });
@@ -142,39 +145,39 @@ test("board_layout：人が画面でできる操作を全部できる（固定�
   assert.equal(changeLayout(s, "manager", { nothing: 1 }, "r").code, "invalid");
 });
 
-test("board_layout：固定したタイルの中とピン留めの中は動かず、固定があるとます目は変えられない。固定そのものは変えられない", () => {
+test("board_layout：ピン留めしたものとその中は動かず、ピン留めがあるとます目は変えられない。並びのピン留めそのものは変えられない", () => {
   const b = new Board();
-  const topic = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
-  const res = ai(b, "add", { view: "list", about: topic, data: ["a"] }, "アリス").op.panel.id;
+  const say = human(b, "add", { view: "say", data: "発言" }).op.panel.id;
+  const res = ai(b, "add", { view: "list", about: say, data: ["a"] }, "manager").op.panel.id;
   const free = human(b, "add", { view: "topic", data: { title: "別" } }).op.panel.id;
-  const g = `g:b/${topic}`;
-  const id = laid(b, { density: 24, pos: { tools: { x: 1, y: 1, w: 4, h: 4 }, [g]: { x: 5, y: 1, w: 8, h: 8 }, [`g:b/${free}`]: { x: 13, y: 1, w: 8, h: 8 } }, locked: [g], inner: { tpos: { [res]: { x: 1, y: 1, w: 4 } }, sizes: {}, min: [], unfold: [] } });
+  // 発言から出たまとまりは、並びの pinned でピン留めする
+  const id = laid(b, { v: 2, density: 24, pos: { tools: { x: 1, y: 1, w: 4, h: 4 }, [say]: { x: 5, y: 1, w: 8, h: 8 }, [free]: { x: 13, y: 1, w: 8, h: 8 } }, pinned: [say], inner: { tpos: { [res]: { x: 1, y: 1, w: 4 } }, sizes: {} } });
   const s = storeOf(b);
-  for (const change of [{ panels: { [res]: { x: 3 } } }, { panels: { [topic]: { min: true } } }, { min: { [g]: true } }, { hidden: { [g]: true } }, { zoom: { [g]: 2 } }, { tiles: { add: [res] } }, { density: 12 }]) {
+  for (const change of [{ moves: { [res]: { x: 3 } } }, { fold: { [res]: true } }, { fold: { [say]: true } }, { zoom: { [say]: 2 } }, { out: { [res]: true } }, { density: 12 }]) {
     const r = changeLayout(s, "manager", change, "r");
     assert.equal(r.ok, false, JSON.stringify(change));
   }
   const cur = b.get(id).data;
   // MCP を通らずに panel_edit で書いても、ボードが同じように断る
-  for (const data of [{ ...cur, inner: { ...cur.inner, tpos: { [res]: { x: 9, y: 1, w: 4 } } } }, { ...cur, min: [g] }, { ...cur, hidden: [g] }, { ...cur, zoom: { [g]: 2 } }, { ...cur, inner: { ...cur.inner, min: [res] } }]) {
+  for (const data of [{ ...cur, inner: { ...cur.inner, tpos: { [res]: { x: 9, y: 1, w: 4 } } } }, { ...cur, fold: { [say]: true } }, { ...cur, zoom: { [say]: 2 } }, { ...cur, fold: { [res]: true } }, { ...cur, out: [res] }]) {
     assert.equal(ai(b, "edit", { id, data }).code, "pinned");
   }
-  assert.equal(ai(b, "edit", { id, data: { ...cur, locked: [] } }).code, "forbidden");
-  // 並びを戻しても固定は残る
+  assert.equal(ai(b, "edit", { id, data: { ...cur, pinned: [] } }).code, "forbidden");
+  // 並びを戻してもピン留めは残る
   const r = changeLayout(s, "manager", { reset: true }, "r");
   assert.ok(r.ok);
-  assert.ok(b.get(id).data.pos[g] && !b.get(id).data.pos.tools);
-  assert.deepEqual(b.get(id).data.locked, [g]);
-  assert.equal(legend(b).panels.find((p) => p.id === res).fixed, true);
-  // 人が固定を外せば動かせる
-  human(b, "edit", { id, data: { ...b.get(id).data, locked: [] } });
-  assert.ok(changeLayout(s, "manager", { panels: { [res]: { x: 3 } } }, "r").ok);
+  assert.ok(b.get(id).data.pos[say] && !b.get(id).data.pos.tools);
+  assert.deepEqual(b.get(id).data.pinned, [say]);
+  assert.equal(legend(b).inner.find((p) => p.id === res).pinned, true);
+  // 人が外せば動かせる
+  human(b, "edit", { id, data: { ...b.get(id).data, pinned: [] } });
+  assert.ok(changeLayout(s, "manager", { moves: { [res]: { x: 3 } } }, "r").ok);
 });
 
-test("board_view：置き場所がなければそう言い、あれば読める PNG と対応表を返す。board_read に置き場所は混ざらない", async () => {
+test("board_view：並びがなければそう言い、あれば読める PNG と対応表を返す。board_read に並びのパネルは混ざらない", async () => {
   const b = new Board(), s = storeOf(b);
   assert.equal((await tools(s, "manager", "board_view", {})).result.isError, true);
-  laid(b, { density: 24, pos: POS, locked: ["talk"], metric: { sx: 40, sy: 26, rows: 20 } });
+  laid(b, { v: 2, density: 24, pos: POS, pinned: ["talk"], metric: { sx: 40, sy: 26, rows: 20 } });
   const { content } = (await tools(s, "manager", "board_view", {})).result;
   assert.equal(content[0].mimeType, "image/png");
   const png = Buffer.from(content[0].data, "base64");
@@ -182,7 +185,7 @@ test("board_view：置き場所がなければそう言い、あれば読める 
   const w = png.readUInt32BE(16), h = png.readUInt32BE(20);
   const idat = png.subarray(png.indexOf("IDAT") + 4, png.indexOf("IDAT") + 4 + png.readUInt32BE(png.indexOf("IDAT") - 4));
   assert.equal(zlib.inflateSync(idat).length, (w * 3 + 1) * h);
-  assert.equal(JSON.parse(content[1].text).tiles.length, 2);
+  assert.equal(JSON.parse(content[1].text).top.length, 2);
   assert.ok(boardPng(legend(b), { maxW: 100, maxH: 100 }).readUInt32BE(16) <= 100, "大きすぎれば縮める");
   const real = (await tools(s, "manager", "board_view", { real: true }, { shoot: async (x, size) => Buffer.from(`${x}:${size.width}`) })).result.content;
   assert.equal(Buffer.from(real[2].data, "base64").toString(), "board:1400");
