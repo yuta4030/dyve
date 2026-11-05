@@ -94,6 +94,32 @@ a { color: var(--accent); }
 #map .bar #zoomNow { margin-right: auto; min-width: 3.4em; font-variant-numeric: tabular-nums; }
 #map .bar button { min-height: 22px; padding: 0 6px; font-size: 11px; }
 
+/* 浮かせる：トーク・状況・残量・dyve 設定はボードの外の層に小さく出す。ボードの拡大縮小は掛からない。追従は層ごと少し遅れて付いてくる */
+#floats { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
+#floats > .tile { position: absolute; pointer-events: auto; font-size: 13px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px);
+                  background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: 0 6px 24px rgb(0 0 0 / .4); }
+#floats > .tile.folded { height: auto !important; }
+#floats > .tile.dragging { opacity: .8; }
+#floats .tile-head { min-height: 22px; padding-top: 0; }
+#floats .tile-body { padding: 2px 8px 6px; }
+#floats .tile[data-tile="talk"] .tile-body { padding: 0; }
+#floats #timeline { padding: 2px 6px; gap: 4px; }
+#floats #input { padding: 4px 6px 6px; }
+#floats #status { gap: 4px; }
+#floats .ava { width: auto; gap: 0; font-size: 0; }
+#floats .ava .ini { width: 24px; height: 24px; font-size: 11px; }
+#floats #doing { margin-top: 2px; max-height: 3.4em; overflow: hidden; font-size: 11px; line-height: 1.5; }
+#floats .meter { margin-bottom: 4px; font-size: 11px; }
+#floats .meter:last-child { margin-bottom: 0; }
+#floats .meter .when { display: none; }
+#floats .meter .bar { height: 5px; }
+#floats #tools .acts { gap: 2px; }
+#floats #tools .ib { width: 26px; height: 26px; }
+#floatMode { display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--mute); }
+#floatMode span { margin-right: auto; }
+#floatMode button { min-height: 22px; padding: 0 6px; font-size: 11px; }
+.opts.up { top: auto; bottom: calc(100% + 2px); }
+
 /* トーク：発言の流れと入力 */
 .tile[data-tile="talk"] .tile-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 #timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px; display: flex; flex-direction: column; gap: 6px; }
@@ -175,7 +201,7 @@ dv-topic p { margin: 2px 0 0; color: var(--mute); }
 #infoPop .warn { color: var(--warn, #b45309); }
 /* パネルの絵を撮るとき：その一枚だけ */
 body.shot { display: block; height: auto; overflow: auto; padding: 12px; }
-body.shot #stage, body.shot #map { display: none; }
+body.shot #stage, body.shot #map, body.shot #floats { display: none; }
 
 #toolsMore { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
 #toolsMore svg, .opts [data-ctl="lock"] svg { vertical-align: -2px; }
@@ -295,6 +321,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
           <button class="ib" id="restart"></button>
           <button class="ib" id="info"></button>
         </div>
+        <div id="floatMode" role="group"></div>
         <div id="toolsMore">
           <div class="row"><span id="densityLabel"></span><select id="density"></select></div>
           <div class="row"><button id="resetLayout"></button></div>
@@ -303,6 +330,7 @@ dv-panel.waiting { border: 3px double var(--warn); }
     </div>
   </section>
 </div></main>
+<div id="floats"></div>
 <div id="infoPop" popover></div>
 <nav id="map"><div class="world"></div><div class="bar"><button class="icon" id="zoomNow"></button><button class="icon" id="zoomOut"></button><button class="icon" id="zoomIn"></button><button class="icon" id="zoomAll"></button></div><div class="bar"><button class="icon" id="toTools"></button></div></nav>
 <script type="module">
@@ -353,6 +381,9 @@ const L = {
   shootOn: (b) => `撮れる（${b}）`, shootOff: "ブラウザがないので撮れない",
   wordsNone: "まだありません", wordHeard: "聞こえた形", wordWrite: "書き方", wordWhen: "条件（なくてよい）", wordAdd: "足す", wordDrop: "消す", wordBy: (w) => `${w} が追加`,
   boardZoom: { now: "ボードの倍率（押すと 100% に戻す）。Ctrl＋ホイールかピンチで変えられる", out: "ボードを縮める", in: "ボードを広げる", all: "全体", allTitle: "全体が入る大きさにする" },
+  float: "浮かせ方", floatModes: { front: "前面", follow: "追従", off: "並べる" },
+  floatTitle: { front: "画面の同じ場所に留めて、ボードの上に重ねる", follow: "ボードと一緒に流れて、止まると元の場所へ戻ってくる", off: "浮かせず、ボードのます目に並べる" },
+  floatHome: "元の場所に戻す",
   map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のパネルへ行く",
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
   every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
@@ -362,6 +393,16 @@ const L = {
 const STREAM_PAUSE = 2500;
 // 組み込みのパネル（ボードの操作ログには持たず、画面が描く）。並びの key はこの名前か、パネルの id
 const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
+// 浮かせる組み込みのパネル（いまの要点はボードに残す）。どれも同じ扱い
+const FLOATS = ["talk", "status", "quota", "tools"];
+const FLOAT_MODES = ["follow", "front", "off"]; // 先頭が既定
+// 置き場所はピクセルで、近い端からの距離で持つ（窓の大きさが変わっても端に付いたまま）。h がなければ中身の高さ。stack は右上から順に積む
+const FLOAT_HOME = {
+  talk: { left: 14, bottom: 14, w: 300, h: 260 }, status: { right: 14, stack: true, w: 224 },
+  quota: { right: 14, stack: true, w: 224 }, tools: { right: 14, stack: true, w: 224 },
+};
+const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
+const FOLLOW_LAG = { max: 240, tau: 180 }; // 追従：遅れの上限（ピクセル）と戻る速さ（ミリ秒）
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
   talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
@@ -925,7 +966,7 @@ function renderLive() {
   };
   const meters = q ? Object.keys(L.quota).filter((k) => q[k]).map((k) => {
     const left = Math.max(0, Math.round(100 - q[k].utilization * 100));
-    return `<div class="meter${left < 20 ? " low" : ""}"><div class="row"><span>${esc(L.quota[k])}　${esc(L.quotaLeft(left))}</span>` +
+    return `<div class="meter${left < 20 ? " low" : ""}"${q[k].resetsAt ? ` title="${esc(L.quotaReset(when(q[k].resetsAt)))}"` : ""}><div class="row"><span>${esc(L.quota[k])}　${esc(L.quotaLeft(left))}</span>` +
       `${q[k].resetsAt ? `<span class="when">${esc(L.quotaReset(when(q[k].resetsAt)))}</span>` : ""}</div>` +
       `<div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${left}" aria-label="${esc(L.quota[k])}"><span style="width:${left}%"></span></div></div>`;
   }).join("") : "";
@@ -946,7 +987,7 @@ const groupOf = (id) => tileOf(id);
 // ── 並び：画面に並ぶパネルは見出しをつまんで好きな場所へ、右下の角で大きさ、見出しの右で文字の大きさ・畳む・ピン留め ──
 // 置き場所はます目で持つ。重なったら、動かしたものを優先して重なった方を下へずらす。ピン留めしたものは動かない
 // DOM の .tile は、画面に並ぶパネルの枠（組み込みのパネル・話題などのまとまり・取り出したパネル）
-const grid = $("#grid"), stage = $("#stage");
+const grid = $("#grid"), stage = $("#stage"), floats = $("#floats");
 const LAYOUT = keep("layout3", null) || {};
 const tileOf = (k) => $(`.tile[data-tile="${CSS.escape(k)}"]`);
 // 置き場所：覚えたもの（baseOf）。畳んだものは見出しの高さだけを占める（posOf）。覚えるのはいつも元の大きさ
@@ -979,6 +1020,11 @@ const posOf = (k) => (isFolded(k) ? { ...baseOf(k), h: minRows() } : baseOf(k));
 const keepSize = (k, p) => (isFolded(k) ? { ...p, h: baseOf(k).h } : p);
 // 画面に並ぶパネル：組み込みのものと、取り出したものと、話題などのまとまり
 const allTiles = () => [...BUILTIN, ...(LAYOUT.out || []), ...(S.groupTiles || [])];
+// 浮かせるもの。幅の狭い画面は一列に並ぶので浮かせない
+const floatMode = () => (FLOAT_MODES.includes(LAYOUT.float?.mode) ? LAYOUT.float.mode : FLOAT_MODES[0]);
+const isFloat = (k) => FLOATS.includes(k) && floatMode() !== "off" && !narrow();
+// ボードのます目に並ぶもの
+const gridTiles = () => allTiles().filter((k) => !isFloat(k));
 const isOut = (k) => (LAYOUT.out || []).includes(k);
 const isGroupTile = (k) => !BUILTIN.includes(k) && !isOut(k);
 // ── 自動の並び：置き場所を決めていない枠（人も AI も動かしていないもの）は、並べるたびに画面が置き直す ──
@@ -1066,7 +1112,12 @@ function autoLayout(pos) {
   return pos;
 }
 const dens = () => (DENSITY[LAYOUT.density] ? LAYOUT.density : 24);
-const zoomOf = (k) => LAYOUT.zoom?.[k] || 1;
+// 中身の拡大率。浮かせたときの分は別に持つ（ボードで小さくしていても、浮かせると読める大きさに戻る）
+const zoomOf = (k) => (isFloat(k) ? LAYOUT.float?.zoom?.[k] : LAYOUT.zoom?.[k]) || 1;
+function setZoom(k, z) {
+  if (isFloat(k)) LAYOUT.float = { ...LAYOUT.float, zoom: { ...LAYOUT.float?.zoom, [k]: z } };
+  else LAYOUT.zoom = { ...LAYOUT.zoom, [k]: z };
+}
 // 置き場所はボードの view layout のパネルに持つ（エージェントも見て動かす）。ブラウザの分は、新しいボードの下敷きにだけ使う
 const SHOT = new URLSearchParams(location.search).get("shot");
 const LAYOUT_SYNC = { id: null, sent: null, timer: null };
@@ -1076,7 +1127,7 @@ const layoutData = () => {
   const only = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => here(k)));
   // 置き場所は決めたものだけ持つ（組み込みのパネルはいつも）。自動のものは人のいま（/api/focus）で知らせる
   return { v: 3, pos: Object.fromEntries(allTiles().filter((k) => !isAuto(k)).map((k) => [k, baseOf(k)])), zoom: only(LAYOUT.zoom), fold: only(LAYOUT.fold), out: (LAYOUT.out || []).filter(here), pinned: (LAYOUT.pinned || []).filter(here),
-    inner: { tpos: only(TPOS), sizes: only(SIZES) }, density: dens(),
+    inner: { tpos: only(TPOS), sizes: only(SIZES) }, density: dens(), ...(LAYOUT.float ? { float: LAYOUT.float } : {}),
     metric: { sx: Math.round(m.sx), sy: Math.round(m.sy), rows: Math.floor(stage.clientHeight / m.sy) } };
 };
 // 比べるときは窓の大きさ（metric）と並び順を外す。窓の違うブラウザどうしで書き合わないように
@@ -1160,7 +1211,7 @@ function metrics() {
 // 広さを決める。drag のあいだは左と上を動かさず（動かすと指の下がずれる）、右と下は広げるだけ
 function frame(pos, during = false) {
   const m = metrics();
-  const shown = allTiles().map((k) => pos[k]);
+  const shown = gridTiles().map((k) => pos[k]);
   const vr = Math.max(4, Math.floor(stage.clientHeight / m.sy)), z = zoomNow();
   // 余白はいつも画面一枚ぶん以上（縮めても、どこでも指の下に持ってこられる）
   const mx = Math.ceil(dens() / z), my = Math.ceil(vr / z);
@@ -1181,10 +1232,13 @@ function place(pos, during = false, snap = null) {
   const { m, ox, oy, z } = frame(pos, during);
   Object.assign(CANVAS, { ox, oy, sx: m.sx, sy: m.sy, z });
   if (!during) CANVAS.pos = pos;
-  for (const k of allTiles()) {
+  for (const k of gridTiles()) {
     const p = pos[k], t = tileOf(k);
     Object.assign(t.style, { gridColumn: `${p.x - ox + 1} / span ${p.w}`, gridRow: `${p.y - oy + 1} / span ${p.h}`, order: String((p.y - oy) * 10000 + (p.x - ox)) });
     t.style.setProperty("--h", String(p.h));
+  }
+  for (const k of allTiles()) {
+    const t = tileOf(k);
     $(".tile-body", t).style.zoom = String(zoomOf(k));
     const pin = isPinned(k), fold = isFolded(k);
     t.classList.toggle("locked", pin);
@@ -1201,9 +1255,10 @@ function place(pos, during = false, snap = null) {
     lk.innerHTML = `${ICON.pin} ${esc(pin ? L.pinOff : L.pinOn)}`;
     for (const b of $$('[data-ctl="smaller"], [data-ctl="larger"], .zoom', t)) b.disabled = pin;
     const ab = $('[data-ctl="auto"]', t);
-    ab.textContent = L.autoPos;
-    ab.parentElement.hidden = isAuto(k) || BUILTIN.includes(k) || pin;
+    ab.textContent = isFloat(k) ? L.floatHome : L.autoPos;
+    ab.parentElement.hidden = pin || (isFloat(k) ? !LAYOUT.float?.pos?.[k] : isAuto(k) || BUILTIN.includes(k));
   }
+  placeFloats();
   if (!during && !narrow()) {
     stage.scrollLeft = Math.round((view.x - ox) * m.sx * z);
     stage.scrollTop = Math.round((view.y - oy) * m.sy * z);
@@ -1252,9 +1307,10 @@ function applyLayout(appear = null) {
   // 取り出したパネルの枠を作る・消す
   for (const k of LAYOUT.out || []) if (!tileOf(k)) setupTile(k);
   for (const t of $$(".tile[data-out]", grid)) if (!isOut(t.dataset.tile)) t.remove();
+  syncFloats();
   const live = !narrow() && CANVAS.homed;
   const snap = live ? { anchor: anchorOf(), before: REDUCE ? null : rectsOf() } : null;
-  const pos = Object.fromEntries(allTiles().filter((k) => !isAuto(k)).map((k) => [k, posOf(k)]));
+  const pos = Object.fromEntries(gridTiles().filter((k) => !isAuto(k)).map((k) => [k, posOf(k)]));
   // いまの要点は、中身があふれるときだけ下へ伸ばす（半画面まで。覚えた大きさは変えない）
   const st = tileOf("summary");
   if (st && !narrow() && !isFolded("summary")) {
@@ -1345,13 +1401,132 @@ function dragCells(e, { handle, k, start, at, step, arrange, place, onStart, onE
   handle.addEventListener("pointerup", up);
   handle.addEventListener("pointercancel", up);
 }
+// ── 浮かせる：置き場所はピクセルで持ち、画面の外へは出さない ──
+// 置き場所の決まり（近い端からの距離 → スタイル）。窓が狭くなっても画面の中に収める
+function floatStyle(p, W, H, height) {
+  const px = (v) => `${Math.round(v)}px`, m = FLOAT_MIN.margin;
+  const w = Math.min(p.w, W - m * 2), h = Math.min(p.h ?? height, H - m * 2);
+  const room = (v, size, all) => Math.min(Math.max(v, m), Math.max(m, all - size - m));
+  return {
+    left: p.left != null ? px(room(p.left, w, W)) : "auto", right: p.left != null ? "auto" : px(room(p.right, w, W)),
+    top: p.top != null ? px(room(p.top, h, H)) : "auto", bottom: p.top != null ? "auto" : px(room(p.bottom, h, H)),
+    width: px(w), height: p.h != null ? px(h) : "auto",
+  };
+}
+// つまんで離したところ（見えている四角）から、近い端で置き場所を決める
+function floatAnchor(r, W, H, keepH) {
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2, n = Math.round;
+  return { ...(cx < W / 2 ? { left: n(r.left) } : { right: n(W - r.right) }), ...(cy < H / 2 ? { top: n(r.top) } : { bottom: n(H - r.bottom) }),
+    w: n(r.width), ...(keepH ? { h: n(r.height) } : {}) };
+}
+// 追従の遅れがどれだけ縮むか。小さくなったら 0
+function followStep(v, dt, tau) {
+  const n = v * Math.exp(-dt / tau);
+  return Math.abs(n) < 0.5 ? 0 : n;
+}
+// 枠を今の浮かせ方の場所へ移す（ます目と層のあいだを動かすだけ。発言の途中の文字や入力欄のフォーカスは残す）
+const FLOAT_STYLE = ["left", "right", "top", "bottom", "width", "height"];
+function syncFloats() {
+  const tl = $("#timeline"), keepTop = tl.scrollTop, active = document.activeElement;
+  let moved = false;
+  for (const k of FLOATS) {
+    const t = tileOf(k), on = isFloat(k), want = on ? floats : grid;
+    if (t.parentElement === want) continue;
+    want.append(t);
+    moved = true;
+    if (!on) for (const f of FLOAT_STYLE) t.style[f] = "";
+  }
+  if (moved) {
+    tl.scrollTop = keepTop;
+    if (active?.isConnected && active !== document.activeElement) active.focus({ preventScroll: true });
+  }
+  if (floatMode() !== "follow") setFollow(0, 0);
+  for (const b of $$("button", $("#floatMode"))) b.setAttribute("aria-pressed", String(b.dataset.float === floatMode()));
+  $("#toTools").hidden = isFloat("tools");
+}
+function placeFloats() {
+  const W = innerWidth, H = innerHeight;
+  let y = 14;
+  for (const k of FLOATS) {
+    if (!isFloat(k)) continue;
+    const t = tileOf(k), own = LAYOUT.float?.pos?.[k], home = FLOAT_HOME[k];
+    if (t.classList.contains("dragging")) continue;
+    Object.assign(t.style, floatStyle(own || (home.stack ? { ...home, top: y } : home), W, H, t.offsetHeight));
+    if (!own && home.stack) y += t.offsetHeight + FLOAT_MIN.margin;
+  }
+}
+// 中身の高さが変わったら、右上に積んだものを詰め直す
+const FLOAT_RO = new ResizeObserver(() => placeFloats());
+// つまんで動かす・右下の角で大きさを変える。人が動かしている最中は .editing で並べ直しを待たせる
+function dragFloat(e, k, handle, resize) {
+  e.preventDefault();
+  handle.setPointerCapture(e.pointerId);
+  const t = tileOf(k), r0 = t.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY, W = innerWidth, H = innerHeight, m = FLOAT_MIN.margin;
+  let moved = false;
+  const move = (ev) => {
+    const dx = ev.clientX - x0, dy = ev.clientY - y0;
+    if (!moved) {
+      if (Math.hypot(dx, dy) < 4) return;
+      moved = true;
+      t.classList.add("dragging", "editing");
+    }
+    if (resize) {
+      Object.assign(t.style, { width: `${clamp(r0.width + dx, FLOAT_MIN.w, W - r0.left - m)}px`, height: `${clamp(r0.height + dy, FLOAT_MIN.h, H - r0.top - m)}px` });
+      if (t.style.right !== "auto") Object.assign(t.style, { left: `${r0.left}px`, right: "auto" });
+      if (t.style.bottom !== "auto") Object.assign(t.style, { top: `${r0.top}px`, bottom: "auto" });
+    } else {
+      Object.assign(t.style, { left: `${clamp(r0.left + dx, m, W - r0.width - m)}px`, top: `${clamp(r0.top + dy, m, H - r0.height - m)}px`, right: "auto", bottom: "auto" });
+    }
+  };
+  const up = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", up);
+    handle.removeEventListener("pointercancel", up);
+    if (!moved) return;
+    t.classList.remove("dragging", "editing");
+    const own = LAYOUT.float?.pos?.[k] || FLOAT_HOME[k];
+    LAYOUT.float = { ...LAYOUT.float, pos: { ...LAYOUT.float?.pos, [k]: floatAnchor(t.getBoundingClientRect(), W, H, resize || own.h != null) } };
+    saveLayout();
+    applyLayout();
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", up);
+  handle.addEventListener("pointercancel", up);
+}
+function setFloatMode(mode) {
+  LAYOUT.float = { ...LAYOUT.float, mode };
+  saveLayout();
+  applyLayout();
+  render();
+}
+// 追従：ボードと一緒に流れ、止まると元の場所へ戻る。見ている場所はキャンバスの上で測る（広さが変わってスクロール量だけ変わったときは動かない）
+const FOLLOW = { x: 0, y: 0, ax: null, ay: null, sx: 0, raf: 0, last: 0 };
+function setFollow(x, y) {
+  FOLLOW.x = x; FOLLOW.y = y;
+  floats.style.transform = x || y ? `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)` : "";
+}
+function followFrame(now) {
+  const dt = now - FOLLOW.last;
+  FOLLOW.last = now;
+  setFollow(followStep(FOLLOW.x, dt, FOLLOW_LAG.tau), followStep(FOLLOW.y, dt, FOLLOW_LAG.tau));
+  FOLLOW.raf = FOLLOW.x || FOLLOW.y ? requestAnimationFrame(followFrame) : 0;
+}
+stage.addEventListener("scroll", () => {
+  const sx = CANVAS.sx * CANVAS.z, ax = stage.scrollLeft + CANVAS.ox * sx, ay = stage.scrollTop + CANVAS.oy * CANVAS.sy * CANVAS.z;
+  const same = FOLLOW.sx === sx && FOLLOW.ax != null, dx = ax - FOLLOW.ax, dy = ay - FOLLOW.ay;
+  Object.assign(FOLLOW, { ax, ay, sx });
+  if (!same || floatMode() !== "follow" || REDUCE || narrow() || Math.abs(dx) + Math.abs(dy) < 3) return;
+  setFollow(clamp(FOLLOW.x - dx, -FOLLOW_LAG.max, FOLLOW_LAG.max), clamp(FOLLOW.y - dy, -FOLLOW_LAG.max, FOLLOW_LAG.max));
+  if (!FOLLOW.raf) { FOLLOW.last = performance.now(); FOLLOW.raf = requestAnimationFrame(followFrame); }
+}, { passive: true });
+
 function drag(e, k, handle, step) {
   const c = cells();
   if (c.cols === 1) return;
   dragCells(e, {
     handle, k, step, at: c.at, scroller: stage,
     place: (pos) => place(pos, true),
-    start: Object.fromEntries(allTiles().map((x) => [x, posOf(x)])),
+    start: Object.fromEntries(gridTiles().map((x) => [x, posOf(x)])),
     arrange: (pos, m) => settle(pos, m),
     onStart: () => { grid.classList.add("editing"); tileOf(k).classList.add("dragging"); },
     onEnd: (last, moved) => {
@@ -1360,7 +1535,8 @@ function drag(e, k, handle, step) {
       if (!moved) return;
       dragged = true;
       // 動かしたもの（と、押しのけられた決めてあるもの）だけ覚える。自動のものはまた詰め直す
-      LAYOUT.pos = Object.fromEntries(allTiles().filter((x) => x === k || !isAuto(x)).map((x) => [x, keepSize(x, last[x])]));
+      // 浮かせているものの、ます目の置き場所はそのまま（並べるに戻したときのため）
+      LAYOUT.pos = Object.fromEntries(allTiles().filter((x) => x === k || !isAuto(x)).map((x) => [x, isFloat(x) ? baseOf(x) : keepSize(x, last[x])]));
       saveLayout();
       applyLayout();
     },
@@ -1407,10 +1583,12 @@ function setupTile(k) {
 
   head.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.target.closest(".ctl") || isPinned(k)) return;
+    if (isFloat(k)) return dragFloat(e, k, head, false);
     drag(e, k, head, (p, dx, dy) => ({ ...p, x: Math.max(CANVAS.ox, p.x + dx), y: Math.max(CANVAS.oy, p.y + dy) }));
   });
   sizer.addEventListener("pointerdown", (e) => {
     if (isPinned(k)) return;
+    if (isFloat(k)) return dragFloat(e, k, sizer, true);
     drag(e, k, sizer, (p, dx, dy) => ({ ...p, w: clamp(p.w + dx, 2, 400), h: clamp(p.h + dy, 2, 400) }));
   });
   const onCtl = (e) => {
@@ -1420,11 +1598,20 @@ function setupTile(k) {
       const open = menu.hidden;
       closeMenus();
       menu.hidden = !open;
+      // 画面の下に付いた枠では上へ開く
+      menu.classList.remove("up");
+      if (open && menu.getBoundingClientRect().bottom > innerHeight) menu.classList.add("up");
       e.target.closest("button").setAttribute("aria-expanded", String(open));
       return;
     }
     if (c === "fold") return setFold(k, !isFolded(k));
-    if (c === "auto") { closeMenus(); delete LAYOUT.pos?.[k]; saveLayout(); return applyLayout(); }
+    if (c === "auto") {
+      closeMenus();
+      if (isFloat(k)) { const { [k]: _, ...rest } = LAYOUT.float?.pos || {}; LAYOUT.float = { ...LAYOUT.float, pos: rest }; }
+      else delete LAYOUT.pos?.[k];
+      saveLayout();
+      return applyLayout();
+    }
     if (c === "back") {
       // 取り出したパネルを話題に戻す（パネルは話題の中に残っている）
       LAYOUT.out = (LAYOUT.out || []).filter((x) => x !== k);
@@ -1443,7 +1630,7 @@ function setupTile(k) {
       LAYOUT.pinned = [...set];
     } else {
       const z = clamp(Math.round((zoomOf(k) + (c === "larger" ? 1 : -1) * ZOOM.step) * 10) / 10, ZOOM.min, ZOOM.max);
-      LAYOUT.zoom = { ...LAYOUT.zoom, [k]: z };
+      setZoom(k, z);
     }
     saveLayout();
     applyLayout();
@@ -1454,12 +1641,15 @@ function setupTile(k) {
   menu.querySelector(".zoom").addEventListener("change", (e) => {
     const v = Number(e.target.value);
     if (!Number.isFinite(v) || v <= 0) return applyLayout();
-    LAYOUT.zoom = { ...LAYOUT.zoom, [k]: clamp(v / 100, ZOOM.min, ZOOM.max) };
+    setZoom(k, clamp(v / 100, ZOOM.min, ZOOM.max));
     saveLayout();
     applyLayout();
   });
 }
 for (const k of BUILTIN) setupTile(k);
+for (const k of FLOATS) FLOAT_RO.observe(tileOf(k));
+$("#floatMode").innerHTML = `<span>${esc(L.float)}</span>` + FLOAT_MODES.map((m) => `<button data-float="${m}" title="${esc(L.floatTitle[m])}">${esc(L.floatModes[m])}</button>`).join("");
+$("#floatMode").addEventListener("click", (e) => { const m = e.target.closest("button")?.dataset.float; if (m) setFloatMode(m); });
 // 取り出す：話題の中のパネルを、ます目の下の方に一枚で並べる
 function takeOut(id) {
   const k = id;
@@ -1491,7 +1681,7 @@ function drawMap() {
   mapRaf = 0;
   if (narrow()) return;
   const W = world.clientWidth, H = world.clientHeight;
-  const rects = allTiles().map((k) => [k, tileOf(k)]).filter(([, t]) => t)
+  const rects = gridTiles().map((k) => [k, tileOf(k)]).filter(([, t]) => t)
     .map(([k, t]) => ({ k, t, x: t.offsetLeft, y: t.offsetTop, w: t.offsetWidth, h: t.offsetHeight }));
   const z = zoomNow(), v = { x: stage.scrollLeft / z, y: stage.scrollTop / z, w: stage.clientWidth / z, h: stage.clientHeight / z };
   const all = [...rects, v];
@@ -1706,7 +1896,7 @@ async function load() {
   // 並びのないボード（新しいボード）は、ブラウザに覚えた組み込みのパネルの並びだけを下敷きにする（id はボードごとに振られるため）
   if (!b.layout) {
     const own = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => BUILTIN.includes(k)));
-    const base = { pos: own(LAYOUT.pos), zoom: own(LAYOUT.zoom), fold: own(LAYOUT.fold), pinned: (LAYOUT.pinned || []).filter((k) => BUILTIN.includes(k)), density: LAYOUT.density };
+    const base = { pos: own(LAYOUT.pos), zoom: own(LAYOUT.zoom), fold: own(LAYOUT.fold), pinned: (LAYOUT.pinned || []).filter((k) => BUILTIN.includes(k)), density: LAYOUT.density, ...(LAYOUT.float ? { float: LAYOUT.float } : {}) };
     for (const k of Object.keys(LAYOUT)) delete LAYOUT[k];
     Object.assign(LAYOUT, base, { out: [] });
     for (const o of [TPOS, SIZES]) for (const k of Object.keys(o)) delete o[k];
@@ -1745,7 +1935,7 @@ async function op(type, panel) {
 }
 
 // ── 操作 ──
-grid.addEventListener("click", async (e) => {
+const onClick = async (e) => {
   const ta = e.target.closest("[data-to]");
   if (ta) {
     setTo(S.to === ta.dataset.to ? null : ta.dataset.to);
@@ -1798,7 +1988,9 @@ grid.addEventListener("click", async (e) => {
   }
   // 見たら知らせの印を消す（パネルを触ったとき）
   if (markOf(p) === "notice") { S.seen[p.id] = p.aiSeq; saveSeen(); render(); }
-});
+};
+grid.addEventListener("click", onClick);
+floats.addEventListener("click", onClick);
 // ボード：新しいボード（前のボードの操作ログは残る）。切り替えなどはボードの管理のページで
 async function loadBoards() {
   const r = await fetch("/api/boards");
