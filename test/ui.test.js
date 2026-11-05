@@ -66,3 +66,23 @@ test("管理のページも外のものを読まない", () => {
   // 利用者の view はボードと同じ囲いで描く
   for (const m of manage.matchAll(/<iframe[^>]*>/g)) assert.match(m[0], /sandbox="allow-scripts"/);
 });
+
+test("比べる・順番の組（rel）は一行にまとめ、組でないものは一枚ずつ。並びは置いた順", () => {
+  const code = html.match(/^function relRows\([\s\S]*?^}$/m)[0];
+  const relRows = new Function(`${code}; return relRows;`)();
+  const a = { id: "a" }, b = { id: "b", rel: { kind: "compare", with: ["a"] } }, c = { id: "c" };
+  const d = { id: "d", rel: { kind: "sequence", with: ["c"] } }, e = { id: "e", rel: { kind: "sequence", with: ["d"] } }, lone = { id: "f", rel: { kind: "compare", with: ["gone"] } };
+  assert.deepEqual(relRows([a, b, c, d, e, lone]).map((r) => r.map((p) => p.id)), [["a", "b"], ["c", "d", "e"], ["f"]]);
+});
+
+test("いまの話題：いちばん新しい人の発言から出たものが入っている枠を、新しい順に", () => {
+  const code = html.match(/^function talkingKeys\([\s\S]*?^}$/m)[0];
+  const S = { panels: [
+    { id: "s1", view: "say", by: "human" }, { id: "t1", view: "topic" }, { id: "k1", view: "task", about: "t1", data: { from: ["s1"] } },
+    { id: "s2", view: "say", by: "human" }, { id: "t2", view: "topic" }, { id: "k2", view: "task", about: "t2", data: { from: ["s2"] } }, { id: "r2", view: "text", about: "k2" },
+    { id: "s3", view: "say", by: "human" }, { id: "s4", view: "say", by: "human", into: "s3" },
+  ] };
+  const talkingKeys = new Function("S", "isPerson", `${code}; return talkingKeys;`)(S, (by) => by === "human");
+  assert.deepEqual(talkingKeys(["t1", "t2"]), ["t2", "t1"], "まだ何も付いていない発言は飛ばす");
+  assert.deepEqual(talkingKeys(["t1"]), ["t1"], "並んでいない枠は入れない");
+});

@@ -12,11 +12,25 @@ export const CODES = {
   conflict: "あいだに別の変更が入った",
   invalid: "操作の形が正しくない",
 };
-const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to", "into"];
+const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to", "into", "rel"];
 // into：清書係が一つの考えにまとめた発言の合流先。元の発言は消さず、印を外せば分け直せる
 // view layout：画面の並びを持つパネル。ボードに一枚だけで、並びのピン留め（pinned）は人だけが決める
 // to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
 const badTo = (to) => (to == null || (typeof to === "string" && to.trim() && to.length <= 40) ? null : "to は相手の名前");
+// rel：置く人が付ける、ほかのパネルとの関係。compare（比べる）・sequence（順番。並びは置いた順）。画面は組を横に並べる。
+// with は同じものについてのパネル（about が同じ）だけ
+export const RELS = ["compare", "sequence"];
+function badRel(rel, about, panels, self = null) {
+  if (rel == null) return null;
+  if (typeof rel !== "object" || Array.isArray(rel) || !RELS.includes(rel.kind)) return `rel は { kind: ${RELS.join("|")}, with: [id] }`;
+  if (!Array.isArray(rel.with) || !rel.with.length || rel.with.length > 8 || rel.with.some((x) => typeof x !== "string")) return "rel.with はパネルの id の配列（8 まで）";
+  for (const id of rel.with) {
+    const p = panels.get(id);
+    if (!p || id === self) return `rel.with のパネル ${id} がない`;
+    if ((p.about ?? null) !== (about ?? null)) return `rel.with のパネル ${id} は、同じものについてのパネルではない`;
+  }
+  return null;
+}
 
 // source：データを shell コマンドの結果から流し込む（{ shell, every? }。every は秒、なければ一度だけ）。
 // 走らせてよいかは人が決める：人が置いたか、人が置き直した（＝許可した）ときだけ走る。AI が変えたら許可は外れる
@@ -34,15 +48,21 @@ export function sourceApproved(board, id) {
 }
 
 // 並び（view layout のパネルの data）。画面に並ぶパネルの key は、組み込みのパネルの名前か、パネルの id
-// { v: 2, density, metric, pos: { key: {x,y,w,h} }, zoom: { key }, fold: { key: true|false }, out: [取り出したパネルの id], pinned: [ピン留めした key], inner: { tpos, sizes } }
+// { v: 3, density, metric, pos: { key: {x,y,w,h} }, zoom: { key }, fold: { key: true|false }, out: [取り出したパネルの id], pinned: [ピン留めした key], inner: { tpos, sizes } }
+// pos は置き場所を決めたもの（組み込みのパネルと、人か AI が動かしたもの）だけ。ほかは画面が並べるたびに、順番と中身から置き直す（自動の並び）
 // pinned に入るのは、ボードのパネルでピン留めできないもの（組み込みのパネルと、発言から出たまとまり）だけ。ほかはパネルの pinned を使う
 export const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
-export function layoutOf(data) {
+export function layoutOf(data, panels = null) {
   const d = data || {};
-  if (d.v === 2) return d;
-  // 古い形は読み替えない。組み込みのパネルの置き場所と拡大率、話題の中の置き場所だけ引き継ぐ
+  if (d.v === 3) return d;
+  // v 2 はまとまりの置き場所を全部覚えていた。組み込みのパネルとピン留めしたものだけ残し、ほかは自動の並びにする
+  if (d.v === 2) {
+    const keep = (k) => BUILTIN.includes(k) || (d.pinned || []).includes(k) || (panels && fixedPanel(panels, d, k));
+    return { ...d, v: 3, pos: Object.fromEntries(Object.entries(d.pos || {}).filter(([k]) => keep(k))) };
+  }
+  // もっと古い形は読み替えない。組み込みのパネルの置き場所と拡大率、話題の中の置き場所だけ引き継ぐ
   const own = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => BUILTIN.includes(k)));
-  return { v: 2, ...(d.density ? { density: d.density } : {}), ...(d.metric ? { metric: d.metric } : {}), pos: own(d.pos), zoom: own(d.zoom), fold: {}, out: [], pinned: [], inner: { tpos: d.inner?.tpos || {}, sizes: d.inner?.sizes || {} } };
+  return { v: 3, ...(d.density ? { density: d.density } : {}), ...(d.metric ? { metric: d.metric } : {}), pos: own(d.pos), zoom: own(d.zoom), fold: {}, out: [], pinned: [], inner: { tpos: d.inner?.tpos || {}, sizes: d.inner?.sizes || {} } };
 }
 // ピン留め：その key か、そのパネルか、たどった上のどれかがピン留めされていれば、AI は動かせない
 export function fixedPanel(panels, data, id) {
@@ -59,8 +79,8 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 // AI はピン留めされたものの見た目を変えられず、並びのピン留めそのものも変えられない（そのほかの見た目はいつでも変えてよい）
 function badLayoutEdit(cur, body, panels) {
   if (Object.keys(body).some((k) => k !== "id" && k !== "data")) return { code: "forbidden", message: "並びのパネルで変えられるのは data だけ" };
-  const old = layoutOf(cur.data), next = body.data || {};
-  if (next.v !== 2) return { code: "invalid", message: "並びの data は v: 2 の形" };
+  const old = layoutOf(cur.data, panels), next = body.data || {};
+  if (next.v !== 3) return { code: "invalid", message: "並びの data は v: 3 の形" };
   if (!same(next.pinned || [], old.pinned || [])) return { code: "forbidden", message: "ピン留めは人だけ" };
   const a = old.inner || {}, z = next.inner || {};
   const keys = new Set([old.pos, next.pos, old.zoom, next.zoom, old.fold, next.fold, a.tpos, z.tpos, a.sizes, z.sizes].flatMap((o) => Object.keys(o || {})).concat(old.out || [], next.out || []));
@@ -131,6 +151,11 @@ export class Board {
         if (badTo(panel.to)) return refuse("invalid", badTo(panel.to));
         body.to = panel.to;
       }
+      if (panel.rel != null) {
+        const bad = badRel(panel.rel, body.about, this.panels);
+        if (bad) return refuse(/がない/.test(bad) ? "not_found" : "invalid", bad);
+        body.rel = { kind: panel.rel.kind, with: [...panel.rel.with] };
+      }
     } else if (type === "edit" || type === "drop") {
       const cur = this.panels.get(panel.id);
       if (!cur) return refuse("not_found");
@@ -159,6 +184,10 @@ export class Board {
         if ("view" in body && (typeof body.view !== "string" || !body.view)) return refuse("invalid", "view がない");
         if ("source" in body && badSource(body.source)) return refuse("invalid", badSource(body.source));
         if ("to" in body && badTo(body.to)) return refuse("invalid", badTo(body.to));
+        if ("rel" in body) {
+          const bad = badRel(body.rel, "about" in body ? body.about : cur.about, this.panels, cur.id);
+          if (bad) return refuse(/がない/.test(bad) ? "not_found" : "invalid", bad);
+        }
         if ("state" in body && body.state != null && !STATES.includes(body.state)) return refuse("invalid", `state は ${STATES.join("・")} のどれか`);
         if ("state" in body && cur.state === "proposal" && body.state !== "proposal" && !person) return refuse("forbidden", "提案を受け入れるのは人だけ");
         if ("about" in body && body.about != null) {
@@ -208,6 +237,7 @@ export class Board {
       if (next.source == null) delete next.source;
       if (next.to == null) delete next.to;
       if (next.into == null) delete next.into;
+      if (next.rel == null) delete next.rel;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
       this.panels.set(p.id, next);
     } else if (op.type === "drop") {

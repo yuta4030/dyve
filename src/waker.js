@@ -4,6 +4,7 @@ import path from "node:path";
 import { isPerson, hasAiAnswer, STAFF } from "./board.js";
 import { NAMES } from "./crew.js";
 import { wordLine } from "./words.js";
+import { Focus } from "./focus.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
 // 毎回起こし直すと前置きの一部（約 7 千トークン）が毎回キャッシュに書き直しになるので、清書係もマネージャも会話を続ける。
@@ -22,6 +23,7 @@ export class Waker {
   constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {}, calls = {}, teams = {}, words = null }) {
     this.store = store;
     this.words = words; // 辞書（全部のボードで共通）
+    this.focus = new Focus(); // 人のいま（画面が知らせてくる。これで誰かを起こすことはしない）
     this.wordsSeen = 0;
     this.integrate = integrate;
     this.board = store.file ? path.basename(store.file, ".jsonl") : "board";
@@ -224,7 +226,7 @@ export class Waker {
     }
     const since = this.cutoff;
     this.cutoff = this.store.board.seq;
-    const prompt = managerPrompt(since, this.store.board, this.runningTasks());
+    const prompt = managerPrompt(since, this.store.board, this.runningTasks(), this.focus);
     let handle;
     if (this.session) {
       const { c } = this._conv("manager");
@@ -257,7 +259,7 @@ export class Waker {
       this.tried.set(t.id, t.rev);
       // data.write が付いた仕事：true は開発（仕事ごとの worktree の中で）、"panels" はパネルの仕事（利用者のパネル置き場で）
       const role = t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
-      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name)) });
+      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) });
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
       handle.done.then((res) => {
@@ -359,7 +361,7 @@ export function scribePrompt(fresh, before = [], words = []) {
 }
 
 // マネージャへの指示。読むものをはじめから渡して、board_read の往復を減らす
-export function managerPrompt(since, board = null, running = []) {
+export function managerPrompt(since, board = null, running = [], focus = null) {
   const head = `ボードに新しい動きがあります（since: ${since}、seq ${since} より後）。読むものは下にそろえてあります。足りないときだけ board_read を使ってください。`;
   const tail = "終わったら何も言わずに終えてください。人への返事はボードに置くものだけです。";
   if (!board) return [head, tail].join("\n");
@@ -395,11 +397,12 @@ export function managerPrompt(since, board = null, running = []) {
     lines.push("", "## 新しく置かれたもの");
     for (const p of placed) lines.push(`- ${p.id}（${p.by}${p.about ? `、${p.about} について` : ""}${p.state ? `、${p.state}` : ""}）：${clip(textOf(p.data), 300)}`);
   }
+  if (focus) lines.push("", "## 人のいま", ...focus.lines(board));
   lines.push("", tail);
   return lines.join("\n");
 }
 
-export function taskPrompt(board, task, name, call = name) {
+export function taskPrompt(board, task, name, call = name, focus = null) {
   // 元の発言：data.from があればそれ、なければ about の先が発言のとき
   const from = Array.isArray(task.data?.from) ? task.data.from.map((id) => board.get(id)).filter(Boolean) : [];
   const above = task.about ? board.get(task.about) : null;
@@ -420,5 +423,6 @@ export function taskPrompt(board, task, name, call = name) {
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
     `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
     "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",
+    ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
   ].filter(Boolean).join("\n");
 }
