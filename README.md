@@ -209,9 +209,10 @@ Op    { seq, at, by, type: add | edit | drop, panel, reason? }
 
 - 調べものの仕事：Edit・Write・NotebookEdit を禁止。シェルでの書き込みは `auto` の判定に任せるので、完全にはふさいでいない
 - 開発の仕事：仕事ごとの git worktree で書き、取り込むかは人が決める
-- どの仕事でも `git push`・`git remote`・`git reset`・`rm` は禁止（`--disallowedTools`）
+- 調べもの・開発・パネルの仕事では `git push`・`git remote`・`git reset`・`rm` は禁止（`--disallowedTools`）
+- 人が受け入れた提案の仕事（`data.accepted`）：部屋で `auto` のまま動き、上の禁止を付けない。提案の範囲なら push・送信・起票もする。危ない操作は `auto` の判定に任せる
 
-外に届くことは提案（state `proposal`）として置き、人が受け入れる。
+外に届くことは提案（state `proposal`）として置き、人が受け入れる。提案には、受け入れたら何をするか（コマンド・宛先・中身）をそのまま書く。開発の提案は受け入れるとボードが取り込み、それ以外の提案は、受け入れると提案を置いた人に仕事として戻る（頼むのは受け入れたときの提案の文。人が見たあとに書き換えられていたら、受け入れは断られる）。見送るときは外す。
 
 ### 辞書と絵
 

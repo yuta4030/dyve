@@ -13,11 +13,13 @@ const DEFS = {
   task: path.join(ROOT, "skills", "backroom", "SKILL.md"),
   dev: path.join(ROOT, "skills", "backroom", "SKILL.md"),
   panels: path.join(ROOT, "skills", "backroom", "SKILL.md"),
+  act: path.join(ROOT, "skills", "backroom", "SKILL.md"),
 };
 
 // 取り消せないことは人が決める。清書係は発言の書き換えと辞書への追記だけ、マネージャはボードだけ。
 // 控室は Claude Code の auto で動く（危ない操作は auto の判定が止める）。調べもの（task）はファイルを書き換えない。
-// 開発（dev）は仕事ごとの git worktree の中で書き、取り込むかは人が決める。push など外に届くことは DENY で止める
+// 開発（dev）は仕事ごとの git worktree の中で書き、取り込むかは人が決める。push など外に届くことは DENY で止める。
+// 人が受け入れた提案（act）だけは、提案の範囲で外に届くこともしてよいので DENY を付けず、危ない操作は auto の判定に任せる
 const READ = ["mcp__board", "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 const TOOLS = {
   scribe: ["mcp__board__panel_edit", "mcp__board__word_add"],
@@ -26,12 +28,13 @@ const TOOLS = {
   dev: [...READ, "Edit", "Write", "Bash(node --test:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
   // パネルの仕事：控室のエージェントが利用者のパネル置き場（~/.dyve/panels）で view を書く。書けるのはその中だけ
   panels: [...READ, "Edit", "Write", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
+  act: [...READ, "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)"],
 };
 const OUTWARD = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git reset:*)", "Bash(rm:*)"];
 const DENY = { task: [...OUTWARD, "Edit", "Write", "NotebookEdit"], panels: OUTWARD, dev: [...OUTWARD, "Bash(git worktree:*)", "Bash(git checkout:*)"] };
 
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
-export const inRoom = (role) => role === "task" || role === "dev" || role === "panels";
+export const inRoom = (role) => role === "task" || role === "dev" || role === "panels" || role === "act";
 
 // 控室（調べもの・開発・パネル）は --task-model、なければその人の model（チームの task.model を含む）、なければ個人の task.model。
 // 清書係とマネージャは models に決まったものが入っている

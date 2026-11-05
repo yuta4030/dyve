@@ -106,7 +106,7 @@ export class Waker {
   }
 
   _onOp(op) {
-    if (this.integrate && isPerson(op.by) && op.type === "edit" && op.panel.state === "done") this._accepted(op.panel.id);
+    if (isPerson(op.by) && op.type === "edit" && op.panel.state === "done") this._accepted(op.panel.id);
     if (op.type === "add" && op.panel.view === "say" && isPerson(op.by)) {
       if (this.session) this._scheduleScribe();
       this._schedule();
@@ -119,14 +119,15 @@ export class Waker {
     this._fill();
   }
 
-  // 人が提案を受け入れた。それが開発の仕事の提案なら、ブランチを取り込む
+  // 人が提案を受け入れた。開発の仕事の提案なら、ブランチを取り込む。それ以外は、提案を置いた人に、提案のとおりに進めてもらう
   _accepted(id) {
     const board = this.store.board;
     const prev = board.history(id).slice(0, -1).reverse().find((o) => "state" in o.panel)?.panel.state;
     if (prev !== "proposal") return;
     let t = board.get(id);
     while (t && !(t.view === "task" && t.data?.write === true)) t = t.about ? board.get(t.about) : null;
-    if (!t) return;
+    if (!t) return this._act(id);
+    if (!this.integrate) return;
     const note = (data) => this.store.apply({ by: "board", type: "add", panel: { view: "text", about: id, data }, reason: "受け入れられた開発の提案を取り込んだ結果" });
     Promise.resolve()
       .then(() => this.integrate({ board: this.board, taskId: t.id }))
@@ -258,7 +259,8 @@ export class Waker {
       if (!name) continue;
       this.tried.set(t.id, t.rev);
       // data.write が付いた仕事：true は開発（仕事ごとの worktree の中で）、"panels" はパネルの仕事（利用者のパネル置き場で）
-      const role = t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
+      // data.accepted が付いた仕事は、人が受け入れた提案（部屋で、提案の範囲なら外に届くこともする）
+      const role = t.data?.accepted ? "act" : t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
       const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) });
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
@@ -280,6 +282,23 @@ export class Waker {
       });
     }
     if (changed) this._changed();
+  }
+
+  // 受け入れた提案を仕事にする（data.accepted）。宛先は提案を置いた人（控室の人でなければ、空いている人）。
+  // 頼むのは受け入れたときの提案の文そのもの。元の仕事（after）を付けて、その人が前に置いたものを読めるようにする
+  _act(id) {
+    const board = this.store.board, p = board.get(id);
+    if (!p) return;
+    let task = p.about ? board.get(p.about) : null;
+    while (task && task.view !== "task") task = task.about ? board.get(task.about) : null;
+    const name = this.resolve(p.by);
+    const from = Array.isArray(task?.data?.from) ? task.data.from : null;
+    this.store.apply({
+      by: "board",
+      type: "add",
+      panel: { view: "task", state: "task", about: id, data: { text: textOf(p.data), accepted: id, ...(name ? { to: name } : {}), ...(task ? { after: task.id } : {}), ...(from ? { from } : {}) } },
+      reason: `人が提案 ${id} を受け入れたので、${name ? this.call(name) : "控室"}に提案のとおり進めてもらう`,
+    });
   }
 
   // 人がアイコンで宛てた発言：続けて話したぶんは一つにまとめる。相手が働いているあいだは、終わるまで待たせる
@@ -416,7 +435,8 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
       ? `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`
       : `あなたは控室のタスクエージェント「${call}」（ボードの上の名前は ${name}）です。ボードの仕事 ${task.id} を受け持ちました。`,
     task.data?.direct ? `人があなたに直接話しかけました。言われたことにそのまま応えてください。まず一、二行の短い返事を about: "${task.id}" の text（data は文字列）で置いてください。人のトークに返事として出ます。中身の結果は、そのあとに置きます。` : "",
-    task.data?.direct ? `言われたこと：${text}` : `仕事：${text}`,
+    task.data?.accepted ? `これは人が受け入れた提案（${task.data.accepted}）です。提案に書いたことを、そのとおりに進めてください。提案の範囲なら、外に届くこと（push・送信・起票など）もしてかまいません。提案にないことはしません。危ない操作は止められることがあります。止められたら別の手で済ませるか、そのことを結果に書きます。` : "",
+    task.data?.direct ? `言われたこと：${text}` : task.data?.accepted ? `受け入れた提案：${text}` : `仕事：${text}`,
     prev ? `前にあなたが受け持った仕事（${prev.id}）：${clip(textOf(prev.data), 300)}` : "",
     ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
     topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",

@@ -1644,7 +1644,8 @@ grid.addEventListener("click", async (e) => {
     if (!p.pinned && tileOf(p.id) && isAuto(p.id)) { LAYOUT.pos = { ...LAYOUT.pos, [p.id]: keepSize(p.id, posOf(p.id)) }; saveLayout(); }
     return op("edit", { id: p.id, pinned: !p.pinned });
   }
-  if (act === "accept") return op("edit", { id: p.id, state: "done" });
+  // 受け入れるのは、人が見たときの提案（あいだに書き換えられていたら断られる）
+  if (act === "accept") return op("edit", { id: p.id, state: "done", rev: p.rev });
   if (act === "drop") { if (confirm(L.dropAsk)) op("drop", { id: p.id }); return; }
   if (act === "split") {
     const h = await (await fetch(`/api/history?id=${encodeURIComponent(p.id)}`)).json();
