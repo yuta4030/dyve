@@ -1,4 +1,5 @@
 // ボードのサーバー：一つだけ立て、画面（人）と MCP（エージェント）の両方がここへつなぐ
+import crypto from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,6 +11,8 @@ import { listViews, readView, readSettings, offViews, setView, trashView, restor
 import { Focus } from "./focus.js";
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
+// 画面の版。立て直して変わっていたら、開いたままのタブは読み直す（古い画面が、知らない項目を消して書き戻さないように）
+const BUILD = crypto.createHash("sha1").update(fs.readFileSync(UI)).digest("hex").slice(0, 12);
 const MANAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "manage.html");
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
@@ -72,7 +75,7 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         const body = await readJson(req);
         return json(200, { ok: true, seen: cur.focus.set(String(body.client || ""), body) });
       }
-      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, seen: cur.focus.seen, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker, {}, cur.focus), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
+      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { build: BUILD, title, seen: cur.focus.seen, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker, {}, cur.focus), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
       if (req.method === "GET" && url.pathname === "/api/meta") return json(200, { ...(meta?.() ?? {}), name: desk?.current() ?? null, board: cur.store.file ?? null, seq: cur.store.board.seq, shoot: !!shoot });
       if (url.pathname === "/api/words") {
         if (!words) return json(404, { ok: false, code: "not_found", message: "辞書がない" });

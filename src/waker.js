@@ -269,11 +269,13 @@ export class Waker {
         this.running.delete(t.id);
         if (this.direct.get(name)?.says.length) this._flushDirect(name);
         const cur = this.store.board.get(t.id);
-        if (cur && cur.state === "task" && !hasAiAnswer(this.store.board, t.id)) {
+        // 途中経過を置いたあとで落ちた仕事も、待っているように見えたままにしない
+        const answered = hasAiAnswer(this.store.board, t.id);
+        if (cur && cur.state === "task" && (res?.error || !answered)) {
           this.store.apply({
             by: "board",
             type: "add",
-            panel: { view: "text", about: t.id, data: `${this.call(name)} は結果を置かずに終わりました${res?.error ? `（${res.error}）` : ""}` },
+            panel: { view: "text", about: t.id, data: `${this.call(name)} は${answered ? "途中で止まりました" : "結果を置かずに終わりました"}${res?.error ? `（${res.error}）` : ""}` },
             reason: "仕事が落ちたままにならないように",
           });
         }

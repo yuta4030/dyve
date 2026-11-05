@@ -256,3 +256,22 @@ test("話題：マネージャには話題の一覧を渡し、控室には話�
   assert.match(p, /話題（.+）：パネルの整理/);
   assert.match(p, new RegExp(`元の発言（${s1}）：diff も欲しい`));
 });
+
+test("途中経過を置いたあとで落ちた仕事にも止まったことを残す。ふつうに終わったら残さない", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6, slots: 2 }).start();
+  const add = (text) => store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text } }, reason: "取り次ぎ" }).op.panel.id;
+  const note = (id, text) => store.apply({ by: "キャロル", type: "add", panel: { view: "text", about: id, data: text }, reason: "途中経過" });
+  const a = add("落ちるもの"), b = add("終わるもの");
+  note(a, "待ちます");
+  note(b, "結果");
+  const job = (id) => f.jobs.find((j) => j.taskId === id);
+  job(a).finish({ code: 1, error: "終了コード 1：You've hit your 5-hour limit" });
+  job(b).finish({ code: 0 });
+  await tick();
+  const fromBoard = (id) => store.board.list().filter((p) => p.about === id && p.by === "board");
+  assert.match(fromBoard(a)[0].data, /途中で止まりました（終了コード 1：You've hit your 5-hour limit）/);
+  assert.equal(fromBoard(b).length, 0);
+  w.stop();
+});

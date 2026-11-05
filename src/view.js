@@ -1,7 +1,7 @@
 // エージェントがボードを絵で見るための口。並びは view layout のパネルに一枚で持つ（画面が作る）。
 // board_view は画面に並ぶパネルの枠と番号の PNG と対応表（依存ゼロなので日本語は描かず、題名は対応表に出す）
 import zlib from "node:zlib";
-import { BUILTIN, fixedTile, fixedPanel, layoutOf } from "./board.js";
+import { BUILTIN, FLOATS, FLOAT_MODES, fixedTile, fixedPanel, layoutOf } from "./board.js";
 
 const NAMES = { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" };
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
@@ -11,6 +11,7 @@ export const layoutPanel = (board) => board.list().find((p) => p.view === "layou
 const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const DENSITIES = [12, 24, 48];
 const ZOOM_MIN = 0.1, ZOOM_MAX = 5;
+const floatModeOf = (d) => (FLOAT_MODES.includes(d.float?.mode) ? d.float.mode : FLOAT_MODES[0]);
 const FOLDLESS = ["say", "summary"]; // 発言と要点は、それだけを畳まない（並んでいる枠ごとなら畳める）
 
 function titleOf(board, k) {
@@ -33,6 +34,8 @@ export function legend(board, tiles = null) {
     ...(fixedTile(board.panels, d, key) ? { pinned: true } : {}),
     ...(folded != null ? { folded: !!folded } : {}),
     ...((d.out || []).includes(key) ? { out: true } : {}),
+    // 浮かせているものは、ます目の上にない（x・y は並べるに戻したときの場所）。place はピクセルの置き場所で、なければ既定の場所
+    ...(FLOATS.includes(key) && floatModeOf(d) !== "off" ? { floating: floatModeOf(d), ...(d.float?.pos?.[key] ? { place: d.float.pos[key] } : {}), ...(d.float?.zoom?.[key] ? { zoom: d.float.zoom[key] } : {}) } : {}),
   }));
   const panels = board.list().filter((p) => p.view !== "layout" && !FOLDLESS.includes(p.view)).map((p) => ({
     id: p.id, view: p.view, title: clip(textOf(p.data), 40), ...(p.about ? { about: p.about } : {}), ...(p.state ? { state: p.state } : {}),
@@ -40,12 +43,12 @@ export function legend(board, tiles = null) {
     ...(d.fold?.[p.id] != null ? { folded: d.fold[p.id] } : {}),
     ...(fixedPanel(board.panels, d, p.id) ? { pinned: true } : {}),
   }));
-  return { density: d.density ?? 24, screen: { cols: d.density ?? 24, rows: d.metric?.rows ?? null }, metric: d.metric ?? null, top, inner: panels };
+  return { density: d.density ?? 24, floatMode: floatModeOf(d), screen: { cols: d.density ?? 24, rows: d.metric?.rows ?? null }, metric: d.metric ?? null, top, inner: panels };
 }
 
 // 人が画面でできる見た目の操作を全部（ピン留めは人だけなので、ない）。できなかったものは refused で返し、できたものだけ置く
 // moves：画面に並ぶパネル（key）なら置き場所（動かしたものはそこに留まる。position: null で自動の並びへ戻す）、話題の中のパネル（id）なら話題の中の置き場所。
-// fold：畳む・開く。out：取り出す・戻す。tiles：画面がいま並べた結果（自動のものの今の場所）
+// float：浮かせ方・浮かせたものの置き場所（ピクセル）と拡大率。fold：畳む・開く。out：取り出す・戻す。tiles：画面がいま並べた結果（自動のものの今の場所）
 export function changeLayout(store, by, change, reason, tiles = null) {
   const board = store.board, lp = layoutPanel(board);
   if (!lp) return { ok: false, code: "not_found", message: "並びがまだない（画面が一度も開かれていない）" };
@@ -139,6 +142,32 @@ export function changeLayout(store, by, change, reason, tiles = null) {
     d.zoom[k] = z;
     done.push(k);
   }
+  // 浮かせる：浮かせ方は四枚に効くので、どれかがピン留めされていると変えられない
+  if (change.float) {
+    const f = change.float, cur = { ...old.float, pos: { ...old.float?.pos }, zoom: { ...old.float?.zoom } };
+    const floatOk = (k) => { if (!FLOATS.includes(k)) no(k, `浮かせられるのは ${FLOATS.join("・")}`); else if (pinned(k)) no(k, "人がピン留めしている"); else return true; return false; };
+    if ("mode" in f) {
+      if (!FLOAT_MODES.includes(f.mode)) no("float", `mode は ${FLOAT_MODES.join("・")} のどれか`);
+      else if (FLOATS.some(pinned)) no("float", "浮かせるパネルを人がピン留めしているので、浮かせ方は変えられない");
+      else { cur.mode = f.mode; done.push("float"); }
+    }
+    for (const [k, p] of Object.entries(f.pos || {})) {
+      if (!floatOk(k)) continue;
+      if (p === null) { delete cur.pos[k]; done.push(k); continue; }
+      const dist = (v) => Number.isInteger(v) && v >= 0;
+      const okPlace = p && dist(p.left ?? p.right) && dist(p.top ?? p.bottom) && (p.left == null || p.right == null) && (p.top == null || p.bottom == null) && Number.isInteger(p.w) && p.w >= 140 && (p.h == null || (Number.isInteger(p.h) && p.h >= 60));
+      if (!okPlace) { no(k, "left か right、top か bottom は 0 以上の整数（ピクセル）、w は 140 以上、h は 60 以上か省く（中身の高さ）"); continue; }
+      cur.pos[k] = { ...(p.left != null ? { left: p.left } : { right: p.right }), ...(p.top != null ? { top: p.top } : { bottom: p.bottom }), w: p.w, ...(p.h != null ? { h: p.h } : {}) };
+      done.push(k);
+    }
+    for (const [k, z] of Object.entries(f.zoom || {})) {
+      if (!floatOk(k)) continue;
+      if (!(z >= ZOOM_MIN && z <= ZOOM_MAX)) { no(k, `zoom は ${ZOOM_MIN} から ${ZOOM_MAX}`); continue; }
+      cur.zoom[k] = z;
+      done.push(k);
+    }
+    d.float = cur;
+  }
   if (!done.length) return { ok: false, code: refused.some((x) => /ピン留め/.test(x.why)) ? "pinned" : "invalid", message: "変えられるものがなかった", refused };
   const data = { ...d, inner: { tpos: t.tpos, sizes: t.sizes } };
   const r = store.apply({ by, type: "edit", panel: { id: lp.id, data }, reason });
@@ -162,7 +191,7 @@ const DIGITS = ["01110100011001110101110011000101110", "001000110000100001000010
 const COLOR = { bg: [246, 246, 243], screen: [226, 226, 220], tile: [190, 210, 232], group: [176, 224, 208], line: [60, 70, 80], fixed: [214, 110, 40], plate: [255, 255, 255], ink: [20, 24, 30] };
 
 export function boardPng(lg, { maxW = 1400, maxH = 1000 } = {}) {
-  const shown = lg.top;
+  const shown = lg.top.filter((t) => !t.floating); // 浮かせているものは、ます目の上にない
   const sx0 = lg.metric?.sx || 40, sy0 = lg.metric?.sy || 26, cols = lg.density, rows = lg.screen.rows || Math.round(cols * 0.6);
   const x0 = Math.min(1, ...shown.map((t) => t.x)), y0 = Math.min(1, ...shown.map((t) => t.y));
   const x1 = Math.max(cols + 1, ...shown.map((t) => t.x + t.w)), y1 = Math.max(rows + 1, ...shown.map((t) => t.y + t.h));

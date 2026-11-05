@@ -271,3 +271,34 @@ test("自動の並び：画面が並べた結果を対応表に出し、AI が�
   assert.equal(data().pos[topic], undefined);
   assert.ok(changeLayout(s, "manager", { zoom: { [topic]: 1.2 }, fold: { [topic]: true } }, "r", tiles).ok, "自動のものも拡大率と畳むは変えられる");
 });
+
+test("board_layout：浮かせ方と、浮かせたものの置き場所・拡大率を変えられる。ピン留めされたものは変えない", () => {
+  const b = new Board();
+  laid(b, { v: 3, density: 24, pos: { talk: POS.talk, tools: POS.talk, status: POS.talk, quota: POS.talk }, pinned: [] });
+  const s = storeOf(b);
+  assert.equal(legend(b).floatMode, "front", "決めていなければ前面");
+  assert.equal(legend(b).top.find((t) => t.key === "talk").floating, "front");
+  const r = changeLayout(s, "manager", { float: { mode: "front", pos: { tools: { right: 10, top: 20, w: 200 }, nope: { left: 1, top: 1, w: 200 }, talk: { left: 1, right: 1, top: 1, w: 200 } }, zoom: { quota: 0.8 } } }, "比べる");
+  assert.ok(r.ok);
+  assert.deepEqual(r.changed.sort(), ["float", "quota", "tools"]);
+  assert.deepEqual(r.refused.map((x) => x.key).sort(), ["nope", "talk"]);
+  const l = legend(b);
+  assert.equal(l.floatMode, "front");
+  assert.deepEqual(l.top.find((t) => t.key === "tools").place, { right: 10, top: 20, w: 200 });
+  assert.equal(l.top.find((t) => t.key === "quota").zoom, 0.8);
+  assert.ok(changeLayout(s, "manager", { float: { mode: "off" } }, "並べる").ok);
+  assert.equal(legend(b).top.find((t) => t.key === "talk").floating, undefined);
+  assert.equal(changeLayout(s, "manager", { float: { mode: "side" } }, "r").code, "invalid");
+});
+
+test("board_layout：ピン留めした浮かせるパネルは動かず、浮かせ方も変えられない。人は変えられる", () => {
+  const b = new Board();
+  const id = laid(b, { v: 3, density: 24, pos: { talk: POS.talk }, pinned: ["talk"] });
+  const s = storeOf(b);
+  assert.equal(changeLayout(s, "manager", { float: { mode: "off" } }, "r").code, "pinned");
+  assert.equal(changeLayout(s, "manager", { float: { pos: { talk: { left: 1, top: 1, w: 200 } } } }, "r").code, "pinned");
+  assert.ok(changeLayout(s, "manager", { float: { pos: { tools: { left: 1, top: 1, w: 200 } } } }, "r").ok, "ほかの浮かせるものは動かせる");
+  const cur = b.get(id).data;
+  assert.equal(ai(b, "edit", { id, data: { ...cur, float: { ...cur.float, mode: "off" } } }).code, "pinned", "パネルの編集でも同じ");
+  assert.ok(human(b, "edit", { id, data: { ...cur, float: { mode: "off" } } }).ok);
+});

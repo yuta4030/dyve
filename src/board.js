@@ -52,6 +52,9 @@ export function sourceApproved(board, id) {
 // pos は置き場所を決めたもの（組み込みのパネルと、人か AI が動かしたもの）だけ。ほかは画面が並べるたびに、順番と中身から置き直す（自動の並び）
 // pinned に入るのは、ボードのパネルでピン留めできないもの（組み込みのパネルと、発言から出たまとまり）だけ。ほかはパネルの pinned を使う
 export const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
+// 浮かせる組み込みのパネルと浮かせ方（先頭の front が既定）。front：画面に留めて重ねる、off：ます目に並べる
+export const FLOATS = ["talk", "status", "quota", "tools"];
+export const FLOAT_MODES = ["front", "off"];
 export function layoutOf(data, panels = null) {
   const d = data || {};
   if (d.v === 3) return d;
@@ -83,10 +86,12 @@ function badLayoutEdit(cur, body, panels) {
   if (next.v !== 3) return { code: "invalid", message: "並びの data は v: 3 の形" };
   if (!same(next.pinned || [], old.pinned || [])) return { code: "forbidden", message: "ピン留めは人だけ" };
   const a = old.inner || {}, z = next.inner || {};
-  const keys = new Set([old.pos, next.pos, old.zoom, next.zoom, old.fold, next.fold, a.tpos, z.tpos, a.sizes, z.sizes].flatMap((o) => Object.keys(o || {})).concat(old.out || [], next.out || []));
+  const fa = old.float || {}, fz = next.float || {};
+  if ((fa.mode ?? FLOAT_MODES[0]) !== (fz.mode ?? FLOAT_MODES[0]) && FLOATS.some((k) => fixedTile(panels, old, k))) return { code: "pinned", message: "浮かせるパネルを人がピン留めしているので、浮かせ方は変えられない" };
+  const keys = new Set([old.pos, next.pos, old.zoom, next.zoom, old.fold, next.fold, a.tpos, z.tpos, a.sizes, z.sizes, fa.pos, fz.pos, fa.zoom, fz.zoom].flatMap((o) => Object.keys(o || {})).concat(old.out || [], next.out || []));
   for (const k of keys) {
     if (!fixedTile(panels, old, k)) continue;
-    const changed = ["pos", "zoom", "fold"].some((f) => !same(old[f]?.[k], next[f]?.[k])) || ["tpos", "sizes"].some((f) => !same(a[f]?.[k], z[f]?.[k])) || has(old.out, k) !== has(next.out, k);
+    const changed = ["pos", "zoom", "fold"].some((f) => !same(old[f]?.[k], next[f]?.[k])) || ["tpos", "sizes"].some((f) => !same(a[f]?.[k], z[f]?.[k])) || ["pos", "zoom"].some((f) => !same(fa[f]?.[k], fz[f]?.[k])) || has(old.out, k) !== has(next.out, k);
     if (changed) return { code: "pinned", message: `${k} は人がピン留めしている` };
   }
   return null;

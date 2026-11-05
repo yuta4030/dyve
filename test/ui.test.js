@@ -86,3 +86,71 @@ test("いまの話題：いちばん新しい人の発言から出たものが�
   assert.deepEqual(talkingKeys(["t1", "t2"]), ["t2", "t1"], "まだ何も付いていない発言は飛ばす");
   assert.deepEqual(talkingKeys(["t1"]), ["t1"], "並んでいない枠は入れない");
 });
+
+const fnOf = (name, ...args) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`);
+const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
+
+test("浮かせる：四枚は同じ扱いで、ボードの外の層に出す（ボードの拡大縮小が掛からない）", () => {
+  assert.match(html, /const FLOATS = \["talk", "status", "quota", "tools"\]/);
+  assert.match(html, /<\/main>\s*<div id="floats"><\/div>/, "層は #grid の外");
+  const home = html.match(/const FLOAT_HOME = (\{[\s\S]*?\n\});/)[1];
+  for (const k of ["talk", "status", "quota", "tools"]) assert.match(home, new RegExp(`\\b${k}: \\{`));
+  assert.doesNotMatch(home, /summary/, "いまの要点はボードに残す");
+  assert.match(html, /grid\.addEventListener\("click", onClick\);\s*floats\.addEventListener\("click", onClick\);/, "浮かせても押せる");
+});
+
+test("浮かせる置き場所：端からの距離で持ち、窓が狭くなっても画面の中に収める", () => {
+  const style = fnOf("floatStyle", "FLOAT_MIN")(FLOAT_MIN);
+  assert.deepEqual(style({ right: 14, top: 20, w: 224 }, 1000, 800, 90), { left: "auto", right: "14px", top: "20px", bottom: "auto", width: "224px", height: "auto" });
+  assert.deepEqual(style({ left: 900, bottom: 700, w: 300, h: 260 }, 1000, 800, 260), { left: "692px", right: "auto", top: "auto", bottom: "532px", width: "300px", height: "260px" });
+  assert.equal(style({ left: 14, top: 14, w: 2000, h: 260 }, 500, 800, 260).width, "484px", "窓より広くしない");
+});
+
+test("つまんで離したら、近い端で覚える。高さを決めていないものは中身の高さのまま", () => {
+  const anchor = fnOf("floatAnchor")();
+  const r = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  assert.deepEqual(anchor(r(10, 20, 200, 100), 1000, 800, false), { left: 10, top: 20, w: 200 });
+  assert.deepEqual(anchor(r(780, 680, 200, 100), 1000, 800, true), { right: 20, bottom: 20, w: 200, h: 100 });
+});
+
+const fn = (name, ...args) => (...vals) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`)(...vals);
+
+test("パネルを移す：話題だけが先になり、いまの親と自分の下へは移せない", () => {
+  const moveTargets = fn("moveTargets")();
+  const ps = [{ id: "a", view: "topic" }, { id: "b", view: "topic" }, { id: "c", view: "topic", about: "x" }, { id: "x", view: "list", about: "a" }, { id: "n", view: "text" }];
+  assert.deepEqual(moveTargets(ps, "x").map((p) => p.id), ["b"], "いまの親 a と、自分の下の c は除く");
+  assert.deepEqual(moveTargets(ps, "a").map((p) => p.id), ["b"], "自分自身と自分の下は除く");
+  assert.deepEqual(moveTargets(ps, "n").map((p) => p.id), ["a", "b", "c"]);
+});
+
+test("親のパネルにまとめる：同じ親の下と画面に並ぶものから選び、ほどく先を覚える", () => {
+  const cand = fn("bundleCandidates")();
+  const plan = fn("bundlePlan")();
+  const ps = [{ id: "t", view: "topic" }, { id: "u", view: "topic" }, { id: "x", view: "list", about: "t" }, { id: "y", view: "text", about: "t" }, { id: "z", view: "text", about: "u" }, { id: "s", view: "say" }, { id: "m", view: "summary" }, { id: "l", view: "layout" }];
+  assert.deepEqual(cand(ps, "x").map((p) => p.id), ["u", "y"], "親 t は選べない。発言・要点・並びも選べない");
+  assert.deepEqual(plan(ps, ["x", "y"]), { about: "t", bundled: { x: "t", y: "t" } }, "同じ親の下なら、その中に作る");
+  assert.deepEqual(plan(ps, ["x", "u"]), { about: null, bundled: { x: "t", u: null } }, "ばらばらなら外に作り、それぞれの元の親を覚える");
+});
+
+test("自動で並ぶ枠の高さに上限を付けない（いまの話題が変わっても縮まない）", () => {
+  assert.match(html, /Math\.max\(needRows\(tileOf\(k\), m\), 3\)/);
+});
+
+test("dyve 設定を浮かせても、マップの下のボードの倍率のボタンは隠さない", () => {
+  assert.match(html, /\$\("#toTools"\)\.hidden = isFloat\("tools"\)/);
+  assert.doesNotMatch(html, /\$\("#toTools"\)\.parentElement\.hidden/);
+});
+
+test("浮かせ方の既定は前面（先頭）。追従はない", () => {
+  assert.match(html, /const FLOAT_MODES = \["front", "off"\]/);
+  assert.doesNotMatch(html, /followStep|FOLLOW/);
+});
+
+test("並びの知らない項目は消さずに書き戻す", () => {
+  assert.match(html, /return \{ \.\.\.rest, v: 3, pos:/);
+});
+
+test("再描画の前に読んでいる場所を覚え、後で戻す", () => {
+  assert.match(html, /function render\(\) \{\n  const reading = scrollMarks\(\), read = readingPanel\(\);/);
+  assert.match(html, /backToMarks\(reading\);\n  backToPanel\(read\);/);
+});
