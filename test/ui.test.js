@@ -86,3 +86,36 @@ test("いまの話題：いちばん新しい人の発言から出たものが�
   assert.deepEqual(talkingKeys(["t1", "t2"]), ["t2", "t1"], "まだ何も付いていない発言は飛ばす");
   assert.deepEqual(talkingKeys(["t1"]), ["t1"], "並んでいない枠は入れない");
 });
+
+const fnOf = (name, ...args) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`);
+const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
+
+test("浮かせる：四枚は同じ扱いで、ボードの外の層に出す（ボードの拡大縮小が掛からない）", () => {
+  assert.match(html, /const FLOATS = \["talk", "status", "quota", "tools"\]/);
+  assert.match(html, /<\/main>\s*<div id="floats"><\/div>/, "層は #grid の外");
+  const home = html.match(/const FLOAT_HOME = (\{[\s\S]*?\n\});/)[1];
+  for (const k of ["talk", "status", "quota", "tools"]) assert.match(home, new RegExp(`\\b${k}: \\{`));
+  assert.doesNotMatch(home, /summary/, "いまの要点はボードに残す");
+  assert.match(html, /grid\.addEventListener\("click", onClick\);\s*floats\.addEventListener\("click", onClick\);/, "浮かせても押せる");
+});
+
+test("浮かせる置き場所：端からの距離で持ち、窓が狭くなっても画面の中に収める", () => {
+  const style = fnOf("floatStyle", "FLOAT_MIN")(FLOAT_MIN);
+  assert.deepEqual(style({ right: 14, top: 20, w: 224 }, 1000, 800, 90), { left: "auto", right: "14px", top: "20px", bottom: "auto", width: "224px", height: "auto" });
+  assert.deepEqual(style({ left: 900, bottom: 700, w: 300, h: 260 }, 1000, 800, 260), { left: "692px", right: "auto", top: "auto", bottom: "532px", width: "300px", height: "260px" });
+  assert.equal(style({ left: 14, top: 14, w: 2000, h: 260 }, 500, 800, 260).width, "484px", "窓より広くしない");
+});
+
+test("つまんで離したら、近い端で覚える。高さを決めていないものは中身の高さのまま", () => {
+  const anchor = fnOf("floatAnchor")();
+  const r = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  assert.deepEqual(anchor(r(10, 20, 200, 100), 1000, 800, false), { left: 10, top: 20, w: 200 });
+  assert.deepEqual(anchor(r(780, 680, 200, 100), 1000, 800, true), { right: 20, bottom: 20, w: 200, h: 100 });
+});
+
+test("追従の遅れは時間で縮み、止まる", () => {
+  const step = fnOf("followStep")();
+  assert.ok(Math.abs(step(100, 180, 180) - 100 / Math.E) < 1e-9);
+  assert.ok(step(-100, 16, 180) < 0 && step(-100, 16, 180) > -100, "向きは変わらない");
+  assert.equal(step(0.4, 16, 180), 0);
+});
