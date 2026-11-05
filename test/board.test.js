@@ -97,3 +97,21 @@ test("to：宛てた相手の名前だけを持てる", () => {
   b.apply({ by: "human", type: "edit", panel: { id: "p1", to: null } });
   assert.equal("to" in b.get("p1"), false);
 });
+
+test("rel：同じものについてのパネルどうしだけを比べる・順番の組にでき、null で外せる", () => {
+  const b = new Board();
+  const add = (panel) => b.apply({ by: "manager", type: "add", panel, reason: "試す" });
+  const topic = add({ view: "topic", data: { title: "話題" } }).op.panel.id;
+  const a = add({ view: "list", about: topic, data: ["案 A"] }).op.panel.id;
+  const other = add({ view: "list", data: ["よそ"] }).op.panel.id;
+  const c = add({ view: "list", about: topic, data: ["案 B"], rel: { kind: "compare", with: [a] } });
+  assert.ok(c.ok);
+  assert.deepEqual(b.get(c.op.panel.id).rel, { kind: "compare", with: [a] });
+  assert.equal(add({ view: "list", about: topic, data: [], rel: { kind: "compare", with: [other] } }).code, "invalid", "about が違う");
+  assert.equal(add({ view: "list", about: topic, data: [], rel: { kind: "compare", with: ["nope"] } }).code, "not_found");
+  assert.equal(add({ view: "list", about: topic, data: [], rel: { kind: "near", with: [a] } }).code, "invalid");
+  assert.equal(b.apply({ by: "manager", type: "edit", panel: { id: a, rel: { kind: "sequence", with: [a] } }, reason: "r" }).code, "not_found", "自分とは組めない");
+  assert.ok(b.apply({ by: "manager", type: "edit", panel: { id: c.op.panel.id, rel: null }, reason: "外す" }).ok);
+  assert.equal(b.get(c.op.panel.id).rel, undefined);
+  assert.equal(new Board(b.log).get(c.op.panel.id).rel, undefined, "当て直しても同じ");
+});

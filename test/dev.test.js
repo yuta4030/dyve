@@ -152,3 +152,41 @@ test("人が開発の提案を受け入れたら取り込み、結果をボー�
   assert.equal(calls.length, 1);
   w.stop();
 });
+
+test("人が開発でない提案を受け入れたら、提案を置いた人に、提案のとおり進める仕事として渡す。部屋で auto のまま、外に届くことを止めない", async () => {
+  const store = new Store();
+  const jobs = [];
+  const spawn = (job) => { let finish; const done = new Promise((r) => (finish = r)); jobs.push({ ...job, finish }); return { done, kill() {} }; };
+  const w = new Waker({ store, spawn, pause: 1e6, names: ["アリス", "ボブ"] }).start();
+  try {
+  const say = store.apply({ by: "human", type: "add", panel: { view: "say", data: "PR にしておいて" } }).op.panel.id;
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる", to: "ボブ", from: [say] } }, reason: "x" }).op.panel.id;
+  await new Promise((ok) => setTimeout(ok, 10));
+  const p = store.apply({ by: "ボブ", type: "add", panel: { view: "text", state: "proposal", about: t, data: "git push -u origin x && gh pr create --fill" }, reason: "x" }).op.panel.id;
+  store.apply({ by: "ボブ", type: "edit", panel: { id: t, state: "done" }, reason: "x" });
+  jobs.find((j) => j.taskId === t).finish({ code: 0 });
+  await new Promise((ok) => setTimeout(ok, 10));
+  // 人が見たあとで書き換えられた提案は受け入れられない
+  const seen = store.board.get(p).rev;
+  store.apply({ by: "ボブ", type: "edit", panel: { id: p, data: "git push --force" }, reason: "x" });
+  assert.equal(store.apply({ by: "human", type: "edit", panel: { id: p, state: "done", rev: seen } }).code, "conflict");
+  assert.ok(store.apply({ by: "human", type: "edit", panel: { id: p, state: "done", rev: store.board.get(p).rev } }).ok);
+  await new Promise((ok) => setTimeout(ok, 10));
+  const act = store.board.list().find((x) => x.data?.accepted === p);
+  assert.deepEqual([act.view, act.state, act.about, act.data.to, act.data.after, act.data.from], ["task", "task", p, "ボブ", t, [say]]);
+  assert.equal(act.data.text, "git push --force", "頼むのは受け入れたときの提案の文");
+  const job = jobs.find((j) => j.taskId === act.id);
+  assert.deepEqual([job.role, job.name], ["act", "ボブ"]);
+  assert.match(job.prompt, /人が受け入れた提案（p\w+）です。[\s\S]*外に届くこと（push・送信・起票など）もしてかまいません[\s\S]*受け入れた提案：git push --force/);
+  // もう一度 done にしても二つ目は作らない
+  store.apply({ by: "human", type: "edit", panel: { id: p, state: "done" } });
+  await new Promise((ok) => setTimeout(ok, 10));
+  assert.equal(store.board.list().filter((x) => x.data?.accepted === p).length, 1);
+  } finally {
+    w.stop();
+  }
+  const a = claudeArgs({ role: "act", name: "ボブ", prompt: "x" }, "http://x", {});
+  assert.ok(a.includes("--permission-mode") && a[a.indexOf("--permission-mode") + 1] === "auto");
+  assert.ok(!a.includes("--disallowedTools"), "push などを止めない（危ない操作は auto の判定に任せる）");
+  assert.ok(claudeArgs({ role: "task", name: "ボブ", prompt: "x" }, "http://x", {}).includes("Bash(git push:*)"), "ほかの仕事では今までどおり止める");
+});

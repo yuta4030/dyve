@@ -1,4 +1,5 @@
 // ボードのサーバー：一つだけ立て、画面（人）と MCP（エージェント）の両方がここへつなぐ
+import crypto from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -7,8 +8,11 @@ import { handleRpc, boardView } from "./mcp.js";
 import { toMarkdown } from "./export.js";
 import { samplesOf, fitsSample } from "./desk.js";
 import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog } from "./panels.js";
+import { Focus } from "./focus.js";
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
+// 画面の版。立て直して変わっていたら、開いたままのタブは読み直す（古い画面が、知らない項目を消して書き戻さないように）
+const BUILD = crypto.createHash("sha1").update(fs.readFileSync(UI)).digest("hex").slice(0, 12);
 const MANAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "manage.html");
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
@@ -27,6 +31,8 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
   const use = (next) => {
     if (cur?.store === next.store) return; // 同じボードを開き直しても、知らせを二重に付けない
     cur = next;
+    // 人のいまは起こし係が持つ（起こしたエージェントに混ぜる）。エージェントを起こさないときも、MCP から読めるように持つ
+    cur.focus = next.waker?.focus ?? new Focus();
     next.store.onOp((op) => cur.store === next.store && send("op", op));
     next.waker?.onChange((live) => cur.waker === next.waker && send("live", live));
     next.feeds?.onChange((f) => cur.feeds === next.feeds && send("feed", f));
@@ -64,7 +70,12 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         return res.end(fs.readFileSync(MANAGE));
       }
-      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { title, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
+      // 人のいま：画面が知らせてくる（ログには積まず、誰も起こさない）。返すのは端末をまたいでまとめた「見た」印
+      if (req.method === "POST" && url.pathname === "/api/focus") {
+        const body = await readJson(req);
+        return json(200, { ok: true, seen: cur.focus.set(String(body.client || ""), body) });
+      }
+      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { build: BUILD, title, seen: cur.focus.seen, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker, {}, cur.focus), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
       if (req.method === "GET" && url.pathname === "/api/meta") return json(200, { ...(meta?.() ?? {}), name: desk?.current() ?? null, board: cur.store.file ?? null, seq: cur.store.board.seq, shoot: !!shoot });
       if (url.pathname === "/api/words") {
         if (!words) return json(404, { ok: false, code: "not_found", message: "辞書がない" });
@@ -171,7 +182,7 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         }
         const as = url.searchParams.get("as") || "guest";
         const body = await readJson(req);
-        const rpc = { offView, words, shoot };
+        const rpc = { offView, words, shoot, focus: cur.focus };
         const out = Array.isArray(body)
           ? (await Promise.all(body.map((m) => handleRpc(cur.store, cur.waker, as, m, rpc)))).filter(Boolean)
           : await handleRpc(cur.store, cur.waker, as, body, rpc);
