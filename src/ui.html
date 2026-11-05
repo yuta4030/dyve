@@ -1236,6 +1236,12 @@ function applyLayout(appear = null) {
   const live = !narrow() && CANVAS.homed;
   const snap = live ? { anchor: anchorOf(), before: REDUCE ? null : rectsOf() } : null;
   const pos = Object.fromEntries(allTiles().filter((k) => !isAuto(k)).map((k) => [k, posOf(k)]));
+  // いまの要点は、中身があふれるときだけ下へ伸ばす（半画面まで。覚えた大きさは変えない）
+  const st = tileOf("summary");
+  if (st && !narrow() && !isFolded("summary")) {
+    const m = metrics(), half = Math.floor(grid.clientHeight / m.sy / 2);
+    pos.summary = { ...pos.summary, h: Math.max(pos.summary.h, Math.min(half, needRows(st, m))) };
+  }
   place(autoLayout(settle(pos, null, appear)), false, snap);
   $("#density").value = String(dens());
   sendFocus();

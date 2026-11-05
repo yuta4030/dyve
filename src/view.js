@@ -58,9 +58,9 @@ export function changeLayout(store, by, change, reason, tiles = null) {
   const pinned = (k) => fixedTile(board.panels, old, k);
   const known = (k) => k in d.pos || BUILTIN.includes(k) || board.get(k);
   const ok = (k) => { if (!known(k) || board.get(k)?.view === "layout") no(k, "そのパネルはない"); else if (pinned(k)) no(k, "人がピン留めしている"); else return true; return false; };
-  // 画面に並ぶパネル：組み込みのもの・置き場所を決めたもの・取り出したもの・画面が並べたもの・about のないパネル（話題や、発言から出たまとまりの元）
+  // 画面に並ぶパネル：組み込みのもの・置き場所を決めたもの・取り出したもの・画面が並べたもの・話題（画面がまだ並べていなくても枠になる）
   const seen = (k) => tiles?.find((t) => t.key === k);
-  const isTop = (k) => k in d.pos || BUILTIN.includes(k) || d.out.includes(k) || !!seen(k) || (!!board.get(k) && !board.get(k).about);
+  const isTop = (k) => k in d.pos || BUILTIN.includes(k) || d.out.includes(k) || !!seen(k) || (board.get(k)?.view === "topic" && !board.get(k).about);
 
   // 並びを戻す（ピン留めしたものは残す）。置き場所のないパネルは画面が決まった場所へ置く
   if (change.reset) {
