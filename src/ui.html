@@ -234,6 +234,10 @@ body.shot #stage, body.shot #map, body.shot #floats { display: none; }
 .group.solo > .items > dv-panel { border: none; background: none; padding: 0; resize: none; overflow: visible; }
 .group.solo > .items > dv-panel > .meta .topic-title { display: none; }
 iframe.uview { display: block; width: 100%; border: 0; background: transparent; }
+.send-row { margin: 4px 0; }
+.send-row .send-go { display: flex; gap: 6px; align-items: flex-end; }
+.send-row textarea { flex: 1; min-width: 0; min-height: 26px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; resize: vertical; }
+.send-row pre { flex: 1; min-width: 0; max-height: 160px; margin: 0; padding: 4px 6px; overflow: auto; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-soft); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .src-line { margin: 2px 0 4px; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mute); overflow-wrap: anywhere; }
 /* 畳む：見出しの一行だけにする。済みの仕事と話題は、見る人が決めていなければ畳む。押すと開く */
 dv-panel.folded > :not(.meta) { display: none; }
@@ -410,6 +414,8 @@ const L = {
   map: "全体マップ（押すとそこへ行く）", toTools: "dyve 設定へ", toToolsTitle: "dyve 設定のパネルへ行く",
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
   every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
+  send: "送る", sendHint: "ここに書いて送る", unsend: "やめる", allowSend: "送り出しを許可", allowSendTitle: "このコマンドに、ここから送ってよい（人が決める）",
+  sentAt: (t) => `${t} に送った`, sending: "送っています",
   viewError: (m) => `この view で描けませんでした：${m}`,
 };
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
@@ -544,6 +550,7 @@ const RUNTIME = `window.dyve = (() => {
     panel: init.panel,
     board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }),
     open: (id) => parent.postMessage({ dyve: "open", id }, "*"),
+    send: (input) => parent.postMessage({ dyve: "send", input }, "*"),
   };
   const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch (e) { root.textContent = init.err + e.message; } };
   addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
@@ -567,7 +574,7 @@ function userFrame(p, data) {
     `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe(S.views.get(p.view).src)}<\/script></body>`;
   return f;
 }
-// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい・ボードの倍率を変えたい（書くことはできない）
+// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい・ボードの倍率を変えたい・これを送りたい（書くことも、自分で送ることもできない）
 addEventListener("message", (e) => {
   const f = $$("iframe.uview").find((x) => x.contentWindow === e.source);
   const m = e.data || {};
@@ -581,11 +588,79 @@ addEventListener("message", (e) => {
     e.source.postMessage({ dyve: "board", k: m.k, panels }, "*");
   } else if (m.dyve === "open" && typeof m.id === "string") {
     reveal(panelOf(m.id));
+  } else if (m.dyve === "send") {
+    // 囲いの中からは送れない。送りたい中身を預かって見せるだけで、送るのは人が押してから
+    const p = S.panels.find((x) => x.id === f.dataset.id);
+    if (!p?.send || m.input == null || JSON.stringify(m.input).length > 100 * 1024) return;
+    PENDING.set(p.id, m.input);
+    refreshSend(p.id);
   } else if (m.dyve === "zoom" && [m.dy, m.x, m.y].every(Number.isFinite)) {
     const r = f.getBoundingClientRect(), s = r.width / (f.offsetWidth || r.width) || 1;
     zoomAround(zoomNow() * wheelFactor(m.dy, m.mode), r.left + m.x * s, r.top + m.y * s);
   }
 });
+
+// ── 送り出し：パネルの send（shell コマンド）に、人が送る。何に何を送るかが見えるように出しておく ──
+const DRAFT = new Map(); // パネル id -> 書きかけ（描き直しても残す）
+const PENDING = new Map(); // パネル id -> 利用者の view が送りたいと言ってきた中身（人が押すまで送らない）
+const sendText = (v) => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
+function sendRow(p) {
+  const st = S.feeds[p.id]?.send || {};
+  const row = document.createElement("div");
+  row.className = "send-row";
+  const line = document.createElement("div");
+  line.className = "src-line";
+  const time = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const when = st.running ? L.sending : st.error ? `⚠ ${st.error}` : st.at ? `${L.sentAt(time(st.at))}${st.out ? `　${st.out}` : ""}` : "";
+  line.textContent = `→ $ ${p.send.shell}${when ? `　${when}` : ""}`;
+  row.append(line);
+  const go = document.createElement("div");
+  go.className = "send-go";
+  const btn = (act, text, title) => { const b = document.createElement("button"); b.dataset.act = act; b.textContent = text; if (title) b.title = title; return b; };
+  if (!st.approved) go.append(btn("allowsend", L.allowSend, L.allowSendTitle));
+  else if (PENDING.has(p.id)) {
+    const pre = document.createElement("pre");
+    pre.textContent = sendText(PENDING.get(p.id));
+    go.append(pre, btn("send", p.send.label || L.send), btn("unsend", L.unsend));
+  } else {
+    const ta = document.createElement("textarea");
+    ta.className = "send-in";
+    ta.rows = 1;
+    ta.placeholder = L.sendHint;
+    ta.value = DRAFT.get(p.id) || "";
+    go.append(ta, btn("send", p.send.label || L.send));
+  }
+  row.append(go);
+  return row;
+}
+// 送り出しの行だけ描き直す（利用者の view の囲いは作り直さない）
+function refreshSend(id) {
+  const p = S.panels.find((x) => x.id === id), old = $$("dv-panel").find((x) => x.dataset.id === id)?.querySelector(":scope > .send-row");
+  if (p?.send && old) old.replaceWith(sendRow(p));
+}
+document.addEventListener("input", (e) => {
+  const id = e.target.matches?.("textarea.send-in") && e.target.closest("dv-panel")?.dataset.id;
+  if (id) DRAFT.set(id, e.target.value);
+});
+async function sendOut(p) {
+  $("#err").textContent = "";
+  const input = PENDING.has(p.id) ? PENDING.get(p.id) : DRAFT.get(p.id) || "";
+  const r = await fetch("/api/send", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id, input }) });
+  const b = await r.json();
+  if (!b.ok) { $("#err").textContent = L.refused(b.message); return; }
+  PENDING.delete(p.id);
+  DRAFT.delete(p.id);
+  refreshSend(p.id);
+}
+// 書いている最中に描き直されても、続きを書けるようにする
+function typingNow() {
+  const ta = document.activeElement?.matches?.("textarea.send-in") ? document.activeElement : null;
+  return ta && { id: ta.closest("dv-panel")?.dataset.id, at: [ta.selectionStart, ta.selectionEnd] };
+}
+function backToTyping(t) {
+  const next = t?.id && $$("dv-panel").find((x) => x.dataset.id === t.id)?.querySelector(":scope > .send-row textarea.send-in");
+  if (next && next !== document.activeElement) { next.focus({ preventScroll: true }); next.setSelectionRange(...t.at); }
+}
 
 // ── パネルの封筒 ──
 class PanelEl extends HTMLElement {}
@@ -651,6 +726,8 @@ function panelEl(p, kids, { root = false } = {}) {
     view.data = data;
     el.append(view);
   }
+  // 読んでから送るので、送り出しは中身の下に置く
+  if (p.send) el.append(sendRow(p));
   const box = document.createElement("div");
   box.className = p.view === "topic" ? "kids free" : "kids";
   for (const k of kids(p.id)) {
@@ -860,6 +937,7 @@ function backToMarks(marks) {
 }
 function render() {
   const reading = scrollMarks(), read = readingPanel();
+  const typing = typingNow();
   FREE.disconnect();
   const kids = tree();
   const desc = (id) => kids(id).flatMap((k) => [k, ...desc(k.id)]);
@@ -990,6 +1068,7 @@ function render() {
   backToMarks(reading);
   backToPanel(read);
   if (reading.length || read) requestAnimationFrame(() => { backToMarks(reading); backToPanel(read); });
+  backToTyping(typing);
   sendFocus();
 }
 
@@ -2079,6 +2158,9 @@ const onClick = async (e) => {
   if (!p) return;
   const act = e.target.closest("button")?.dataset.act;
   if (act === "allow") return op("edit", { id: p.id, source: p.source });
+  if (act === "allowsend") return op("edit", { id: p.id, send: p.send });
+  if (act === "send") return sendOut(p);
+  if (act === "unsend") { PENDING.delete(p.id); return refreshSend(p.id); }
   if (act === "runnow") { fetch("/api/feeds/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id }) }); return; }
   if (act === "move") return openMove(p, e.target.closest("button"));
   if (act === "unbundle") return unbundle(p);

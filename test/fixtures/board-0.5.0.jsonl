@@ -1,0 +1,20 @@
+{"seq":1,"at":"2026-11-06T09:00:01.000Z","by":"human","type":"add","panel":{"id":"p1","by":"human","view":"say","data":"えーと認証のやり方を調べて","pinned":false}}
+{"seq":2,"at":"2026-11-06T09:00:02.000Z","by":"human","type":"add","panel":{"id":"p2","by":"human","view":"say","data":"あとアリスにも聞いて","pinned":false,"to":"アリス"}}
+{"seq":3,"at":"2026-11-06T09:00:03.000Z","by":"scribe","type":"edit","panel":{"id":"p1","data":"認証のやり方を調べて"},"reason":"言いよどみを取る"}
+{"seq":4,"at":"2026-11-06T09:00:04.000Z","by":"human","type":"add","panel":{"id":"p4","by":"human","view":"say","data":"社内向けでいい","pinned":false}}
+{"seq":5,"at":"2026-11-06T09:00:05.000Z","by":"scribe","type":"edit","panel":{"id":"p4","into":"p1"},"reason":"同じ考えの続き"}
+{"seq":6,"at":"2026-11-06T09:00:06.000Z","by":"manager","type":"add","panel":{"id":"p6","by":"manager","view":"summary","data":{"points":["認証のやり方"],"decided":[],"open":["社内向けか"]},"pinned":false},"reason":"いまの要点"}
+{"seq":7,"at":"2026-11-06T09:00:07.000Z","by":"manager","type":"add","panel":{"id":"p7","by":"manager","view":"topic","data":{"title":"認証"},"pinned":false},"reason":"話題にまとめる"}
+{"seq":8,"at":"2026-11-06T09:00:08.000Z","by":"manager","type":"add","panel":{"id":"p8","by":"manager","view":"task","data":{"text":"認証のやり方を調べる","from":["p1"]},"pinned":false,"about":"p7","state":"task"},"reason":"取り次ぐ"}
+{"seq":9,"at":"2026-11-06T09:00:09.000Z","by":"アリス","type":"add","panel":{"id":"p9","by":"アリス","view":"table","data":{"columns":["案","手間"],"rows":[["OAuth","中"],["鍵","小"]]},"pinned":false,"about":"p8"},"reason":"調べた結果"}
+{"seq":10,"at":"2026-11-06T09:00:10.000Z","by":"アリス","type":"add","panel":{"id":"pa","by":"アリス","view":"list","data":["OAuth は外向け","鍵は内向け"],"pinned":false,"about":"p8","rel":{"kind":"compare","with":["p9"]}},"reason":"比べる"}
+{"seq":11,"at":"2026-11-06T09:00:11.000Z","by":"アリス","type":"edit","panel":{"id":"p8","state":"done"},"reason":"済み"}
+{"seq":12,"at":"2026-11-06T09:00:12.000Z","by":"ボブ@docs","type":"add","panel":{"id":"pc","by":"ボブ@docs","view":"text","data":"README に手順を足して push する","pinned":false,"about":"p7","state":"proposal"},"reason":"外に届くので提案"}
+{"seq":13,"at":"2026-11-06T09:00:13.000Z","by":"human","type":"edit","panel":{"id":"pc","state":"done"}}
+{"seq":14,"at":"2026-11-06T09:00:14.000Z","by":"ボブ@docs","type":"add","panel":{"id":"pe","by":"ボブ@docs","view":"bars","data":null,"pinned":false,"source":{"shell":"du -s * | sort -n","every":60}},"reason":"容量を見せる"}
+{"seq":15,"at":"2026-11-06T09:00:15.000Z","by":"human","type":"edit","panel":{"id":"pe","source":{"shell":"du -s * | sort -n","every":60}}}
+{"seq":16,"at":"2026-11-06T09:00:16.000Z","by":"human","type":"edit","panel":{"id":"p7","pinned":true}}
+{"seq":17,"at":"2026-11-06T09:00:17.000Z","by":"human","type":"add","panel":{"id":"ph","by":"human","view":"layout","data":{"v":3,"density":24,"pos":{"talk":{"x":1,"y":1,"w":3,"h":15}},"zoom":{},"fold":{"p7":false},"out":[],"pinned":["summary"],"inner":{"tpos":{},"sizes":{}}},"pinned":false}}
+{"seq":18,"at":"2026-11-06T09:00:18.000Z","by":"アリス","type":"add","panel":{"id":"pi","by":"アリス","view":"text","data":"下書き","pinned":false},"reason":"途中経過"}
+{"seq":19,"at":"2026-11-06T09:00:19.000Z","by":"アリス","type":"drop","panel":{"id":"pi"},"reason":"要らなくなった"}
+{"seq":20,"at":"2026-11-06T09:00:20.000Z","by":"human","type":"edit","panel":{"id":"pa","about":null}}

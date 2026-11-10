@@ -25,7 +25,7 @@ const USAGE = `使い方:
   dyve export [--data FILE] [--out FILE]
   dyve app [--room DIR] [--ref REF] [--app DIR]   使う dyve を作る側のコミットから切り出す・更新する
   dyve put <id> [--port 4740]                     標準入力をそのパネルのデータにする（JSON なら JSON で）
-  dyve add --view V [--shell CMD] [--every SEC] [--port 4740]   人としてパネルを置く（標準入力があればデータに）`;
+  dyve add --view V [--shell CMD] [--every SEC] [--send CMD] [--label L] [--port 4740]   人としてパネルを置く（標準入力があればデータに）`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -61,6 +61,8 @@ try {
       view: { type: "string" },
       shell: { type: "string" },
       every: { type: "string" },
+      send: { type: "string" },
+      label: { type: "string" },
       app: { type: "string", default: path.join(HOME, "app") },
     },
   });
@@ -219,6 +221,7 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   } else {
     panel = { view: args.view, ...(text != null ? { data: asData(text) } : {}) };
     if (args.shell) panel.source = { shell: args.shell, ...(args.every ? { every: Number(args.every) } : {}) };
+    if (args.send) panel.send = { shell: args.send, ...(args.label ? { label: args.label } : {}) };
   }
   const r = await fetch(`http://127.0.0.1:${args.port}/api/op`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: cmd === "put" ? "edit" : "add", panel }) })
     .then((x) => x.json())
