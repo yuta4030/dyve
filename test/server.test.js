@@ -159,3 +159,26 @@ test("履歴：at を渡すと、その時点での中身だけ", async () => {
     assert.equal((await (await fetch(`${base}/api/history?id=${id}`)).json()).length, 2);
   });
 });
+
+test("画面の調整：画面から変えるとすぐ効き、幅の外は断り、null で既定に戻る。ファイルに持つ", async () => {
+  const { Tune } = await import("../src/tune.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-tune-"));
+  const file = path.join(dir, "ui-settings.json");
+  const tune = new Tune(file);
+  const server = createServer({ store: new Store(), tune });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal((await (await fetch(`${base}/api/board`)).json()).tune.values.readPerCharMs, 25);
+    const r = await (await post(`${base}/api/tune`, { set: { readPerCharMs: 40 } })).json();
+    assert.equal(r.values.readPerCharMs, 40);
+    assert.equal(new Tune(file).view().values.readPerCharMs, 40, "立て直しても残る");
+    assert.equal((await post(`${base}/api/tune`, { set: { readPerCharMs: 9999 } })).status, 400);
+    assert.equal((await post(`${base}/api/tune`, { set: { nope: 1 } })).status, 400);
+    assert.equal((await (await post(`${base}/api/tune`, { set: { readPerCharMs: null } })).json()).values.readPerCharMs, 25);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {});
+  } finally {
+    server.closeAll();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

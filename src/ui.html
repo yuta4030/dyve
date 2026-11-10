@@ -225,6 +225,11 @@ body.shot #stage, body.shot #map, body.shot #floats { display: none; }
 
 #toolsMore { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
 #toolsMore svg, .opts [data-ctl="lock"] svg { vertical-align: -2px; }
+#tune > summary { cursor: pointer; }
+#tune .tune-rows { display: grid; grid-template-columns: 1fr auto auto; gap: 3px 6px; align-items: center; margin: 6px 0; }
+#tune input { width: 5.2em; font: inherit; font-size: 12px; text-align: right; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+#tune input.changed { border-color: var(--accent); }
+#tune .unit { color: var(--mute); }
 /* 話題の欄：話題ごと（話題がなければ元の発言ごと）のまとまり */
 .group { margin-bottom: 14px; }
 .group > .src { display: block; width: 100%; min-height: 0; padding: 0 2px; margin-bottom: 4px; border: none; background: none; text-align: left;
@@ -366,6 +371,7 @@ dv-summary li[data-from]:hover { text-decoration: underline dotted; }
         <div id="toolsMore">
           <div class="row"><span id="densityLabel"></span><select id="density"></select></div>
           <div class="row"><button id="resetLayout"></button></div>
+          <details id="tune"><summary></summary><div class="tune-rows"></div><button id="tuneReset"></button></details>
         </div>
       </div>
     </div>
@@ -440,6 +446,16 @@ const L = {
   allow: "実行を許可", allowTitle: "このコマンドを部屋で走らせてよい（人が決める）", runNow: "今すぐ更新",
   every: (n) => `${n} 秒ごと`, once: "一度だけ", ranAt: (t) => `${t} に更新`, running: "走っています",
   viewError: (m) => `この view で描けませんでした：${m}`,
+  tune: "調整", tuneTitle: "指したとみなす・知らせを見たことにするまでの時間。変えるとすぐ効き、ほかの画面にも届く",
+  tuneReset: "既定に戻す",
+  tuneItems: {
+    pointHoldMs: ["指したとみなすまで", "ミリ秒", "マウスがこれだけ留まったら、そのパネルを指して話していることにする"],
+    pointKeepSec: ["指したのを覚えておく", "秒", "指した・動かして見たのがこれより前なら、発言に付けない"],
+    readPerCharMs: ["読む時間（一文字）", "ミリ秒", "知らせが映っていて、これだけたつと見たことにする（一文字あたり）"],
+    readMinMs: ["読む時間の下限", "ミリ秒", "短いパネルでも、これだけは映っている必要がある"],
+    readMaxMs: ["読む時間の上限", "ミリ秒", "長いパネルでも、これだけ映っていれば見たことにする"],
+    readZoomPct: ["読める大きさ", "%", "これより小さく縮めて映っているものは、見たことにしない"],
+  },
 };
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
@@ -485,6 +501,9 @@ const ICON = {
   info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
+// 画面の調整（dyve 設定の「調整」）。サーバーから来るまでは既定
+const TUNE_DEF = { pointHoldMs: 250, pointKeepSec: 45, readPerCharMs: 25, readMinMs: 1200, readMaxMs: 6000, readZoomPct: 50 };
+const tu = (k) => S.tune?.values?.[k] ?? TUNE_DEF[k];
 const S = { to: null, panels: [], marks: {}, live: null, names: [], initials: {}, calls: {}, title: "", seen: {}, feeds: {}, views: new Map() };
 // 見る人ごとのもの（見た位置）はブラウザに。並びはボードの view layout のパネルに持つ
 const keep = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -2119,7 +2138,8 @@ async function load() {
   }
   if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
   mergeSeen(b.seen, false);
-  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet });
+  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet, tune: b.tune || S.tune });
+  drawTune();
   const adopted = adoptLayout(b.layout);
   // 並びのないボード（新しいボード）は、ブラウザに覚えた組み込みのパネルの並びだけを下敷きにする（id はボードごとに振られるため）
   if (!b.layout) {
@@ -2481,8 +2501,9 @@ setInterval(() => sendFocus(), 60e3);
 
 // ── 指して喋る：発言を置くとき、そのとき指していたパネルを付ける。「これ」「それ」が何かを、マネージャが取り違えないように ──
 // 指しているもの：さっきまでマウスを乗せていたパネル（hover）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
-// どちらも PT.keep より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
-const PT = { over: null, last: null, looked: 0, cur: undefined, keep: 45e3 };
+// どちらも「覚えておく時間」より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
+// 時間はどれも dyve 設定の「調整」で変えられる（tu()。サーバーの ui-settings.json に持ち、立て直さずに効く）
+const PT = { over: null, last: null, looked: 0, cur: undefined };
 function pointNow() {
   if (SHOT || narrow()) return null;
   const now = Date.now(), g = stage.getBoundingClientRect();
@@ -2490,11 +2511,12 @@ function pointNow() {
     const p = el && panelById(el.dataset.id), r = el?.getBoundingClientRect();
     return p && !["summary", "layout", "say"].includes(p.view) && r.width > 0 && r.bottom > g.top + 24 && r.top < g.bottom - 24 && r.right > g.left + 24 && r.left < g.right - 24 ? p.id : null;
   };
-  if (PT.last && now - PT.last.at < PT.keep) {
+  const keep = tu("pointKeepSec") * 1000;
+  if (PT.last && now - PT.last.at < keep) {
     const id = ok($(`#grid dv-panel[data-id="${CSS.escape(PT.last.id)}"]`));
     if (id) return { id, how: "hover" };
   }
-  if (now - PT.looked < PT.keep) {
+  if (now - PT.looked < keep) {
     const id = ok(document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)?.closest("#grid dv-panel"));
     if (id) return { id, how: "view" };
   }
@@ -2517,7 +2539,7 @@ const overPanel = (e) => {
   const p = panelById(e.target.closest?.("#grid dv-panel")?.dataset.id), now = Date.now();
   if (!p || ["summary", "layout", "say"].includes(p.view)) { PT.over = null; return; }
   if (PT.over?.id !== p.id) PT.over = { id: p.id, since: now };
-  if (now - PT.over.since < 250) return;
+  if (now - PT.over.since < tu("pointHoldMs")) return;
   const fresh = PT.last?.id !== p.id;
   PT.last = { id: p.id, at: now };
   if (fresh) showPoint();
@@ -2530,14 +2552,15 @@ setInterval(showPoint, 5e3);
 // ── 見たら見たことにする：知らせのあるパネルが読める大きさで画面に映っていて、人がいるあいだ、読む時間を数える ──
 // 押さなくても、読めば印は消える。読む時間は中身の量から（変わった行がわかっていれば、その行のぶんだけ）。
 // いちどに読めるのは一枚なので、マウスの下のものがあればそれに、なければ映っているものどうしで時間を分ける
-const DWELL = { got: new Map(), at: performance.now(), tick: 500, min: 1200, perChar: 25, max: 6000, zoom: 0.5 };
+const DWELL = { got: new Map(), at: performance.now(), tick: 500 };
 const JUST = new Map(); // パネル id -> 見たことになった時刻（印を静かに薄れさせる）
 function dwellNeed(el) {
-  if (el.classList.contains("folded")) return DWELL.min;
+  const lo = tu("readMinMs"), hi = Math.max(lo, tu("readMaxMs"));
+  if (el.classList.contains("folded")) return lo;
   const v = [...el.children].find((c) => !c.matches(".meta, .kids, .src-line, .orig"));
   const fresh = v ? $$(".fresh", v) : [];
   const n = !v ? 0 : v.matches("iframe") ? 200 : fresh.length ? fresh.reduce((a, x) => a + x.textContent.length, 0) : v.textContent.length;
-  return clamp(DWELL.min + n * DWELL.perChar, DWELL.min, DWELL.max);
+  return clamp(lo + n * tu("readPerCharMs"), lo, hi);
 }
 // 画面に映っている、まだ見ていないパネル（AI が置いた・変えたもの）
 function dwellCands() {
@@ -2547,7 +2570,7 @@ function dwellCands() {
     if (!p || isPerson(p.by) || !p.aiSeq || p.aiSeq <= (S.seen[p.id] || 0)) continue;
     const r = el.getBoundingClientRect();
     // 縮めすぎて読めない大きさのものは、映っていても見たことにしない
-    if (!r.width || r.width / (el.offsetWidth || r.width) < DWELL.zoom) continue;
+    if (!r.width || r.width / (el.offsetWidth || r.width) < tu("readZoomPct") / 100) continue;
     const w = Math.min(r.right, g.right) - Math.max(r.left, g.left), h = Math.min(r.bottom, g.bottom) - Math.max(r.top, g.top);
     if (w < r.width * 0.6 || h < Math.min(r.height, g.height * 0.5) * 0.8) continue;
     // 浮かせたパネルの下に隠れているものは数えない
@@ -2581,12 +2604,43 @@ function dwellTick() {
 }
 setInterval(dwellTick, DWELL.tick);
 
+// ── 調整：dyve 設定の歯車の奥。変えたらサーバーへ（ui-settings.json）。開いているほかの画面にも届く ──
+function drawTune() {
+  const box = $("#tune .tune-rows"), lim = S.tune?.limits || {};
+  // 打っている最中の欄は書き換えない
+  if (box.contains(document.activeElement)) return;
+  box.innerHTML = Object.entries(L.tuneItems).map(([k, [name, unit, help]]) => {
+    const l = lim[k] || {}, v = tu(k);
+    return `<label for="tune-${k}" title="${esc(help)}">${esc(name)}</label>` +
+      `<input id="tune-${k}" type="number" data-tune="${k}" value="${v}"${l.min != null ? ` min="${l.min}" max="${l.max}"` : ""} title="${esc(help)}"${l.def != null && v !== l.def ? ' class="changed"' : ""}>` +
+      `<span class="unit">${esc(unit)}</span>`;
+  }).join("");
+}
+async function setTune(set) {
+  const r = await (await fetch("/api/tune", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ set }) })).json().catch(() => ({ ok: false, message: "" }));
+  if (!r.ok) { $("#err").textContent = L.refused(r.message); return; }
+  S.tune = { values: r.values, limits: r.limits };
+  drawTune();
+}
+$("#tune > summary").textContent = L.tune;
+$("#tune").title = L.tuneTitle;
+$("#tuneReset").textContent = L.tuneReset;
+$("#tuneReset").onclick = () => setTune(Object.fromEntries(Object.keys(L.tuneItems).map((k) => [k, null])));
+// 打ち終えたら（Enter か欄を離れたら）送る。空にしたら既定に戻す
+$("#tune").addEventListener("change", (e) => {
+  const k = e.target.dataset?.tune;
+  if (!k) return;
+  const v = e.target.value.trim();
+  setTune({ [k]: v === "" ? null : Number(v) });
+});
+
 // ── 生きている知らせ ──
 function connect() {
   const es = new EventSource("/api/events");
   let t = null;
   es.addEventListener("board", load);
   es.addEventListener("panelset", load);
+  es.addEventListener("tune", (e) => { S.tune = JSON.parse(e.data); drawTune(); });
   es.addEventListener("views", async (e) => { await loadViews(JSON.parse(e.data)); render(); });
   es.addEventListener("feed", (e) => { const f = JSON.parse(e.data); S.feeds[f.id] = f; clearTimeout(t); t = setTimeout(load, 120); });
   es.addEventListener("op", () => { clearTimeout(t); t = setTimeout(load, 120); });
