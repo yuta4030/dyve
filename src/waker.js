@@ -217,9 +217,10 @@ export class Waker {
     // 直前の発言はいつも渡す（一つの考えならつなげるので、いまの文と rev が要る）
     const before = this.store.board.list().filter((p) => p.view === "say" && isPerson(p.by) && p.seq <= since && !p.into).slice(first ? -CONTEXT : -NEAR);
     const words = this._wordsFor(first);
+    const screen = this._screenFor(c, first);
     this.scribeBusy = true;
     this._changed();
-    const res = await c.s.send(scribePrompt(fresh, before, words));
+    const res = await c.s.send(scribePrompt(fresh, before, words, { screen, board: this.store.board }));
     this._count(res);
     if (c.s.quota) this.quota = c.s.quota;
     c.turns += fresh.length;
@@ -235,6 +236,14 @@ export class Waker {
     this.wordsSeen = this.words.seq;
     if (first) return this.words.list().map(wordLine);
     return this.words.log.slice(from).map((o) => (o.type === "add" ? wordLine(o) : `- ${o.heard} は直さなくなった`));
+  }
+
+  // 画面の言葉：人がいま見ている表の行・面の見出し。辞書と同じく、会話の頭では全部、あとは前に送っていない行だけ
+  _screenFor(c, first) {
+    if (first || !c.screen) c.screen = new Set();
+    const out = screenWords(this.store.board).filter((l) => !c.screen.has(l));
+    for (const l of out) c.screen.add(l);
+    return out;
   }
 
   // 役ごとの会話。死んでいたり、伸びすぎたり、あきすぎたりしたら起こし直す
@@ -421,13 +430,18 @@ export class Waker {
 const textOf = (d) => (typeof d === "string" ? d : d?.text ?? JSON.stringify(d));
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
 
-// パネルを一行で呼ぶ（id と中身の頭）
-function label(board, id) {
-  const p = board.get(id);
+// パネルの中身の頭の一行
+function headOf(p) {
   const d = p?.data;
   const t = typeof d === "string" ? d : Array.isArray(d) ? d.map((x) => textOf(x)).find((x) => typeof x === "string") : d?.title ?? d?.text;
-  const line = typeof t === "string" ? t.split("\n").map((x) => x.trim()).find(Boolean) : "";
-  return line ? `${id}「${clip(line, 30)}」` : p ? `${id}（${p.view}）` : `${id}（もうない）`;
+  return typeof t === "string" ? t.split("\n").map((x) => x.trim()).find(Boolean) ?? "" : "";
+}
+// パネルを一行で呼ぶ（行なら記号、id と中身の頭）
+function label(board, id) {
+  const p = board.get(id);
+  const line = headOf(p);
+  const name = p?.key ? `${p.key}（${id}）` : id;
+  return line ? `${name}「${clip(line, 30)}」` : p ? `${name}（${p.view}）` : `${id}（もうない）`;
 }
 // 人がその発言をしたときに指していたパネル（合流した発言のぶんも）。押して選んだものは決定、ほかは手がかり
 const HOW = { pick: "を押して選んだ", hover: "を指して", view: "を見ながら" };
@@ -450,15 +464,53 @@ function lastTaskOf(board, name) {
   return best;
 }
 
-// 清書係への一通。新しい発言だけを直させ、直前の発言は文脈として渡す（会話の頭のときだけ）
-export function scribePrompt(fresh, before = [], words = []) {
+// 画面の言葉：人がいま目の前にしている表（話題・行の記号・行の名前・帰った一行）と、開いている面の見出し。
+// 人は画面を見ながら喋るので、聞き違いはここにある言葉に寄せられる（「プリクラ」→ 行の「PR #16 マージ」）
+export function screenWords(board) {
+  const all = board.list();
+  const lp = all.find((p) => p.view === "layout");
+  const open = new Set(lp ? layoutOf(lp.data, board.panels).out || [] : []);
+  const rowName = (r) => clip(String(r.data?.title ?? headOf(r) ?? ""), 40);
+  const out = [];
+  const rows = (parent, depth) => {
+    for (const r of all.filter((q) => q.about === parent.id && q.view === "task")) {
+      out.push(`${"  ".repeat(depth)}- ${r.key ?? r.id} ${rowName(r)}${r.line ? ` → ${clip(r.line, 60)}` : ""}${r.decided ? `（決まった：${clip(r.decided, 30)}）` : ""}`);
+      if (!open.has(r.id)) continue;
+      // 開いている面：中の行と、置かれたものの見出し（表なら列と一列目）
+      for (const q of all.filter((x) => x.about === r.id && x.view !== "task")) {
+        const d = q.data;
+        const head = q.view === "table" && d && Array.isArray(d.columns)
+          ? [d.columns.join("・"), ...(Array.isArray(d.rows) ? d.rows.map((row) => (Array.isArray(row) ? row[0] : null)).filter((x) => typeof x === "string") : [])].map((x) => clip(String(x), 30)).join("／")
+          : clip(headOf(q), 60);
+        if (head) out.push(`${"  ".repeat(depth + 1)}- ${r.key ?? r.id} の面：${head}`);
+      }
+      rows(r, depth + 1);
+    }
+  };
+  for (const t of all.filter((p) => p.view === "topic" && p.state !== "done")) {
+    out.push(`- 話題「${clip(String(t.data?.title ?? headOf(t)), 40)}」`);
+    rows(t, 1);
+  }
+  return out;
+}
+
+// 人が手で直した発言か（清書係は触らない）
+const byHand = (board, p) => board.history(p.id).some((o) => o.type === "edit" && isPerson(o.by) && "data" in o.panel);
+
+// 清書係への一通。新しい発言を直させ、直前の発言は文脈として渡す（新しい発言で言葉の正体がわかれば、文脈の発言も直せる）。
+// screen：画面の言葉（前に送っていない行だけ）。board があれば、発言のとき指していたものの名前を添える
+export function scribePrompt(fresh, before = [], words = [], { screen = [], board = null } = {}) {
+  const pointed = (p) => (board ? pointNotes(board, [p]) : []).map((n) => `、${n}`).join("");
+  const ctx = (p) => (p.pinned ? `- ${p.id}（ピン留め。触らない）：` : board && byHand(board, p) ? `- ${p.id}（人が直した。触らない）：` : `- ${p.id}（rev ${p.rev}${pointed(p)}）：`) + textOf(p.data);
   return [
     words.length ? "辞書（よく聞き違える言葉。左のように聞こえたら右の書き方に）：" : "",
     ...words,
-    before.length ? "文脈（前の発言。一つの考えならここへつなげる）：" : "",
-    ...before.map((p) => `- ${p.id}（rev ${p.rev}）：${textOf(p.data)}`),
+    screen.length ? "画面の言葉（人がいま見ている表の行と面。音が近ければここに寄せる。前に送ったものに足す分）：" : "",
+    ...screen,
+    before.length ? "文脈（前の発言。一つの考えならここへつなげる。新しい発言で言葉の正体がわかれば、ここも直す）：" : "",
+    ...before.map(ctx),
     "新しい発言（直すものだけ panel_edit。rev を付ける）：",
-    ...fresh.map((p) => `- ${p.id}（rev ${p.rev}）：${textOf(p.data)}`),
+    ...fresh.map((p) => `- ${p.id}（rev ${p.rev}${pointed(p)}）：${textOf(p.data)}`),
   ].filter(Boolean).join("\n");
 }
 
