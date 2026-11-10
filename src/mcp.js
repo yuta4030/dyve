@@ -1,9 +1,9 @@
 // MCP の口：エージェントがボードを読み書きする入口。人と同じ操作だけを出す。
 // Streamable HTTP の POST だけを受け、JSON で返す（ストリームは使わない）
-import { isPerson, marks, layoutOf } from "./board.js";
+import { isPerson, marks, layoutOf, turnOf } from "./board.js";
 import { legend, boardPng, changeLayout, layoutPanel } from "./view.js";
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
@@ -18,12 +18,15 @@ const panelFields = {
   source: { type: "object", description: "データを shell コマンドの結果から流し込む：{ shell, every? }（every は秒、5 以上）。AI が置いたコマンドは、人が許可するまで走らない" },
   send: { type: "object", description: "パネルから外へ送り出す：{ shell, label? }（label は「送る」のボタンの字、40 字まで）。人が画面で書いて「送る」を押すと、その入力を標準入力に渡して shell コマンドを走らせる（文字列はそのまま、ほかは JSON。環境変数 DYVE_PANEL にパネルの id）。送るのは人だけで、AI が置いたコマンドは人が許可するまで走らない。null で外す" },
   rel: { type: "object", description: "ほかのパネルとの関係：{ kind: compare（比べる）| sequence（順番。並びは置いた順）, with: [id] }。with は同じものについての（about が同じ）パネル。画面は組を横に並べる。null で外す" },
+  line: { type: "string", description: "行（表の中の仕事）に帰す一行：答えか、いまどこまで来たか。200 字まで（ふつうは 60 字くらい）。null で外す" },
+  decided: { type: "string", description: "行で人が決めたこと（「今日やる」「見送り」）。120 字まで。null で外す" },
+  wait: { type: "object", description: "行を条件つきの待ちにする：{ text, until?, after? }。until は日時（ISO 8601）、after は先に済ませる行の id。条件が満たされると、ボードが人の番で帰す。null で外す" },
 };
 
 export const TOOLS = [
   {
     name: "board_read",
-    description: "ボードを読む。since を渡すと、その seq より後に変わったパネルだけ。about を渡すと、そのパネルとそれについてのパネルだけ。marks は印、live はいまの状況（動いているエージェント・残量）、focus は人のいま（presence・listening・viewing・inside・talking・followingTalk・unseen）",
+    description: "ボードを読む。since を渡すと、その seq より後に変わったパネルだけ。about を渡すと、そのパネルとそれについてのパネルだけ。marks は印、turns は行の番（ai・you・ok・wait）、live はいまの状況（動いているエージェント・残量）、focus は人のいま（presence・listening・viewing・inside・talking・followingTalk・unseen）",
     inputSchema: { type: "object", properties: { since: { type: "integer" }, about: { type: "string" } } },
   },
   {
@@ -34,7 +37,7 @@ export const TOOLS = [
   {
     name: "panel_edit",
     description: "パネルを書き換える。渡した項目だけ変わる。元の中身は操作ログに残る。rev を渡すと、あいだに変更があれば断られる",
-    inputSchema: { type: "object", properties: { id: { type: "string" }, rev: { type: "integer" }, ...panelFields, reason }, required: ["id", "reason"] },
+    inputSchema: { type: "object", properties: { id: { type: "string" }, rev: { type: "integer" }, ...panelFields, from: { type: "array", items: { type: "string" }, description: "この書き換えの元になった人の発言の id。人が声で提案を受け入れたとき（「それでいいよ」）は、その発言を付けて state を done にする（マネージャだけ）" }, reason }, required: ["id", "reason"] },
   },
   {
     name: "panel_drop",
@@ -58,8 +61,8 @@ export const TOOLS = [
       moves: { type: "object", description: "動かす・大きさを変える：{ key: { x?, y?, w?, h? } }（ます目。w・h は 2 以上）。動かしたものはその場所に留まり、自動の並びから外れる。position: null で自動の並びへ戻す。話題の中のパネルなら話題の中のます目で、h: null は中身の高さ、size: [幅, 高さ]（ピクセル。null で戻す）も使える" },
       fold: { type: "object", description: "畳む・開く：{ key: true|false }。畳むと見出しだけ残る。済みの仕事と話題は、何も言わなければ畳まれる" },
       zoom: { type: "object", description: "画面に並ぶパネルの中身の拡大率：{ key: 0.1〜5 }" },
-      float: { type: "object", description: "浮かせる（talk・status・quota・tools）：{ mode?: front|off（既定は front）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
-      out: { type: "object", description: "取り出す・戻す：{ 話題の中のパネルの id: true|false }。取り出すと画面に一枚で並ぶ" },
+      float: { type: "object", description: "浮かせる（talk・now・status・quota・tools）：{ mode?: front|off（既定は front）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
+      out: { type: "object", description: "面を開く・閉じる：{ 行（話題の中の仕事）の id: true|false }。開くと、その行について置かれたものが表の隣に面として出る。ほかの話題の中のパネルなら、取り出すと画面に一枚で並ぶ" },
       density: { type: "integer", enum: [12, 24, 48], description: "ます目の細かさ。全体が同じ見た目の大きさで直る。ピン留めしたものがあると変えられない" },
       reset: { type: "boolean", description: "並びを既定に戻す。全部が自動の並びに戻る（ピン留めしたものは残す）" },
       reason,
@@ -82,17 +85,28 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 書く操作は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。読むのは board_read、絵で見るのは board_view（全体）と panel_view（一枚）。
 
 ## パネル
-- 形は { id, by, view, data, about?, state?, rel?, point?, pinned, source?, send? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
+- 形は { id, by, view, data, about?, state?, rel?, point?, pinned, source?, send?, key?, line?, decided?, wait? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
 - source は入ってくる口（shell コマンドの結果がデータになる）、send は出ていく口（人が送った入力が shell コマンドに渡る）。どちらも、走らせてよいかは人が決める。送ったものは、そのパネルに about した人の text として残る
 - about：どのパネルについてのものか。関係するパネルに about して置く
 - rel：比べるもの（compare。案 A と案 B など）・順番のあるもの（sequence。手順や、順にやる仕事）を置くときに、同じものについてのパネルを with に入れる。画面はその組を横に並べる
 - 話題（view topic、about なし、data { title, note? }）は仕事を束ねる。仕事は view task・state task で話題に about して置き、元の発言は data.from に id の配列で持つ
-- state：task（仕事）→ proposal（提案。受け入れるのは人だけ）／done（済み。畳まれる）。結果は仕事に about して置く
+- state：task（仕事）→ proposal（提案。受け入れるのは人だけ）／done（AI の手を離れた）
+
+## 行と面
+- 話題は表で、中の仕事が表の行になる。行の記号（key：A, B, …。面の中の行は F1, F2）はボードが振る。人は声で「A は今日やる」と呼ぶ
+- 投げたものの結末は、投げた行に帰る：仕事を受けた人は、終わったら行に line（答えの一行）と state done を書く。新しいパネルを足して返さない。時間がかかるときは、line を「いまどこまで来たか」に書き換える
+- 一行に収まらないもの（比べる案、人が先に決めること、出典の並び）だけ、仕事に about して置く。行から開ける面になり、面の中で人は考えて喋る。面の中の呼び出しは、その行に about した仕事（行の中の行）
+- 行の状態は誰の番かで、ボードが導く（turn）：AI の番（state task）、人の番（返ってきた line・提案・止まった）、決まった（decided）、待ち（wait）。同じ行で何往復もする。決まったあとも、実行に移れば state を task に戻す（AI の番）
+- 人が行で決めたこと（「今日やる」「見送り」）は decided に書く。条件つきの待ち（「明日まで」「B のあと」）は wait { text, until?, after? }。条件が満たされると、ボードが人の番で帰す
+- 人が声で提案を受け入れたら（「それでいいよ」）、マネージャがその発言を from に付けて、提案の state を done にする
 - 人の発言は view say・by human。書き換えるのは清書係だけ
 - point：人がその発言をしたときに指していたパネル（{ id, how }。画面が付け、AI は付けられない）。「これ」「それ」はまずここを指すと読む。how が hover（マウスの下）・view（見ていたまん中）は手がかりで、話が合わなければ無視する。pick は「これにする」を押して選んだという人の決定
 
 ## 画面
-- 人の発言はトーク、summary はいまの要点に出る。それ以外は about のないパネル（話題）ごとに一枚にまとまり、about したものはその中に出る。仕事の結果は仕事と並べて話題の直下に出る
+- 人の発言はトーク、summary はいまの要点に出る。話題は表になり、中の仕事が一行ずつ並ぶ。ほかのものは about のないパネルごとに一枚にまとまり、about したものはその中に出る
+- 表は動かない。行が開くと、その行について置かれたものが表の隣に面として出て、行と線でつながる。決まった行の面は、ボードが行に畳む（行の ▸ からいつでも開き直せる）
+- 面を開く・閉じるはマネージャが人の話についていって決める（board_layout の out）。人がその行の話を始めたら開き、話が別の行に移っても、中でまだ動いているものは閉じずに残す。返ってきた結果だけで面を開かない（先回りしない）
+- 「いま」（組み込みのパネル）は、いる場所（話題 › 開いている面）・やりかけ・人の番の行を一行ずつ出す
 - 並びは画面が決める：いまの話題を先頭に大きく、次に印のあるもの、新しいもの、済み（畳む）の順に詰める。幅は中身の形（表は列の数、文章は読みやすい幅）から、高さは中身の量から。読んでいるパネルは画面の同じ位置に残る。並べる手間は要らない。置くときは関係するパネルに about し、組には rel を付けるだけ
 - board_layout は、画面の並びが外れたとき（見せたいものが遠い・大きさが合わない）だけ使う。動かしたものはそこに留まる。人がピン留めしたものとその中は変わらない
 - 人は一瞥で読む。文章を書かず、短い list・table を選ぶ。一枚は数行まで
@@ -100,9 +114,9 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - 人がまだ見ていない変更は、変わった行だけに色が付く（summary・list・table。前に見たときとの差を画面が導く）。書き換えるときは、変わらない行を言い換えず、そのまま残す
 - 比べるもの（rel compare）には「これにする」が出て、人は押して選べる。選んだことは人の発言（point.how が pick）として届き、画面は選ばれたものに印を付ける
 - summary の項目に from（元の発言の id）を付けると、要点から元の発言へ、発言から要点へたどれる。人は、言ったことが拾われたかをトークで確かめる
-- 画面に並ぶものは全部パネル（トーク・いまの要点・状況・残量・dyve 設定も組み込みのパネル）
+- 画面に並ぶものは全部パネル（トーク・いまの要点・いま・状況・残量・dyve 設定も組み込みのパネル）
 - パネルは about を変えれば移せる（話題から話題へ、about を null で外へ）。いくつかを一枚にまとめるときは、親にする topic を置いて about を寄せる
-- トーク・状況・残量・dyve 設定は浮いていて、ボードのどこを見ていても画面に出ている。ボードの拡大縮小は掛からない。浮かせ方は前面（front。既定。画面に留めて重ねる）・並べる（off。ます目に並べる）
+- トーク・いま・状況・残量・dyve 設定は浮いていて、ボードのどこを見ていても画面に出ている。ボードの拡大縮小は掛からない。浮かせ方は前面（front。既定。画面に留めて重ねる）・並べる（off。ます目に並べる）
 
 ## 人のいま
 - 起こされたときの文や board_read の focus に、人のいまが付く：いる・離れている、聞いているか、見ているパネル（viewing・inside）、話している話題（talking）、まだ見ていないもの（unseen）
@@ -110,11 +124,13 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - まだ見ていないものが溜まっているときは、新しく置くより、まとめる・畳む
 
 ## 印
+- 行の番（turn）が、表の中での印の役目を持つ
 - 印はボードが導く。未着手＝結果のない仕事、受け入れ待ち＝提案と許可待ちのコマンド、知らせ＝人が最後に見たあとに AI が置いた・変えたもの。置けば知らせになるので、印を付ける操作はない。知らせは、人が画面で読めば（押さなくても）消える
 
 ## 守ること
 - どの操作にも reason（人が後から読む）を付ける
 - 人に質問して答えを待たない。聞きたいことは関係するパネルに about して短く置く
+- 「それ」「それでいい」は、指したもの（point）がなければ、いちばん新しく届いたもの（行に帰った一行・置かれた提案）を指す
 - 人がいま考えているところについていく。古い話を蒸し返さない
 - ピン留めされたものは変えない。人が置いたパネルは外せない。人が書き換えた直後のものに手を入れない
 - ボードに書くのはこの MCP の口からだけ。画面の口（/api/…）と dyve put・dyve add は人のものなので使わない
@@ -134,6 +150,8 @@ export function boardView(store, waker, { since, about } = {}, focus = waker?.fo
     panels,
     layout: lp ? { id: lp.id, rev: lp.rev, data: layoutOf(lp.data, board.panels) } : null,
     marks: marks(board, { running: waker?.runningTasks() ?? [] }),
+    // 行の番（話題の中の仕事）：ai・you・ok・wait
+    turns: Object.fromEntries(all.filter((p) => p.view === "task").map((p) => [p.id, turnOf(board, p)])),
     live: waker?.status() ?? null,
     names: waker?.names ?? [],
     initials: waker?.initials ?? {},
@@ -173,7 +191,8 @@ function call(store, waker, as, name, args = {}, offView, words, focus) {
     case "panel_drop": {
       if ("data" in rest) rest.data = unwrapData(rest.data);
       if (name !== "panel_drop" && rest.view && offView?.(rest.view)) return { ok: false, code: "invalid", message: `view ${rest.view} は人が「使わない」にしている。text や list など別の view で置く` };
-      const r = store.apply({ by: as, type: name.slice(6), panel: rest, reason: why });
+      const { from, ...panel } = rest;
+      const r = store.apply({ by: as, type: name.slice(6), panel, reason: why, ...(name === "panel_edit" && from != null ? { from } : {}) });
       return r.ok ? { ok: true, seq: r.op.seq, id: r.op.panel.id } : r;
     }
     default:

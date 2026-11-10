@@ -334,6 +334,51 @@ dv-summary li[data-from]:hover { text-decoration: underline dotted; }
 .body pre { margin: 0; font-size: 12px; overflow-x: auto; }
 .orig { margin-top: 6px; font-size: 13px; color: var(--mute); border-left: 2px solid var(--line); padding-left: 8px; white-space: pre-wrap; }
 .task-to { color: var(--mute); font-size: 13px; }
+/* ── 行と面 ── */
+#wires { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 0; }
+#wires path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+#wires path.dim { stroke: var(--line); }
+#grid > .tile { z-index: 1; }
+dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
+.rows .row { display: grid; grid-template-columns: 2.2em minmax(0, 9em) 1.4em minmax(0, 1fr) auto; gap: 0 8px; padding: 5px 10px; align-items: baseline;
+             border-bottom: 1px solid var(--line); font-size: 14px; cursor: default; }
+.rows .row:last-child { border-bottom: 0; }
+.rows .row .k { color: var(--mute); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rows .row .n { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rows .row .s, .rowline .s { text-align: center; }
+.rows .row .t { min-width: 0; overflow-wrap: anywhere; }
+.rows .row .a { display: flex; gap: 4px; align-items: center; }
+.rows .row .a button { min-height: 24px; padding: 0 8px; }
+.rows .row .a .more { font-size: 13px; }
+.rows .row.chg { background: var(--accent-soft); }
+.rows .row.open { box-shadow: inset 0 0 0 1px var(--accent); }
+.s-you .s { color: var(--warn); }
+.s-ok .s { color: var(--ok); }
+.s-ai .s { color: var(--accent); animation: turn-wait 1.6s ease-in-out infinite; }
+.s-ai .t, .s-wait .t, .s-ok .t, .s-none .t { color: var(--mute); }
+.s-wait .s { color: var(--mute); }
+@keyframes turn-wait { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .s-ai .s { animation: none; } }
+.rowline { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 6px; margin: 2px 0 6px; font-weight: 600; }
+.tile.face .tile-body > dv-panel { border: none; background: none; padding: 0; }
+.tile.face .tile-body > dv-panel > .meta .topic-title { display: none; }
+.tile.face { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.tile.face.here { border-color: var(--accent); }
+.tile.face:not(.here) { opacity: .75; }
+#now dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 13px; }
+#now dt { color: var(--mute); white-space: nowrap; }
+#now dd { margin: 0; min-width: 0; display: grid; gap: 2px; }
+#now .path { font-weight: 600; display: block; }
+#now .path i { font-style: normal; color: var(--mute); margin: 0 4px; }
+#now .none { color: var(--mute); }
+#now .nowrow { display: flex; gap: 6px; min-height: 22px; padding: 0 4px; border-color: transparent; background: none; text-align: left; font-size: 13px; }
+#now .nowrow:hover { border-color: var(--line); }
+#now .nowrow b { color: var(--warn); font-weight: 600; }
+#now .nowrow span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+@media (max-width: 760px) {
+  .rows .row { grid-template-columns: 2.2em minmax(0, 1fr) 1.4em auto; }
+  .rows .row .t { grid-row: 2; grid-column: 2 / -1; }
+}
 .ask > summary { cursor: pointer; color: var(--mute); font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
 .ask > .body { margin-top: 4px; }
 </style>
@@ -359,6 +404,7 @@ dv-summary li[data-from]:hover { text-decoration: underline dotted; }
   <section class="tile" data-tile="summary"><div class="tile-body" id="summary"></div></section>
   <section class="tile" data-tile="status"><div class="tile-body"><div id="status" aria-live="polite"></div></div></section>
   <section class="tile" data-tile="quota"><div class="tile-body" id="quota"></div></section>
+  <section class="tile" data-tile="now"><div class="tile-body" id="now"></div></section>
   <section class="tile" data-tile="tools">
     <div class="tile-body">
       <div id="tools">
@@ -389,7 +435,14 @@ dv-summary li[data-from]:hover { text-decoration: underline dotted; }
 // 画面の言葉はここにまとめる
 const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
-  builtin: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" },
+  builtin: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定", now: "いま" },
+  // 行の番：記号と言葉。色だけに頼らず記号でも見分ける
+  turnSym: { ai: "…", you: "●", ok: "✓", wait: "⏸\uFE0E" },
+  turn: { ai: "AI の番（まだ返っていない）", you: "人の番", ok: "決まった", wait: "待ち（条件つき）" },
+  rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`,
+  face: "面を開く（この行について置かれたもの）", faceClose: "面を閉じて行に戻す",
+  faceHere: "ここにいる", faceLeft: "やりかけ",
+  nowAt: "いる場所", nowLeft: "やりかけ", nowYou: "人の番", nowNone: "なし", nowFold: (path, n) => n ? `${path}・人の番 ${n}` : path,
   move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   pinnedNow: "ピン留め中", pinOn: "ピン留め", pinOff: "ピン留めを外す",
@@ -466,20 +519,20 @@ const L = {
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
 // 組み込みのパネル（ボードの操作ログには持たず、画面が描く）。並びの key はこの名前か、パネルの id
-const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
+const BUILTIN = ["talk", "summary", "status", "quota", "tools", "now"];
 // 浮かせる組み込みのパネル（いまの要点はボードに残す）。どれも同じ扱い
-const FLOATS = ["talk", "status", "quota", "tools"];
+const FLOATS = ["talk", "now", "status", "quota", "tools"];
 const FLOAT_MODES = ["front", "off"]; // 先頭が既定
 // 置き場所はピクセルで、近い端からの距離で持つ（窓の大きさが変わっても端に付いたまま）。h がなければ中身の高さ。stack は右上から順に積む
 const FLOAT_HOME = {
-  talk: { left: 14, bottom: 14, w: 300, h: 260 }, status: { right: 14, stack: true, w: 224 },
+  talk: { left: 14, bottom: 14, w: 300, h: 260 }, now: { right: 14, stack: true, w: 260 }, status: { right: 14, stack: true, w: 224 },
   quota: { right: 14, stack: true, w: 224 }, tools: { right: 14, stack: true, w: 224 },
 };
 const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
   talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
-  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 },
+  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 }, now: { x: 10, y: 12, w: 3, h: 5 },
 };
 // HOME は「ふつう」（24 列）のます目で書く。細かさを変えたら置き場所も同じ割合で直す
 const DENSITY = { 12: { row: 44, gap: 10 }, 24: { row: 18, gap: 8 }, 48: { row: 7, gap: 5 } };
@@ -568,6 +621,48 @@ function gistOf(p) {
 // 合流した発言は先頭に寄せる
 const headOf = (id) => S.panels.find((p) => p.id === id)?.into || id;
 
+// ── 行と面：話題は表で、中の仕事（key の付いたもの）が一行ずつ並ぶ。結果は行に帰り、一行に収まらないものだけ行から面が開く ──
+// 誰の番か（ボードの turnOf と同じ決まり。データに持たず導く）
+const isRow = (p) => p?.view === "task" && !!p.key;
+function turnOf(p) {
+  if (!p) return null;
+  if (p.view !== "task") return p.state === "proposal" ? "you" : null;
+  if (p.state === "task") return "ai";
+  if (p.wait) return "wait";
+  if (p.state === "proposal" || S.panels.some((q) => q.about === p.id && q.state === "proposal")) return "you";
+  const back = p.line ? p.lineSeq || 0 : 0;
+  if (p.decided && (p.decidedSeq || 0) >= back) return "ok";
+  if (p.state === "done" && p.line) return "you";
+  return p.state === "done" || p.decided ? "ok" : null;
+}
+// 行の名前（短く）と、行に出す一行
+const rowName = (t) => clipText(lineOf(t.data?.title ?? textOf(t.data)), 28);
+function rowText(t) {
+  const turn = turnOf(t);
+  if (turn === "wait") return L.rowWait(t.wait.text);
+  if (turn === "ok") return t.decided || t.line || "";
+  if (turn === "ai") return t.line || (isWorking(t.id) ? L.rowWorking : L.rowNotYet);
+  const prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
+  return t.line || (prop ? lineOf(dataOf(prop)) : "");
+}
+// 面を開けるか：行について AI が置いたもの（詳しい結果・問い）か、行の中の行がある
+const openable = (t) => S.panels.some((q) => q.about === t.id && !isPerson(q.by) && q.by !== "board");
+const faceOpen = (id) => (LAYOUT.out || []).includes(id);
+// 表の一行
+function rowEl(t) {
+  const turn = turnOf(t), mark = markOf(t), prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
+  const d = document.createElement("div");
+  d.className = `row s-${turn || "none"}${mark === "notice" ? " chg" : ""}${faceOpen(t.id) ? " open" : ""}`;
+  d.dataset.row = t.id;
+  const text = rowText(t);
+  d.innerHTML = `<span class="k">${esc(t.key)}</span><span class="n" title="${esc(textOf(t.data))}">${esc(rowName(t))}</span>` +
+    `<span class="s" title="${esc(L.turn[turn] || "")}" aria-label="${esc(L.turn[turn] || "")}">${turn === "ai" && isWorking(t.id) ? '<span class="spin" aria-hidden="true"></span>' : esc(L.turnSym[turn] || "")}</span>` +
+    `<span class="t" title="${esc(text)}">${linkify(text)}</span>` +
+    `<span class="a">${prop ? `<button data-act="accept-row" data-id="${esc(prop.id)}" data-rev="${prop.rev}">${esc(L.accept)}</button>` : ""}` +
+    `${openable(t) || faceOpen(t.id) ? `<button class="icon more" data-face="${esc(t.id)}" aria-expanded="${faceOpen(t.id)}" title="${esc(faceOpen(t.id) ? L.faceClose : L.face)}">${faceOpen(t.id) ? "◂" : "▸"}</button>` : ""}</span>`;
+  return d;
+}
+
 // ── まだ見ていない変更：人が最後に見たときの中身との差。印と同じで、データに持たず操作ログから導く ──
 // 前に見たときの中身（old）になかった行を返す。summary は欄ごと、list は項目、table は行（列が同じときだけ）
 function freshOf(view, now, old) {
@@ -625,8 +720,9 @@ class TableView extends View {
 const ASK_OPEN = new Set();
 class TaskView extends View {
   render(v) {
-    const id = this.panel?.id;
-    this.innerHTML = `<details class="ask"${ASK_OPEN.has(id) ? " open" : ""}><summary>${esc(L.ask)}${v?.to ? `<span class="task-to">${esc(L.to(v.to))}</span>` : ""}</summary><div class="body">${linkify(textOf(v))}</div></details>`;
+    const id = this.panel?.id, t = this.panel;
+    const head = isRow(t) ? `<div class="rowline s-${turnOf(t) || "none"}"><span class="s">${esc(L.turnSym[turnOf(t)] || "")}</span><span class="t">${linkify(rowText(t))}</span></div>` : "";
+    this.innerHTML = head + `<details class="ask"${ASK_OPEN.has(id) ? " open" : ""}><summary>${esc(L.ask)}${v?.to ? `<span class="task-to">${esc(L.to(v.to))}</span>` : ""}</summary><div class="body">${linkify(textOf(v))}</div></details>`;
     $("details", this).addEventListener("toggle", (e) => { if (e.target.open) ASK_OPEN.add(id); else ASK_OPEN.delete(id); });
   }
 }
@@ -821,7 +917,9 @@ function panelEl(p, kids, { root = false } = {}) {
   const feed = S.feeds[p.id];
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
-  const head = p.view === "topic"
+  const head = isRow(p)
+    ? `<span class="topic-title">${esc(p.key)}　${esc(rowName(p))}</span>`
+    : p.view === "topic"
     ? `<span class="topic-title" title="${esc(`${topicTitle(p)}（${who(p.by)}）`)}">${esc(topicTitle(p))}</span>`
     : `<span class="who">${esc(who(p.by))}</span>`;
   el.innerHTML = `<div class="meta">${head}${tags.join("")}
@@ -861,11 +959,20 @@ function panelEl(p, kids, { root = false } = {}) {
   }
   // 読んでから送るので、送り出しは中身の下に置く
   if (p.send) el.append(sendRow(p));
+  const table = p.view === "topic" || isRow(p);
+  const rows = table ? kids(p.id).filter(isRow) : [];
+  if (rows.length) {
+    const tb = document.createElement("div");
+    tb.className = "rows";
+    for (const r of rows) tb.append(rowEl(r));
+    el.append(tb);
+  }
   const box = document.createElement("div");
-  box.className = p.view === "topic" ? "kids free" : "kids";
+  box.className = table ? "kids free" : "kids";
   for (const k of kids(p.id)) {
+    if (table && isRow(k)) continue;
     const c = panelEl(k, kids);
-    if (p.view !== "topic") { box.append(c); continue; }
+    if (!table) { box.append(c); continue; }
     // 話題の中はます目の一つ分（cell）に入れ、右下に大きさの角を付ける
     const cell = document.createElement("div");
     cell.className = "cell";
@@ -1036,7 +1143,7 @@ function shownParent(p, byId) {
   let k = p.about;
   while (k && byId.has(k)) {
     const up = byId.get(k);
-    if (up.view !== "task" || !up.about || !byId.has(up.about)) return k;
+    if (up.view !== "task" || up.key || !up.about || !byId.has(up.about)) return k;
     k = up.about;
   }
   return null;
@@ -1237,18 +1344,22 @@ function render() {
     const ms = inside.filter((p) => !isPerson(p.by)).map(markOf);
     $(".tile-head .badge", t).textContent = (solo && isDone(root) ? "✓" : "") + (ms.includes("waiting") ? L.markShort.waiting : ms.some(Boolean) ? L.markShort.notice : "");
   }
-  // 取り出したパネル
+  // 取り出したパネル（面）。並びが先に届いていれば、枠をここで作る（作るのを並べるときまで待つと、中身のない枠で一度並ぶ）
   for (const k of LAYOUT.out || []) {
+    if (!tileOf(k) && panelById(k)) setupTile(k);
     const t = tileOf(k);
     if (!t) continue;
     const p = panelById(k);
-    $(".tile-head h2", t).textContent = !p ? k : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
-    $(".tile-head .gist", t).textContent = p ? gistOf(p) : "";
+    t.classList.toggle("face", isRow(p));
+    t.classList.toggle("here", isRow(p) && k === hereFace());
+    $(".tile-head h2", t).textContent = !p ? k : isRow(p) ? `${p.key}　${rowName(p)}` : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
+    $(".tile-head .gist", t).textContent = !p ? "" : isRow(p) ? (k === hereFace() ? L.faceHere : L.faceLeft) : gistOf(p);
     const body = $(".tile-body", t);
     body.innerHTML = "";
     if (p && !shownPanels(S.panels, S.marks, offSet()).includes(p)) body.innerHTML = `<p class="empty">${esc(L.offView)}</p>`;
     else if (p) body.append(panelEl(p, kids, { root: true })); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
   }
+  renderNow();
   // 中身が変わると高さも変わるので、毎回並べ直す（読んでいるパネルは画面の同じ位置に残る）。人が動かしている最中は待つ
   if (!$(".editing")) applyLayout();
   // 中のます目を並べてから戻す（並ぶ前は高さが足りず、0 に押し戻される）。次のコマで伸びることがあるので、もう一度
@@ -1258,6 +1369,27 @@ function render() {
   if (reading.length || read) requestAnimationFrame(() => { backToMarks(reading); backToPanel(read); });
   backToTyping(typing);
   sendFocus();
+}
+
+// いまいる面：開いている面のうち、いちばん後に開いたもの（マネージャが人の話についていって開く）
+const faces = () => (LAYOUT.out || []).filter((id) => isRow(panelById(id)));
+const hereFace = () => faces().at(-1) ?? null;
+const topOfId = (id) => { let p = panelById(id); const seen = new Set(); while (p?.about && !seen.has(p.id) && panelById(p.about)) { seen.add(p.id); p = panelById(p.about); } return p; };
+// 「いま」：いる場所（話題 › 面）・やりかけ（ほかに開いている面）・人の番の行を、一行ずつ
+function renderNow() {
+  const el = $("#now");
+  if (!el) return;
+  const here = hereFace(), topic = here ? topOfId(here) : panelById(S.talking?.[0]);
+  const path = [topic && topic.view === "topic" ? topicTitle(topic) : "", here ? panelById(here).key : ""].filter(Boolean);
+  const left = faces().filter((id) => id !== here).map(panelById);
+  const you = S.panels.filter((p) => isRow(p) && turnOf(p) === "you").sort((a, b) => Math.max(b.lineSeq || 0, b.rev) - Math.max(a.lineSeq || 0, a.rev));
+  const go = (p, text) => `<button class="nowrow" data-goto="${esc(p.id)}"><b>${esc(p.key)}</b><span>${esc(clipText(text, 40))}</span></button>`;
+  el.innerHTML = `<dl>
+    <dt>${esc(L.nowAt)}</dt><dd class="path">${path.length ? path.map(esc).join("<i>›</i>") : `<span class="none">${esc(L.nowNone)}</span>`}</dd>
+    <dt>${esc(L.nowLeft)}</dt><dd>${left.length ? left.map((p) => go(p, rowName(p))).join("") : `<span class="none">${esc(L.nowNone)}</span>`}</dd>
+    <dt>${esc(L.nowYou)}</dt><dd>${you.length ? you.slice(0, 8).map((p) => go(p, rowText(p))).join("") : `<span class="none">${esc(L.nowNone)}</span>`}</dd></dl>`;
+  const gs = $('.tile[data-tile="now"] .tile-head .gist');
+  if (gs) { gs.textContent = L.nowFold(path.join(" › ") || L.nowNone, you.length); gs.title = gs.textContent; }
 }
 
 // いまの話題：いちばん新しい人の発言から出たものが入っている枠（話題か、発言から出たまとまり）。新しい順に三つまで
@@ -1445,8 +1577,38 @@ function autoLayout(pos) {
   // 済んだもの・畳んだものは、まだのものより上の隙間には入れない（見る場所がまぎれないように）
   let floor = 1;
   const past = (k) => isFolded(k) || isDone(panelById(k));
-  for (const k of order) {
-    const q = fit(taken, w[k], h[k], past(k) ? floor : 1);
+  // 行と面：面はその表の隣に開く（右、左の順。入らなければ下）。表は面より先に、いまの表はまん中に置く。表は動かさず、動くのは面のほう
+  const faceOf = (k) => (isRow(panelById(k)) && isOut(k) ? topOfId(k)?.id : null);
+  const lead = order.filter((k) => !faceOf(k));
+  const seq = lead.flatMap((k) => [k, ...order.filter((f) => faceOf(f) === k)]).concat(order.filter((f) => faceOf(f) && !lead.includes(faceOf(f))));
+  const table = S.talking?.[0] && panelById(S.talking[0])?.view === "topic" && S.panels.some((p) => p.about === S.talking[0] && isRow(p)) ? S.talking[0] : null;
+  const free = (q) => q.x >= 1 && q.x + q.w <= dens() + 1 && !taken.some((o) => overlap(q, o));
+  const side = {};
+  // いまの表とその面を先頭に
+  if (table && seq.includes(table)) {
+    const mine = seq.filter((k) => k === table || faceOf(k) === table);
+    seq.splice(0, seq.length, ...mine, ...seq.filter((k) => !mine.includes(k)));
+  }
+  for (const k of seq) {
+    let q = null;
+    if (k === table) {
+      const x = Math.max(1, Math.floor((dens() - w[k]) / 2) + 1);
+      for (let y = 1; !q && y < 400; y++) if (free({ x, y, w: w[k], h: h[k] })) q = { x, y, w: w[k], h: h[k] };
+    }
+    const tp = faceOf(k) && pos[faceOf(k)];
+    if (!q && tp) {
+      const n = side[faceOf(k)] || { right: tp.x + tp.w, left: tp.x, yr: tp.y, yl: tp.y };
+      side[faceOf(k)] = n;
+      // 面の幅は、表の脇に入る幅まで縮める（一画面の 1/4 より狭くはしない）
+      const wr = dens() + 1 - n.right, wl = n.left - 1, min = Math.round(dens() / 4);
+      const r = { x: n.right, y: n.yr, w: wr >= min ? Math.min(w[k], wr) : w[k], h: h[k] };
+      const lw = wl >= min ? Math.min(w[k], wl) : w[k], l = { x: n.left - lw, y: n.yl, w: lw, h: h[k] };
+      // 左と右に交互に（右上には浮いたパネルが積まれるので左から）。同じ側に二つめは、前の面の下へ
+      const tryR = free(r), tryL = free(l);
+      if (tryL && (!tryR || (n.nl || 0) <= (n.nr || 0))) { q = l; n.yl += h[k]; n.nl = (n.nl || 0) + 1; }
+      else if (tryR) { q = r; n.yr += h[k]; n.nr = (n.nr || 0) + 1; }
+    }
+    if (!q) q = fit(taken, w[k], h[k], past(k) ? floor : 1);
     if (!past(k)) floor = Math.max(floor, q.y + q.h);
     AUTO[k] = q;
     pos[k] = q;
@@ -1664,9 +1826,31 @@ function applyLayout(appear = null) {
     pos.summary = { ...pos.summary, h: Math.max(pos.summary.h, Math.min(half, needRows(st, m))) };
   }
   place(autoLayout(settle(pos, null, appear)), false, snap);
+  wiresSoon();
   $("#density").value = String(dens());
   sendFocus();
 }
+// 行と、その行から開いた面を線でつなぐ（枠がすべり終わってからもう一度）
+const wires = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+wires.id = "wires";
+wires.setAttribute("aria-hidden", "true");
+grid.prepend(wires);
+function drawWires() {
+  if (narrow()) { wires.innerHTML = ""; return; }
+  const g = grid.getBoundingClientRect(), z = zoomNow(), here = hereFace();
+  Object.assign(wires.style, { width: `${grid.scrollWidth}px`, height: `${grid.scrollHeight}px` });
+  wires.innerHTML = faces().map((id) => {
+    const face = tileOf(id), row = $$(`.row[data-row="${CSS.escape(id)}"]`).find((r) => !face?.contains(r) && r.getClientRects().length);
+    if (!face || !row) return "";
+    const r = row.getBoundingClientRect(), e = face.getBoundingClientRect(), right = e.left >= r.right - 4;
+    const x1 = ((right ? r.right : r.left) - g.left) / z, y1 = (r.top + r.height / 2 - g.top) / z;
+    const x2 = ((right ? e.left : e.right) - g.left) / z, y2 = (e.top + 16 - g.top) / z, m = (x1 + x2) / 2;
+    return `<path class="${id === here ? "" : "dim"}" d="M${x1} ${y1} C${m} ${y1} ${m} ${y2} ${x2} ${y2}"/>`;
+  }).join("");
+}
+let wiresTimer = 0;
+const wiresSoon = () => { requestAnimationFrame(drawWires); clearTimeout(wiresTimer); wiresTimer = setTimeout(drawWires, 360); };
+addEventListener("resize", wiresSoon);
 // 細かさを変えたら、置き場所・大きさを同じ割合で直す（見た目の大きさを保つ）
 function setDensity(next) {
   const r = next / dens();
@@ -2351,10 +2535,27 @@ const onClick = async (e) => {
     from.map(panelOf).filter(Boolean).forEach((x, i) => (i ? flash(x) : reveal(x)));
     return;
   }
+  // 行の ▸：面を開く・閉じる（人が開き直すのはいつでもよい）
+  const fb = e.target.closest("[data-face]");
+  if (fb) {
+    const id = fb.dataset.face;
+    if (faceOpen(id)) { LAYOUT.out = LAYOUT.out.filter((x) => x !== id); delete LAYOUT.pos?.[id]; saveLayout(); applyLayout(); return render(); }
+    return takeOut(id);
+  }
+  const ab = e.target.closest('[data-act="accept-row"]');
+  if (ab) return op("edit", { id: ab.dataset.id, state: "done", rev: Number(ab.dataset.rev) });
+  // 行を押したら、その行は見たことにする
+  const rw = e.target.closest(".row[data-row]");
+  if (rw && !e.target.closest("a, button")) {
+    const t = panelById(rw.dataset.row);
+    if (t && markOf(t) === "notice") { S.seen[t.id] = t.aiSeq; saveSeen(); render(); }
+    if (faceOpen(t?.id)) reveal(tileOf(t.id));
+    return;
+  }
   const gb = e.target.closest("[data-goto]"), go = gb?.dataset.goto;
   // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ、発言の印は指したパネル・拾われた要点の行へ
   if (go) {
-    reveal(panelOf(go));
+    reveal(panelOf(go) || $(`.row[data-row="${CSS.escape(go)}"]`));
     if (gb.dataset.item) for (const x of $$(`#summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
     return;
   }

@@ -1,8 +1,9 @@
 // ボードをそのまま Markdown に並べる。AI は使わない。外へ持ち出すための「落とさない」
-import { isPerson, marks } from "./board.js";
+import { isPerson, marks, turnOf } from "./board.js";
 
 const STATE = { task: "仕事", proposal: "提案", done: "済み" };
 const MARK = { waiting: "受け入れ待ち", untouched: "未着手" };
+const TURN = { ai: "AI の番", you: "人の番", ok: "決まった", wait: "待ち" };
 
 export function toMarkdown(board, { title = "ボード", now = new Date(), running = [] } = {}) {
   // 置き場所は画面のためのもの。合流した発言は先頭に入っている（下に付いたものは先頭へ寄せる）
@@ -21,9 +22,15 @@ export function toMarkdown(board, { title = "ボード", now = new Date(), runni
     const pad = "  ".repeat(depth);
     const tags = [p.state && STATE[p.state], m[p.id] && MARK[m[p.id]], p.pinned && "ピン留め", p.point && `${p.point.how === "pick" ? "選んだ" : "指した"}：${p.point.id}`].filter(Boolean);
     const who = isPerson(p.by) ? "" : `${p.by}：`;
+    const turn = p.key ? turnOf(board, p) : null;
+    if (turn) tags.unshift(TURN[turn]);
     const body = render(p.data).split("\n");
-    lines.push(`${pad}- ${who}${body[0]}${tags.length ? `（${tags.join("・")}）` : ""}`);
+    lines.push(`${pad}- ${p.key ? `${p.key}. ` : ""}${who}${body[0]}${tags.length ? `（${tags.join("・")}）` : ""}`);
     for (const l of body.slice(1)) lines.push(`${pad}  ${l}`);
+    // 行に帰った一行・決まったこと・待ち
+    if (p.line) lines.push(`${pad}  → ${p.line}`);
+    if (p.decided) lines.push(`${pad}  決まった：${p.decided}`);
+    if (p.wait) lines.push(`${pad}  待ち：${p.wait.text}${p.wait.until ? `（${p.wait.until} まで）` : ""}${p.wait.after ? `（${board.get(p.wait.after)?.key ?? p.wait.after} のあと）` : ""}`);
     for (const k of kids.get(p.id) || []) walk(k, depth + 1);
   };
   for (const p of kids.get(null) || []) walk(p, 0);

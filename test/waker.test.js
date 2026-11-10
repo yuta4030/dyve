@@ -19,10 +19,10 @@ function fakeSpawn() {
   return { jobs, spawn };
 }
 
-test("発言のあと間があいたらマネージャを一人だけ起こし、走っているあいだの発言は終わってから読ませる", async () => {
+test("発言のあと間があいたらマネージャを一人だけ起こし、走っているあいだの発言は終わってから読ませる（一本のとき）", async () => {
   const store = new Store();
   const f = fakeSpawn();
-  const w = new Waker({ store, spawn: f.spawn, pause: 10 }).start();
+  const w = new Waker({ store, spawn: f.spawn, pause: 10, lanes: 1 }).start();
   store.apply({ by: "human", type: "add", panel: { view: "say", data: "a" } });
   store.apply({ by: "human", type: "add", panel: { view: "say", data: "b" } });
   await tick(30);
@@ -36,6 +36,30 @@ test("発言のあと間があいたらマネージャを一人だけ起こし�
   const m = f.jobs.filter((j) => j.role === "manager");
   assert.equal(m.length, 2);
   assert.match(m[1].prompt, /since: 2/);
+  w.stop();
+});
+
+test("マネージャは二本まで：前の整理が済むのを待たずに、次の発言を別の本で読む。同じ発言は二本で読まない", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 10 }).start();
+  const a = store.apply({ by: "human", type: "add", panel: { view: "say", data: "a" } }).op.panel.id;
+  await tick(30);
+  const m = () => f.jobs.filter((j) => j.role === "manager");
+  assert.equal(m().length, 1);
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "b" } });
+  await tick(30);
+  assert.equal(m().length, 2, "一本目が走っていても、二本目が読む");
+  assert.match(m()[1].prompt, /since: 1/);
+  assert.match(m()[1].prompt, new RegExp(`${a} は、もう一本のマネージャがいま読んでいます`));
+  assert.equal(w.status().managers.length, 2);
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "c" } });
+  await tick(30);
+  assert.equal(m().length, 2, "三本目は立てない");
+  m()[0].finish();
+  await tick(30);
+  assert.equal(m().length, 3);
+  assert.match(m()[2].prompt, /since: 2/);
   w.stop();
 });
 
@@ -89,9 +113,11 @@ test("取り下げられたら止め、結果を置かずに終わったらそ�
   assert.equal(f.jobs[0].killed, true);
   f.jobs[1].finish({ code: 1, error: "終了コード 1" });
   await tick();
-  const note = store.board.list().find((p) => p.about === b);
-  assert.equal(note.by, "board");
-  assert.match(note.data, /結果を置かずに終わりました/);
+  // 止まったことは行に帰す（人の番）
+  const back = store.board.get(b);
+  assert.equal(store.board.history(b).at(-1).by, "board");
+  assert.match(back.line, /結果を置かずに終わりました/);
+  assert.equal(back.state, "done");
   // 同じ形の仕事で起こし直さない
   assert.equal(f.jobs.filter((j) => j.taskId === b).length, 1);
   w.stop();
@@ -250,8 +276,8 @@ test("話題：マネージャには話題の一覧を渡し、控室には話�
   const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "パネルの整理" } }, reason: "話題" }).op.panel.id;
   const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: tp, data: { text: "diff の view を作る", from: [s1] } }, reason: "x" }).op.panel;
   const m = managerPrompt(0, store.board);
-  assert.match(m, new RegExp(`## 話題\\n- ${tp}：パネルの整理（仕事 1）`));
-  assert.match(m, new RegExp(`${t.id}［task・話題 ${tp}］diff の view を作る`));
+  assert.match(m, new RegExp(`## 話題\\n- ${tp}：パネルの整理（行 1）`));
+  assert.match(m, new RegExp(`A（${t.id}）［AI の番］diff の view を作る`));
   const p = taskPrompt(store.board, store.board.get(t.id), "アリス");
   assert.match(p, /話題（.+）：パネルの整理/);
   assert.match(p, new RegExp(`元の発言（${s1}）：diff も欲しい`));
@@ -270,9 +296,8 @@ test("途中経過を置いたあとで落ちた仕事にも止まったこと�
   job(a).finish({ code: 1, error: "終了コード 1：You've hit your 5-hour limit" });
   job(b).finish({ code: 0 });
   await tick();
-  const fromBoard = (id) => store.board.list().filter((p) => p.about === id && p.by === "board");
-  assert.match(fromBoard(a)[0].data, /途中で止まりました（終了コード 1：You've hit your 5-hour limit）/);
-  assert.equal(fromBoard(b).length, 0);
+  assert.match(store.board.get(a).line, /途中で止まりました（終了コード 1：You've hit your 5-hour limit）/);
+  assert.equal(store.board.history(b).some((o) => o.by === "board"), false);
   w.stop();
 });
 
