@@ -1,7 +1,9 @@
 // 起こし係：発言が来たら清書係に渡し、間があいたらマネージャを起こし、仕事が置かれたら控室のエージェントを起こす。
-// 同じ仕事を同時に二つ走らせない。清書係もマネージャも一度に一人だけ。
+// 同じ仕事を同時に二つ走らせない。清書係は一度に一人。マネージャは、前の整理が済むのを待たずに次の発言を読めるよう、
+// 読む発言を分けて二本（lanes）まで並べる。同じ発言を二本で読むことはない
 import path from "node:path";
-import { isPerson, hasAiAnswer, STAFF } from "./board.js";
+import { isPerson, hasAiAnswer, STAFF, turnOf, layoutOf } from "./board.js";
+import { changeLayout, layoutPanel } from "./view.js";
 import { NAMES } from "./crew.js";
 import { wordLine } from "./words.js";
 import { Focus } from "./focus.js";
@@ -20,7 +22,7 @@ export { NAMES };
 export class Waker {
   // session：清書係の会話を開く関数（なければ清書係を置かない）
   // integrate：開発の提案を人が受け入れたら呼ぶ（{ board, taskId } -> { branch, into, commit, cleaned }）
-  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, names = NAMES, initials = {}, calls = {}, teams = {}, words = null }) {
+  constructor({ store, spawn, session = null, integrate = null, pause = 4000, scribePause = 1000, slots = 3, lanes = 2, names = NAMES, initials = {}, calls = {}, teams = {}, words = null, now = () => Date.now() }) {
     this.store = store;
     this.words = words; // 辞書（全部のボードで共通）
     this.focus = new Focus(); // 人のいま（画面が知らせてくる。これで誰かを起こすことはしない）
@@ -43,13 +45,17 @@ export class Waker {
     this.initials = initials; // 名前 -> 画面のアイコンの頭文字
     this.calls = calls; // 名前（ログに残る id）-> 呼び名（画面と声）。なければ名前のまま
     this.teams = teams; // 名前 -> チーム（個人の控室の人は null）
-    this.manager = null; // { since, startedAt, handle }
+    this.lanes = Math.max(1, lanes);
+    this.managers = []; // 走っているマネージャ：{ lane, since, upto, startedAt, handle }
+    this.now = now;
+    this.waitTimer = null;
     this.again = false;
     this.timer = null;
     this.running = new Map(); // taskId -> { name, startedAt, handle }
     this.tried = new Map(); // taskId -> 起こしたときの rev（同じ形の仕事で二度起こさない）
     this.direct = new Map(); // 名前 -> { says: [発言の id], timer }（人がアイコンで宛てた発言。間があくか、相手の仕事が終わったら渡す）
     this.listeners = new Set();
+    this.turns = new Map(); // 行の id -> 前に見た番（決まった面を閉じるため）
     const last = (by) => store.board.log.filter((op) => op.by === by).at(-1)?.seq ?? 0;
     this.cutoff = last("manager");
     this.scribeCutoff = Math.max(last("scribe"), this.cutoff);
@@ -59,7 +65,9 @@ export class Waker {
     this.off = this.store.onOp((op) => this._onOp(op));
     if (this.session && this._says(this.scribeCutoff).length) this._scheduleScribe();
     if (this._unreadSays()) this._schedule();
+    for (const p of this.store.board.list()) if (p.view === "task") this.turns.set(p.id, turnOf(this.store.board, p));
     this._fill();
+    this._waits();
     return this;
   }
 
@@ -67,9 +75,10 @@ export class Waker {
     this.off?.();
     clearTimeout(this.timer);
     clearTimeout(this.scribeTimer);
+    clearTimeout(this.waitTimer);
     for (const d of this.direct.values()) clearTimeout(d.timer);
     for (const c of Object.values(this.convs)) c.s.kill();
-    this.manager?.handle.kill();
+    for (const m of this.managers) m.handle.kill();
     for (const r of this.running.values()) r.handle.kill();
   }
 
@@ -78,13 +87,20 @@ export class Waker {
     return () => this.listeners.delete(fn);
   }
 
+  // いちばん前から走っているマネージャ（なければ null）
+  get manager() {
+    return this.managers[0] ?? null;
+  }
+
   status() {
+    const m = this.manager;
     return {
       scribe: this.scribeBusy,
-      manager: this.manager ? { since: this.manager.since, startedAt: this.manager.startedAt } : null,
+      manager: m ? { since: m.since, startedAt: m.startedAt } : null,
+      managers: this.managers.map((x) => ({ lane: x.lane, since: x.since, upto: x.upto, startedAt: x.startedAt })),
       waitingManager: !!this.timer || this.afterScribe,
       // マネージャが読み終えたところ（走っているあいだは、読みはじめる前の位置）。画面は、これより後の発言を「まだ」と見せる
-      read: this.manager ? this.manager.since : this.cutoff,
+      read: m ? m.since : this.cutoff,
       usage: { ...this.usage },
       quota: this.quota,
       agents: [...this.running].map(([task, r]) => ({ name: r.name, task, startedAt: r.startedAt })),
@@ -108,7 +124,8 @@ export class Waker {
   }
 
   _onOp(op) {
-    if (isPerson(op.by) && op.type === "edit" && op.panel.state === "done") this._accepted(op.panel.id);
+    // 受け入れ：人が押したか、人が声で受け入れたのをマネージャが書いたか（from）
+    if ((isPerson(op.by) || (op.by === "manager" && op.from)) && op.type === "edit" && op.panel.state === "done") this._accepted(op.panel.id);
     if (op.type === "add" && op.panel.view === "say" && isPerson(op.by)) {
       if (this.session) this._scheduleScribe();
       this._schedule();
@@ -119,6 +136,44 @@ export class Waker {
       r.handle.kill(); // 人かマネージャが仕事を取り下げた
     }
     this._fill();
+    if (op.panel.id !== layoutPanel(this.store.board)?.id) {
+      this._closeDecided();
+      this._waits();
+    }
+  }
+
+  // 決まった行・待ちになった行の面は、行に畳む（閉じた面は行からいつでも開き直せる）
+  _closeDecided() {
+    const board = this.store.board, lp = layoutPanel(board);
+    const open = new Set(lp ? layoutOf(lp.data, board.panels).out || [] : []);
+    const close = [];
+    for (const p of board.list()) {
+      if (p.view !== "task") continue;
+      const was = this.turns.get(p.id), now = turnOf(board, p);
+      this.turns.set(p.id, now);
+      if (was !== now && (now === "ok" || now === "wait") && open.has(p.id)) close.push(p.id);
+    }
+    if (close.length) changeLayout(this.store, "board", { out: Object.fromEntries(close.map((id) => [id, false])) }, "決まった行の面を、行に畳む");
+  }
+
+  // 条件つきの待ち：日時が来たか、先に済ませる行が済んだら、人の番で帰す
+  _waits() {
+    clearTimeout(this.waitTimer);
+    this.waitTimer = null;
+    const board = this.store.board, now = this.now();
+    let next = Infinity;
+    for (const p of board.list()) {
+      if (p.view !== "task" || !p.wait) continue;
+      const w = p.wait, after = w.after ? board.get(w.after) : null;
+      const until = w.until ? Date.parse(w.until) : null;
+      const met = (until != null && until <= now) || (w.after && (!after || after.state === "done" || turnOf(board, after) === "ok"));
+      if (met) {
+        this.store.apply({ by: "board", type: "edit", panel: { id: p.id, wait: null, state: "done", line: `待ちが明けた：${w.text}` }, reason: "条件つきの待ちの条件が満たされたので、人の番で帰す" });
+        return; // 書いた操作でまた呼ばれる
+      }
+      if (until != null) next = Math.min(next, until);
+    }
+    if (next < Infinity) this.waitTimer = setTimeout(() => this._waits(), Math.min(Math.max(next - now, 1000), 3600_000));
   }
 
   // 人が提案を受け入れた。開発の仕事の提案なら、ブランチを取り込む。それ以外は、提案を置いた人に、提案のとおりに進めてもらう
@@ -183,13 +238,13 @@ export class Waker {
   }
 
   // 役ごとの会話。死んでいたり、伸びすぎたり、あきすぎたりしたら起こし直す
-  _conv(role) {
+  _conv(role, key = role) {
     const now = Date.now();
-    const c = this.convs[role];
+    const c = this.convs[key];
     if (c && c.s.alive && c.turns < TURNS[role] && now - c.lastAt <= IDLE) return { c, first: false };
     c?.s.kill();
-    this.convs[role] = { s: this.session({ role, name: role }), turns: 0, lastAt: now };
-    return { c: this.convs[role], first: true };
+    this.convs[key] = { s: this.session({ role, name: role }), turns: 0, lastAt: now };
+    return { c: this.convs[key], first: true };
   }
 
   _scribeDone() {
@@ -199,7 +254,7 @@ export class Waker {
     }
     if (this.afterScribe && !this.scribeBusy && !this.scribeTimer) {
       this.afterScribe = false;
-      if (!this.manager) this._wakeManager();
+      if (this.managers.length < this.lanes) this._wakeManager();
     }
     this._changed();
   }
@@ -208,9 +263,9 @@ export class Waker {
     return this.store.board.list().some((p) => p.view === "say" && isPerson(p.by) && p.seq > this.cutoff);
   }
 
-  // 間があいたら起こす。走っているあいだに来た発言は、終わったあとにまとめて読ませる
+  // 間があいたら起こす。空いている本がなければ、どれかが終わったあとにまとめて読ませる
   _schedule() {
-    if (this.manager) {
+    if (this.managers.length >= this.lanes) {
       this.again = true;
       return;
     }
@@ -227,21 +282,28 @@ export class Waker {
       this._changed();
       return;
     }
+    if (this.managers.length >= this.lanes || !this._unreadSays()) return;
     const since = this.cutoff;
     this.cutoff = this.store.board.seq;
-    const prompt = managerPrompt(since, this.store.board, this.runningTasks(), this.focus);
+    const busy = new Set(this.managers.map((m) => m.lane));
+    let lane = 0;
+    while (busy.has(lane)) lane++;
+    // ほかの本がいま読んでいる発言（取り次ぎを二重にしない）
+    const others = this.managers.flatMap((m) => this._says(m.since).filter((p) => p.seq <= m.upto && !p.into).map((p) => p.id));
+    const prompt = managerPrompt(since, this.store.board, this.runningTasks(), this.focus, others);
     let handle;
     if (this.session) {
-      const { c } = this._conv("manager");
+      const { c } = this._conv("manager", lane ? `manager#${lane + 1}` : "manager");
       c.turns++;
       handle = { done: c.s.send(prompt).finally(() => { c.lastAt = Date.now(); if (c.s.quota) this.quota = c.s.quota; }), kill: () => c.s.kill() };
     } else {
       handle = this.spawn({ role: "manager", name: "manager", prompt });
     }
-    this.manager = { since, startedAt: new Date().toISOString(), handle };
+    const m = { lane, since, upto: this.cutoff, startedAt: new Date().toISOString(), handle };
+    this.managers.push(m);
     this._changed();
     handle.done.then((res) => this._count(res)).finally(() => {
-      this.manager = null;
+      this.managers = this.managers.filter((x) => x !== m);
       if (this.again || this._unreadSays()) {
         this.again = false;
         this._schedule();
@@ -274,12 +336,10 @@ export class Waker {
         // 途中経過を置いたあとで落ちた仕事も、待っているように見えたままにしない
         const answered = hasAiAnswer(this.store.board, t.id);
         if (cur && cur.state === "task" && (res?.error || !answered)) {
-          this.store.apply({
-            by: "board",
-            type: "add",
-            panel: { view: "text", about: t.id, data: `${this.call(name)} は${answered ? "途中で止まりました" : "結果を置かずに終わりました"}${res?.error ? `（${res.error}）` : ""}` },
-            reason: "仕事が落ちたままにならないように",
-          });
+          // 止まったことは行に帰す（人の番：止まったのを知る）。行を書き換えられなければ、仕事について置く
+          const text = `${this.call(name)} は${answered ? "途中で止まりました" : "結果を置かずに終わりました"}${res?.error ? `（${res.error}）` : ""}`;
+          const back = this.store.apply({ by: "board", type: "edit", panel: { id: t.id, state: "done", line: text.slice(0, 200) }, reason: "仕事が落ちたままにならないように、止まったことを行に帰す" });
+          if (!back.ok) this.store.apply({ by: "board", type: "add", panel: { view: "text", about: t.id, data: text }, reason: "仕事が落ちたままにならないように" });
         }
         this._fill();
         this._changed();
@@ -403,14 +463,36 @@ export function scribePrompt(fresh, before = [], words = []) {
 }
 
 // マネージャへの指示。読むものをはじめから渡して、board_read の往復を減らす
-export function managerPrompt(since, board = null, running = [], focus = null) {
+const TURN_WORD = { ai: "AI の番", you: "人の番", ok: "決まった", wait: "待ち" };
+// 行を一行で：記号・番・頼んだこと → 帰った一行（決まったこと・待ち）
+export function rowLine(board, t, busy = new Set()) {
+  const turn = turnOf(board, t);
+  const tail = [t.line ? `→ ${t.line}` : "", t.decided ? `決まった：${t.decided}` : "", t.wait ? `待ち：${t.wait.text}` : ""].filter(Boolean).join("　");
+  return `- ${t.key ? `${t.key}（${t.id}）` : t.id}［${TURN_WORD[turn] ?? t.state ?? "—"}${busy.has(t.id) ? "・動いている" : ""}${t.state === "proposal" ? "・提案" : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 80)}${tail ? `　${tail}` : ""}`;
+}
+// 届いたばかりのもの：AI かボードが行に一行を帰した・提案を置いた、新しい順。「それ」はまずここを指す
+export function arrivals(board, n = 4) {
+  const out = [];
+  for (let i = board.log.length - 1; i >= 0 && out.length < n; i--) {
+    const op = board.log[i];
+    if (isPerson(op.by) || op.by === "scribe") continue;
+    const id = op.type === "edit" && op.panel.line != null ? op.panel.id : op.type === "add" && op.panel.state === "proposal" ? op.panel.about ?? op.panel.id : null;
+    const p = id && board.get(id);
+    if (p && !out.some((x) => x.p.id === p.id)) out.push({ p, seq: op.seq, at: op.at });
+  }
+  return out;
+}
+
+export function managerPrompt(since, board = null, running = [], focus = null, others = []) {
   const head = `ボードに新しい動きがあります（since: ${since}、seq ${since} より後）。読むものは下にそろえてあります。足りないときだけ board_read を使ってください。`;
   const tail = "終わったら何も言わずに終えてください。人への返事はボードに置くものだけです。";
   if (!board) return [head, tail].join("\n");
   const all = board.list();
   const summary = all.filter((p) => p.by === "manager" && p.view === "summary").at(-1);
   const busy = new Set(running);
-  const tasks = all.filter((p) => p.state === "task" || (p.view === "task" && p.rev > since));
+  // 話題の表にない仕事（話題の外のもの）だけを、ここに並べる。表の行は「表」に出す
+  const inTable = (p) => p.view === "task" && p.key;
+  const tasks = all.filter((p) => !inTable(p) && (p.state === "task" || (p.view === "task" && p.rev > since)));
   // 合流した発言は先頭だけ読む。先頭が古くても、新しい発言が合流していれば読み直す
   const says = all.filter((p) => p.view === "say" && isPerson(p.by) && !p.into && (p.seq > since || all.some((q) => q.into === p.id && q.seq > since)));
   const placed = all.filter((p) => p.rev > since && p.view !== "layout" && !isPerson(p.by) && !STAFF.has(p.by) && p.by !== "scribe");
@@ -426,15 +508,29 @@ export function managerPrompt(since, board = null, running = [], focus = null) {
   lines.push("", "## 話題");
   if (!topics.length) lines.push("（まだない）");
   for (const t of topics) {
-    const n = all.filter((p) => p.about === t.id && p.view === "task").length;
-    lines.push(`- ${t.id}${t.state === "done" ? "［済み］" : ""}${t.pinned ? "［ピン留め］" : ""}：${clip(typeof t.data === "string" ? t.data : t.data?.title ?? textOf(t.data), 60)}（仕事 ${n}）`);
+    const rows = all.filter((p) => p.about === t.id && p.view === "task");
+    lines.push(`- ${t.id}${t.state === "done" ? "［済み］" : ""}${t.pinned ? "［ピン留め］" : ""}：${clip(typeof t.data === "string" ? t.data : t.data?.title ?? textOf(t.data), 60)}（行 ${rows.length}）`);
+    // 済んだ話題の表は、決まっていない行だけ
+    const shown = t.state === "done" ? rows.filter((r) => !["ok", null].includes(turnOf(board, r))) : rows;
+    const tree = (r, depth) => [`${"  ".repeat(depth + 1)}${rowLine(board, r, busy)}`, ...all.filter((q) => q.about === r.id && q.view === "task").flatMap((q) => tree(q, depth + 1))];
+    for (const r of shown) lines.push(...tree(r, 0));
   }
+  const back = arrivals(board).filter((a) => a.p.view === "task" || a.p.state === "proposal");
+  if (back.length) {
+    lines.push("", "## 届いたばかり（新しい順。「それ」「それでいい」は、指したものがなければまずいちばん上を指す）");
+    for (const a of back) lines.push(`- ${a.p.key ? `${a.p.key}（${a.p.id}）` : a.p.id}${a.seq > since ? "［前に起きてから］" : ""}：${clip(a.p.line ?? textOf(a.p.data), 80)}`);
+  }
+  const lp = all.find((p) => p.view === "layout");
+  const faces = lp ? (layoutOf(lp.data, board.panels).out || []).filter((id) => board.get(id)?.view === "task") : [];
+  if (faces.length) lines.push("", "## 開いている面", ...faces.map((id) => `- ${board.get(id).key || id}（${id}）`));
   lines.push("", "## 仕事");
   if (!tasks.length) lines.push("（なし）");
   for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}${board.get(t.about)?.view === "topic" ? `・話題 ${t.about}` : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
   lines.push("", "## 新しい発言（清書済み）");
+  const skip = new Set(others);
   if (!says.length) lines.push("（なし）");
-  for (const p of says) {
+  if (others.length) lines.push(`（${others.join(" ")} は、もう一本のマネージャがいま読んでいます。取り次ぎや受け入れを二重にしないでください。要点の書き換えで conflict が返ったら、board_read で読み直してから足してください）`);
+  for (const p of says.filter((x) => !skip.has(x.id))) {
     const notes = [p.to ? `${p.to}宛て。ボードがそのまま${p.to}に渡すので、取り次がない` : "", ...pointNotes(board, [p, ...all.filter((q) => q.into === p.id)])].filter(Boolean);
     lines.push(`- ${p.id}${notes.length ? `（${notes.join("、")}）` : ""}：${textOf(p.data)}`);
   }
@@ -455,6 +551,7 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
   const topic = above?.view === "topic" ? above : null;
   const text = typeof task.data === "string" ? task.data : task.data?.text ?? JSON.stringify(task.data);
   const prev = task.data?.after ? board.get(task.data.after) : null;
+  const parent = above?.view === "task" ? above : null;
   const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
   return [
     call === name
@@ -468,8 +565,10 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
     ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
-    `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
-    "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",
+    task.key ? `この仕事は表の行 ${task.key} です。${parent?.view === "task" ? `行 ${parent.key || parent.id} の面の中から呼ばれました。` : ""}` : "",
+    `結果は行に帰します：終わったら panel_edit で仕事 ${task.id} に line（答えの一行。60 字くらいまで）と state done を一度に渡してください。一行に収まるなら、それだけです。新しいパネルは足しません。`,
+    `一行に収まらないとき（比べる案がある、人が先に決めることがある、出典を並べる）だけ、詳しいものを about: "${task.id}" で置き、line はその結論の一行にします。行から開ける面になります。人に決めてもらう問いも、そこに短く置きます。`,
+    `時間がかかるときは、途中で line を「いまどこまで来たか」の一行に書き換えます（state は task のまま）。`,
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
   ].filter(Boolean).join("\n");
 }

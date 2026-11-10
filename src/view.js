@@ -3,7 +3,7 @@
 import zlib from "node:zlib";
 import { BUILTIN, FLOATS, FLOAT_MODES, fixedTile, fixedPanel, layoutOf } from "./board.js";
 
-const NAMES = { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定" };
+const NAMES = { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定", now: "いま" };
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
 const textOf = (d) => (typeof d === "string" ? d : d?.title ?? d?.text ?? JSON.stringify(d) ?? "");
 

@@ -1,0 +1,11 @@
+{"seq":1,"at":"2026-11-09T09:00:01.000Z","by":"human","type":"add","panel":{"id":"p1","by":"human","view":"say","data":"朝会やろう","pinned":false}}
+{"seq":2,"at":"2026-11-09T09:00:02.000Z","by":"manager","type":"add","panel":{"id":"p2","by":"manager","view":"topic","data":{"title":"朝会","note":"今日の仕事"},"pinned":false},"reason":"朝会の話題"}
+{"seq":3,"at":"2026-11-09T09:00:03.000Z","by":"manager","type":"add","panel":{"id":"p3","by":"manager","view":"task","data":{"text":"ログインの不具合を調べる","from":["p1"]},"pinned":false,"about":"p2","state":"task"},"reason":"仕事"}
+{"seq":4,"at":"2026-11-09T09:00:04.000Z","by":"manager","type":"add","panel":{"id":"p4","by":"manager","view":"task","data":{"text":"料金ページの改修はどこまで","from":["p1"]},"pinned":false,"about":"p2","state":"task"},"reason":"仕事"}
+{"seq":5,"at":"2026-11-09T09:00:05.000Z","by":"アリス","type":"add","panel":{"id":"p5","by":"アリス","view":"text","data":"原因はセッションの期限","pinned":false,"about":"p3"},"reason":"結果"}
+{"seq":6,"at":"2026-11-09T09:00:06.000Z","by":"アリス","type":"edit","panel":{"id":"p3","state":"done"},"reason":"済み"}
+{"seq":7,"at":"2026-11-09T09:00:07.000Z","by":"ボブ","type":"add","panel":{"id":"p7","by":"ボブ","view":"text","data":"残りを push する","pinned":false,"about":"p4","state":"proposal"},"reason":"提案"}
+{"seq":8,"at":"2026-11-09T09:00:08.000Z","by":"human","type":"edit","panel":{"id":"p7","state":"done"}}
+{"seq":9,"at":"2026-11-09T09:00:09.000Z","by":"human","type":"add","panel":{"id":"p9","by":"human","view":"say","data":"これは今日やる","pinned":false,"point":{"id":"p3","how":"hover"}}}
+{"seq":10,"at":"2026-11-09T09:00:10.000Z","by":"human","type":"add","panel":{"id":"pa","by":"human","view":"layout","data":{"v":3,"pos":{},"zoom":{},"fold":{},"out":["p3"],"pinned":[],"inner":{"tpos":{},"sizes":{}}},"pinned":false}}
+{"seq":11,"at":"2026-11-09T09:00:11.000Z","by":"manager","type":"add","panel":{"id":"pb","by":"manager","view":"summary","data":{"points":[{"text":"朝会","from":["p1"]}],"decided":[{"text":"ログインは今日やる","from":["p9"]}],"open":[]},"pinned":false},"reason":"要点"}

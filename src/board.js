@@ -12,7 +12,7 @@ export const CODES = {
   conflict: "あいだに別の変更が入った",
   invalid: "操作の形が正しくない",
 };
-const FIELDS = ["view", "data", "about", "state", "pinned", "source", "send", "to", "into", "rel", "point"];
+const FIELDS = ["view", "data", "about", "state", "pinned", "source", "send", "to", "into", "rel", "point", "line", "decided", "wait"];
 // into：清書係が一つの考えにまとめた発言の合流先。元の発言は消さず、印を外せば分け直せる
 // view layout：画面の並びを持つパネル。ボードに一枚だけで、並びのピン留め（pinned）は人だけが決める
 // to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
@@ -61,6 +61,36 @@ function badSend(send) {
   if (send.label != null && !(typeof send.label === "string" && send.label.trim() && send.label.length <= 40)) return "send.label は 40 字までの文字列";
   return null;
 }
+// ── 行：話題の中の仕事は表の一行。結果は新しいパネルを足さずに行へ帰る ──
+// line：行に帰った一行（答えか、いまどこまで来たか）。decided：人が決めたこと（「今日やる」）。
+// wait：条件つきの待ち（{ text, until?, after? }。until は日時、after は先に済ませる行の id）。条件が満たされると、ボードが人の番で帰す
+const badLine = (v, n, what) => (v == null || (typeof v === "string" && v.trim() && v.length <= n) ? null : `${what} は ${n} 字までの文字列`);
+function badWait(w, panels) {
+  if (w == null) return null;
+  if (typeof w !== "object" || Array.isArray(w) || typeof w.text !== "string" || !w.text.trim() || w.text.length > 80) return "wait は { text, until?, after? }（text は 80 字まで）";
+  if (w.until != null && !(typeof w.until === "string" && Number.isFinite(Date.parse(w.until)))) return "wait.until は日時（ISO 8601）";
+  if (w.after != null && !(typeof w.after === "string" && panels.has(w.after))) return `wait.after のパネル ${w.after} がない`;
+  return null;
+}
+const cleanWait = (w) => (w == null ? null : { text: w.text, ...(w.until != null ? { until: w.until } : {}), ...(w.after != null ? { after: w.after } : {}) });
+// 誰の番か：ai（投げて、まだ返っていない）・you（返ってきて、人が決めるのを待っている）・ok（決まった）・wait（条件つきの待ち）。データに持たず導く
+export const TURNS = ["ai", "you", "ok", "wait"];
+export function turnOf(board, p) {
+  if (!p) return null;
+  if (p.view !== "task") return p.state === "proposal" ? "you" : null;
+  if (p.state === "task") return "ai";
+  if (p.wait) return "wait";
+  if (p.state === "proposal" || board.list().some((q) => q.about === p.id && q.state === "proposal")) return "you";
+  const back = p.line ? p.lineSeq || 0 : 0;
+  if (p.decided && (p.decidedSeq || 0) >= back) return "ok";
+  if (p.state === "done" && p.line) return "you";
+  return p.state === "done" || p.decided ? "ok" : null;
+}
+// 行の記号：話題の中は A, B, …、行の中の行（面の中の呼び出し）は親の記号に数字（F1, F2）。声で呼ぶための名前で、ボードが振る
+const letters = (n) => { let s = ""; for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+// 受け入れた人の発言（from）：マネージャが声での受け入れを書くときに付ける。人の発言で、提案より後に置かれたものだけ
+const badFrom = (from) => (from == null || (Array.isArray(from) && from.length && from.length <= 10 && from.every((x) => typeof x === "string" && x.length <= 40)) ? null : "from は発言の id の配列（10 まで）");
+
 // コマンド（source・send）を走らせてよいか：最後にその項目を置いたのが人のときだけ
 function approved(board, id, field) {
   let ok = false;
@@ -74,9 +104,10 @@ export const sendApproved = (board, id) => approved(board, id, "send");
 // { v: 3, density, metric, pos: { key: {x,y,w,h} }, zoom: { key }, fold: { key: true|false }, out: [取り出したパネルの id], pinned: [ピン留めした key], inner: { tpos, sizes } }
 // pos は置き場所を決めたもの（組み込みのパネルと、人か AI が動かしたもの）だけ。ほかは画面が並べるたびに、順番と中身から置き直す（自動の並び）
 // pinned に入るのは、ボードのパネルでピン留めできないもの（組み込みのパネルと、発言から出たまとまり）だけ。ほかはパネルの pinned を使う
-export const BUILTIN = ["talk", "summary", "status", "quota", "tools"];
+export const BUILTIN = ["talk", "summary", "status", "quota", "tools", "now"];
+// now は「いま」（いる場所・やりかけ・人の番の行）。
 // 浮かせる組み込みのパネルと浮かせ方（先頭の front が既定）。front：画面に留めて重ねる、off：ます目に並べる
-export const FLOATS = ["talk", "status", "quota", "tools"];
+export const FLOATS = ["talk", "now", "status", "quota", "tools"];
 export const FLOAT_MODES = ["front", "off"];
 export function layoutOf(data, panels = null) {
   const d = data || {};
@@ -157,8 +188,9 @@ export class Board {
   }
 
   // 操作を確かめてから積む。返り値は { ok, op } か { ok:false, code, message }
-  apply({ by, type, panel, reason } = {}, now = new Date()) {
+  apply({ by, type, panel, reason, from } = {}, now = new Date()) {
     if (typeof by !== "string" || !by) return refuse("invalid", "by がない");
+    if (badFrom(from)) return refuse("invalid", badFrom(from));
     const person = isPerson(by);
     if (!person && !(typeof reason === "string" && reason.trim())) return refuse("invalid", "AI の操作は reason を持つ");
     if (!panel || typeof panel !== "object") return refuse("invalid", "panel がない");
@@ -206,6 +238,16 @@ export class Board {
         if (bad) return refuse("invalid", bad);
         body.point = { id: panel.point.id, how: panel.point.how };
       }
+      for (const [k, n] of [["line", 200], ["decided", 120]]) {
+        if (panel[k] == null) continue;
+        if (badLine(panel[k], n, k)) return refuse("invalid", badLine(panel[k], n, k));
+        body[k] = panel[k];
+      }
+      if (panel.wait != null) {
+        const bad = badWait(panel.wait, this.panels);
+        if (bad) return refuse(/がない/.test(bad) ? "not_found" : "invalid", bad);
+        body.wait = cleanWait(panel.wait);
+      }
     } else if (type === "edit" || type === "drop") {
       const cur = this.panels.get(panel.id);
       if (!cur) return refuse("not_found");
@@ -246,7 +288,16 @@ export class Board {
           if (body.point != null) body.point = { id: body.point.id, how: body.point.how };
         }
         if ("state" in body && body.state != null && !STATES.includes(body.state)) return refuse("invalid", `state は ${STATES.join("・")} のどれか`);
-        if ("state" in body && cur.state === "proposal" && body.state !== "proposal" && !person) return refuse("forbidden", "提案を受け入れるのは人だけ");
+        if ("state" in body && cur.state === "proposal" && body.state !== "proposal" && !person) {
+          // 声で受け入れた：マネージャが、提案のあとに人が言ったこと（from）を添えて書くときだけ
+          if (by !== "manager" || !this._heardAfter(cur.id, from)) return refuse("forbidden", "提案を受け入れるのは人だけ（声で受け入れたときは、マネージャがその発言を from に付けて書く）");
+        }
+        for (const [k, n] of [["line", 200], ["decided", 120]]) if (k in body && badLine(body[k], n, k)) return refuse("invalid", badLine(body[k], n, k));
+        if ("wait" in body) {
+          const bad = badWait(body.wait, this.panels);
+          if (bad) return refuse(/がない/.test(bad) ? "not_found" : "invalid", bad);
+          body.wait = cleanWait(body.wait);
+        }
         if ("about" in body && body.about != null) {
           if (!this.panels.has(body.about)) return refuse("not_found", `about のパネル ${body.about} がない`);
           if (this._wouldLoop(cur.id, body.about)) return refuse("invalid", "about が輪になる");
@@ -258,6 +309,7 @@ export class Board {
 
     const op = { seq: this.seq + 1, at: now.toISOString(), by, type, panel: body };
     if (reason) op.reason = reason;
+    if (from) op.from = [...from];
     this._commit(op);
     return { ok: true, op };
   }
@@ -277,6 +329,28 @@ export class Board {
     return null;
   }
 
+  // 提案になったあとに、人が言ったことが from にあるか
+  _heardAfter(id, from) {
+    if (!Array.isArray(from)) return false;
+    let since = 0;
+    for (const op of this.history(id)) if (op.panel.state === "proposal") since = op.seq;
+    return from.some((x) => { const s = this.panels.get(x); return s && s.view === "say" && isPerson(s.by) && s.seq > since; });
+  }
+
+  // 行の記号を振る（話題か仕事の中の仕事だけ）。きょうだいとぶつからなければ前の記号のまま
+  _rekey(id) {
+    const p = this.panels.get(id);
+    if (!p) return;
+    const up = p.view === "task" && p.about ? this.panels.get(p.about) : null;
+    if (!up || (up.view !== "topic" && up.view !== "task")) { if (p.key) delete p.key; return; }
+    const sib = new Set(this.list().filter((q) => q !== p && q.about === p.about && q.key).map((q) => q.key));
+    const name = (i) => (up.view === "topic" ? letters(i) : `${up.key || ""}${i + 1}`);
+    if (p.key && !sib.has(p.key) && (up.view === "topic" ? /^[A-Z]+$/.test(p.key) : p.key.startsWith(up.key || ""))) return;
+    let i = 0;
+    while (sib.has(name(i))) i++;
+    p.key = name(i);
+  }
+
   _wouldLoop(id, about) {
     for (let cur = about; cur; cur = this.panels.get(cur)?.about) if (cur === id) return true;
     return false;
@@ -285,7 +359,8 @@ export class Board {
   _commit(op) {
     const p = op.panel;
     if (op.type === "add") {
-      this.panels.set(p.id, { ...p, at: op.at, seq: op.seq, rev: op.seq, ...(isPerson(op.by) ? {} : { aiSeq: op.seq }) });
+      this.panels.set(p.id, { ...p, at: op.at, seq: op.seq, rev: op.seq, ...(isPerson(op.by) ? {} : { aiSeq: op.seq }), ...(p.line ? { lineSeq: op.seq } : {}), ...(p.decided ? { decidedSeq: op.seq } : {}) });
+      this._rekey(p.id);
     } else if (op.type === "edit") {
       const cur = this.panels.get(p.id);
       const next = { ...cur, ...p, rev: op.seq };
@@ -297,8 +372,12 @@ export class Board {
       if (next.into == null) delete next.into;
       if (next.rel == null) delete next.rel;
       if (next.point == null) delete next.point;
+      for (const k of ["line", "decided", "wait"]) if (next[k] == null) delete next[k];
+      if (p.line != null) next.lineSeq = op.seq;
+      if (p.decided != null) next.decidedSeq = op.seq;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
       this.panels.set(p.id, next);
+      if ("about" in p || "view" in p) this._rekey(p.id);
     } else if (op.type === "drop") {
       this.panels.delete(p.id);
     }
@@ -319,6 +398,11 @@ export function marks(board, { running = [] } = {}) {
 
 // 結果が付いたか：人でも清書係でもマネージャでもボード自身でもない者（タスクエージェント）が about に置いたか
 export const STAFF = new Set(["scribe", "manager", "board"]);
+// 行は同じ行で何往復もするので、数えるのは最後に仕事（state task）になったあとの答えだけ。答え＝about して置いたか、行に一行を帰したか
 export function hasAiAnswer(board, id) {
-  return board.list().some((q) => q.about === id && !isPerson(q.by) && !STAFF.has(q.by));
+  let since = 0;
+  for (const op of board.history(id)) if (op.panel.state === "task") since = op.seq;
+  const agent = (by) => !isPerson(by) && !STAFF.has(by);
+  if (board.log.some((op) => op.seq > since && agent(op.by) && op.panel.id === id && op.type === "edit" && op.panel.line != null)) return true;
+  return board.list().some((q) => q.about === id && agent(q.by) && q.seq > since);
 }
