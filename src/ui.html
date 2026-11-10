@@ -352,6 +352,11 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .rows .row .a .more { font-size: 13px; }
 .rows .row.chg { background: var(--accent-soft); }
 .rows .row.open { box-shadow: inset 0 0 0 1px var(--accent); }
+.rows .row.has-sub, .rows .row.sub:not(:last-child) { border-bottom-color: transparent; }
+.rows .row.sub { grid-template-columns: 2.2em minmax(0, 1fr) 1.4em auto; padding-top: 0; font-size: 13px; }
+.rows .row.sub .t { color: var(--ink); }
+.rows .row.sub .t i { font-style: normal; color: var(--mute); }
+.rows .row.more-sub .t { color: var(--mute); }
 .s-you .s { color: var(--warn); }
 .s-ok .s { color: var(--ok); }
 .s-ai .s { color: var(--accent); animation: turn-wait 1.6s ease-in-out infinite; }
@@ -439,7 +444,7 @@ const L = {
   // 行の番：記号と言葉。色だけに頼らず記号でも見分ける
   turnSym: { ai: "…", you: "●", ok: "✓", wait: "⏸\uFE0E" },
   turn: { ai: "AI の番（まだ返っていない）", you: "人の番", ok: "決まった", wait: "待ち（条件つき）" },
-  rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`,
+  rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`, subMore: (n) => `ほかに ${n} 件（面の中）`, rowAsk: "受け入れ待ち",
   face: "面を開く（この行について置かれたもの）", faceClose: "面を閉じて行に戻す",
   faceHere: "ここにいる", faceLeft: "やりかけ",
   nowAt: "いる場所", nowLeft: "やりかけ", nowYou: "人の番", nowNone: "なし", nowFold: (path, n) => n ? `${path}・人の番 ${n}` : path,
@@ -642,15 +647,60 @@ function rowText(t) {
   if (turn === "wait") return L.rowWait(t.wait.text);
   if (turn === "ok") return t.decided || t.line || "";
   if (turn === "ai") return t.line || (isWorking(t.id) ? L.rowWorking : L.rowNotYet);
+  // 提案の中身は行の 2 段目に出るので、行には「受け入れ待ち」とだけ
   const prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
-  return t.line || (prop ? lineOf(dataOf(prop)) : "");
+  return t.line || (prop ? L.rowAsk : "");
 }
 // 面を開けるか：行について AI が置いたもの（詳しい結果・問い）か、行の中の行がある
 const openable = (t) => S.panels.some((q) => q.about === t.id && !isPerson(q.by) && q.by !== "board");
 const faceOpen = (id) => (LAYOUT.out || []).includes(id);
+// 行の 2 段目：その行の下（どの深さでも）にある提案と、AI の番の仕事（受け入れて動いているものも）。箇条書きの 2 段目の感覚で、数本まで。
+// 済んだものは出さない（行の一行に畳む）。表だけ見て、受け入れ待ちと動いているものがわかり、面を開かずに受け入れられる
+const SUB_MAX = 3;
+function subOf(t) {
+  const out = [], seen = new Set([t.id]);
+  for (let wave = [t.id]; wave.length; ) {
+    const next = S.panels.filter((q) => wave.includes(q.about) && !seen.has(q.id));
+    for (const q of next) seen.add(q.id);
+    out.push(...next.filter((q) => q.state === "proposal" || (q.view === "task" && q.state === "task")));
+    wave = next.map((q) => q.id);
+  }
+  return out.sort((a, b) => a.seq - b.seq);
+}
+// 2 段目の一行の字：動いている仕事は「いまどこまで来たか」、なければ頼んだこと（受け入れた提案ならその提案の頭）
+function subText(q) {
+  if (q.state === "proposal") return clipText(lineOf(dataOf(q)), 60);
+  const acc = q.data?.accepted ? panelById(q.data.accepted) : null;
+  const what = q.data?.title ?? (acc ? lineOf(dataOf(acc)) : lineOf(textOf(q.data)));
+  return clipText(q.key && !acc ? `${q.key} ${what}` : what, 60);
+}
+function subEl(q) {
+  const d = document.createElement("div"), work = q.state === "task";
+  d.className = `row sub s-${work ? "ai" : "you"}`;
+  d.dataset.row = q.id;
+  const tail = work ? (q.line || (isWorking(q.id) ? L.rowWorking : L.rowNotYet)) : "";
+  d.innerHTML = `<span></span><span class="t" title="${esc(textOf(q.data))}">・${linkify(subText(q))}${tail ? ` <i>${esc(tail)}</i>` : ""}</span>` +
+    `<span class="s" aria-label="${esc(L.turn[work ? "ai" : "you"])}">${work ? (isWorking(q.id) ? '<span class="spin" aria-hidden="true"></span>' : esc(L.turnSym.ai)) : ""}</span>` +
+    `<span class="a">${work ? "" : `<button data-act="accept-row" data-id="${esc(q.id)}" data-rev="${q.rev}">${esc(L.accept)}</button>`}</span>`;
+  return d;
+}
+// 表の一行と、その 2 段目
+function rowEls(t) {
+  const subs = subOf(t), shown = subs.slice(0, SUB_MAX), els = [rowEl(t), ...shown.map(subEl)];
+  if (subs.length > shown.length) {
+    const more = document.createElement("div");
+    more.className = "row sub more-sub";
+    more.innerHTML = `<span></span><span class="t">${esc(L.subMore(subs.length - shown.length))}</span>`;
+    els.push(more);
+  }
+  if (els.length > 1) els[0].classList.add("has-sub");
+  return els;
+}
 // 表の一行
 function rowEl(t) {
-  const turn = turnOf(t), mark = markOf(t), prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
+  const turn = turnOf(t), mark = markOf(t);
+  // 行そのものが提案なら、行の「受け入れる」。行の下の提案は 2 段目に出す
+  const prop = t.state === "proposal" ? t : null;
   const d = document.createElement("div");
   d.className = `row s-${turn || "none"}${mark === "notice" ? " chg" : ""}${faceOpen(t.id) ? " open" : ""}`;
   d.dataset.row = t.id;
@@ -964,7 +1014,7 @@ function panelEl(p, kids, { root = false } = {}) {
   if (rows.length) {
     const tb = document.createElement("div");
     tb.className = "rows";
-    for (const r of rows) tb.append(rowEl(r));
+    for (const r of rows) tb.append(...rowEls(r));
     el.append(tb);
   }
   const box = document.createElement("div");

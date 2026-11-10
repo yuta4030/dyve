@@ -203,3 +203,17 @@ test("要点に拾われた発言：項目の from から、合流した発言�
   assert.equal(m.has("s2"), false);
   assert.equal(landedOf(null, head).size, 0);
 });
+
+test("行の 2 段目：行の下のどの深さの提案と、AI の番の仕事も拾う。済んだものは拾わない", () => {
+  const src = html.match(/^function subOf\([\s\S]*?^}$/m)[0];
+  const panels = [
+    { id: "c", view: "task", key: "C", seq: 1, state: "done" },
+    { id: "c2", view: "task", key: "C2", about: "c", seq: 2, state: "done" },
+    { id: "pr", view: "text", about: "c2", seq: 3, state: "proposal" },
+    { id: "run", view: "task", about: "pr", seq: 4, state: "task", data: { accepted: "pr" } },
+    { id: "old", view: "task", about: "c2", seq: 5, state: "done" },
+    { id: "x", view: "text", about: "c", seq: 6 },
+  ];
+  const subOf = new Function("S", `${src}; return subOf;`)({ panels });
+  assert.deepEqual(subOf(panels[0]).map((p) => p.id), ["pr", "run"]);
+});
