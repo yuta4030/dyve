@@ -9,6 +9,7 @@ import { toMarkdown } from "./export.js";
 import { samplesOf, fitsSample } from "./desk.js";
 import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog } from "./panels.js";
 import { Focus } from "./focus.js";
+import { Tune } from "./tune.js";
 import { asStdin } from "./feeds.js";
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
@@ -22,7 +23,9 @@ const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 // restart：使う dyve を更新して立て直す（{ commit } を返し、そのあと落ちる。立て直すのは見張り役）
 // feeds：流し込み係（shell コマンドの結果）。panels：利用者のパネル置き場（view を配る）
 // words：辞書。shoot：パネルの絵を撮る（id -> PNG）。meta：動いている dyve の情報
-export function createServer({ store, waker = null, feeds = null, title = "ボード", desk = null, restart = null, panels = null, words = null, shoot = null, meta = null }) {
+// tune：画面の調整（なければ、パネル置き場の隣の ui-settings.json に持つ。置き場もなければメモリだけ）
+export function createServer({ store, waker = null, feeds = null, title = "ボード", desk = null, restart = null, panels = null, words = null, shoot = null, meta = null, tune = null }) {
+  tune ??= new Tune(panels ? path.join(path.dirname(panels), "ui-settings.json") : null);
   const clients = new Set();
   const send = (event, data) => {
     const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -76,7 +79,14 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         const body = await readJson(req);
         return json(200, { ok: true, seen: cur.focus.set(String(body.client || ""), body) });
       }
-      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { build: BUILD, title, seen: cur.focus.seen, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, ...boardView(cur.store, cur.waker, {}, cur.focus), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
+      if (req.method === "GET" && url.pathname === "/api/board") return json(200, { build: BUILD, title, seen: cur.focus.seen, name: desk?.current() ?? null, boardTitle: desk?.titleOf(desk.current()) ?? null, panelSet: panels ? readSettings(panels) : { views: {} }, tune: tune.view(), ...boardView(cur.store, cur.waker, {}, cur.focus), feeds: cur.feeds?.view() ?? {}, views: panels ? listViews(panels) : [] });
+      // 画面の調整は人だけ（画面から）。変えたら開いている画面すべてにすぐ届く
+      if (url.pathname === "/api/tune") {
+        if (req.method === "GET") return json(200, tune.view());
+        const t = tune.set((await readJson(req)).set);
+        send("tune", t);
+        return json(200, { ok: true, ...t });
+      }
       if (req.method === "GET" && url.pathname === "/api/meta") return json(200, { ...(meta?.() ?? {}), name: desk?.current() ?? null, board: cur.store.file ?? null, seq: cur.store.board.seq, shoot: !!shoot });
       if (url.pathname === "/api/words") {
         if (!words) return json(404, { ok: false, code: "not_found", message: "辞書がない" });
@@ -86,7 +96,12 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         const r = body.action === "drop" ? words.drop({ by: "human", heard: body.heard }) : words.add({ by: "human", heard: body.heard, write: body.write, when: body.when });
         return json(r.ok ? 200 : 409, r);
       }
-      if (req.method === "GET" && url.pathname === "/api/history") return json(200, cur.store.board.history(url.searchParams.get("id")));
+      if (req.method === "GET" && url.pathname === "/api/history") {
+        // at を渡すと、その seq の時点での中身だけ（まだ置かれていなければ null）
+        const id = url.searchParams.get("id"), at = url.searchParams.get("at");
+        if (at != null) return json(200, { data: cur.store.board.dataAt(id, Number(at)) ?? null });
+        return json(200, cur.store.board.history(id));
+      }
       if (req.method === "GET" && url.pathname === "/api/export.md") {
         res.writeHead(200, {
           "content-type": "text/markdown; charset=utf-8",

@@ -154,3 +154,52 @@ test("再描画の前に読んでいる場所を覚え、後で戻す", () => {
   assert.match(html, /function render\(\) \{\n  const reading = scrollMarks\(\), read = readingPanel\(\);/);
   assert.match(html, /backToMarks\(reading\);\n  backToPanel\(read\);/);
 });
+
+const pick = (name, pre = "") => new Function(`${pre}${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`)();
+
+test("一行にする：畳んだ見出しに出す中身の頭", () => {
+  const lineOf = pick("lineOf");
+  const W = { more: (n) => `（ほか ${n}）`, rows: (n) => `（${n} 行）` };
+  assert.equal(lineOf("\n 原因は N+1\n詳細"), "原因は N+1");
+  assert.equal(lineOf(["a", "b", "c"], W), "a（ほか 2）");
+  assert.equal(lineOf({ columns: ["x", "y"], rows: [[1, 2], [3, 4]] }, W), "1　2（2 行）");
+  assert.equal(lineOf({ text: "依頼" }), "依頼");
+  assert.equal(lineOf({ points: ["p"], decided: ["d"], open: [] }), "d");
+  assert.equal(lineOf(null), "");
+});
+
+test("まだ見ていない変更：前に見たときになかった行だけ", () => {
+  const freshOf = pick("freshOf");
+  assert.deepEqual([...freshOf("list", ["a", "b", "c"], ["a", "c"])], [1]);
+  const t = (rows, columns = ["x"]) => ({ columns, rows });
+  assert.deepEqual([...freshOf("table", t([["1"], ["2"]]), t([["1"]]))], [1]);
+  assert.equal(freshOf("table", t([["1"]]), t([["1"]], ["y"])), null, "列が変わったら差を出さない");
+  const s = freshOf("summary", { points: [{ text: "a", from: ["p1"] }, "b"], decided: ["c"] }, { points: ["a"] });
+  assert.deepEqual([...s.points], [1]);
+  assert.deepEqual([...s.decided], [0]);
+  assert.equal(freshOf("text", "a", "b"), null);
+});
+
+test("比べる組で選んだもの：組のどれかを指した、いちばん新しい「これにする」", () => {
+  const relRows = pick("relRows");
+  const comparePicks = pick("comparePicks");
+  const a = { id: "a", about: "t" }, b = { id: "b", about: "t", rel: { kind: "compare", with: ["a"] } }, c = { id: "c", about: "t" };
+  const seq = { id: "d", rel: { kind: "sequence", with: ["e"] } }, e = { id: "e" };
+  const chose = (id, to) => ({ id, view: "say", by: "human", point: { id: to, how: "pick" } });
+  const hover = { id: "h", view: "say", by: "human", point: { id: "a", how: "hover" } };
+  let out = comparePicks([a, b, c, seq, e, hover], relRows);
+  assert.deepEqual(Object.keys(out).sort(), ["a", "b"]);
+  assert.equal(out.a.picked, null, "指しただけでは選んだことにしない");
+  out = comparePicks([a, b, c, chose("s1", "a"), chose("s2", "b")], relRows);
+  assert.equal(out.a.picked, "b");
+});
+
+test("要点に拾われた発言：項目の from から、合流した発言は先頭に寄せて", () => {
+  const landedOf = pick("landedOf");
+  const head = (id) => (id === "s2" ? "s1" : id);
+  const m = landedOf({ points: [{ text: "x", from: ["s2"] }, "y"], open: [{ text: "z", from: ["s3"] }] }, head);
+  assert.deepEqual(m.get("s1"), [{ kind: "points", text: "x" }]);
+  assert.deepEqual(m.get("s3"), [{ kind: "open", text: "z" }]);
+  assert.equal(m.has("s2"), false);
+  assert.equal(landedOf(null, head).size, 0);
+});

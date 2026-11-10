@@ -115,3 +115,30 @@ test("rel：同じものについてのパネルどうしだけを比べる・�
   assert.equal(b.get(c.op.panel.id).rel, undefined);
   assert.equal(new Board(b.log).get(c.op.panel.id).rel, undefined, "当て直しても同じ");
 });
+
+test("point：指したパネルを付けるのは人（画面）だけで、発言にだけ付く", () => {
+  const b = new Board();
+  const t = b.apply({ by: "manager", type: "add", panel: { view: "text", data: "案" }, reason: "r" }).op.panel.id;
+  const s = b.apply({ by: "human", type: "add", panel: { view: "say", data: "これで", point: { id: t, how: "hover" } } });
+  assert.deepEqual(s.op.panel.point, { id: t, how: "hover" });
+  assert.equal(b.apply({ by: "manager", type: "add", panel: { view: "say", data: "x", point: { id: t, how: "pick" } }, reason: "r" }).code, "forbidden");
+  assert.equal(b.apply({ by: "manager", type: "edit", panel: { id: s.op.panel.id, point: null }, reason: "r" }).code, "forbidden");
+  assert.equal(b.apply({ by: "human", type: "add", panel: { view: "text", data: "x", point: { id: t, how: "hover" } } }).code, "invalid");
+  assert.equal(b.apply({ by: "human", type: "add", panel: { view: "say", data: "x", point: { id: t, how: "stare" } } }).code, "invalid");
+  // 指した先は確かめない（外されていても発言は落とさない）。人は外せる
+  assert.equal(b.apply({ by: "human", type: "add", panel: { view: "say", data: "x", point: { id: "gone", how: "view" } } }).ok, true);
+  b.apply({ by: "human", type: "edit", panel: { id: s.op.panel.id, point: null } });
+  assert.equal("point" in b.get(s.op.panel.id), false);
+  assert.deepEqual(new Board(b.log).list(), b.list());
+});
+
+test("dataAt：ある seq の時点での中身", () => {
+  const b = new Board();
+  const id = b.apply({ by: "manager", type: "add", panel: { view: "list", data: ["a"] }, reason: "r" }).op.panel.id;
+  b.apply({ by: "manager", type: "edit", panel: { id, state: "task" }, reason: "r" });
+  b.apply({ by: "manager", type: "edit", panel: { id, data: ["a", "b"] }, reason: "r" });
+  assert.deepEqual(b.dataAt(id, 1), ["a"]);
+  assert.deepEqual(b.dataAt(id, 2), ["a"]);
+  assert.deepEqual(b.dataAt(id, 3), ["a", "b"]);
+  assert.equal(b.dataAt(id, 0), undefined);
+});

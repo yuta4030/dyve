@@ -83,6 +83,8 @@ export class Waker {
       scribe: this.scribeBusy,
       manager: this.manager ? { since: this.manager.since, startedAt: this.manager.startedAt } : null,
       waitingManager: !!this.timer || this.afterScribe,
+      // マネージャが読み終えたところ（走っているあいだは、読みはじめる前の位置）。画面は、これより後の発言を「まだ」と見せる
+      read: this.manager ? this.manager.since : this.cutoff,
       usage: { ...this.usage },
       quota: this.quota,
       agents: [...this.running].map(([task, r]) => ({ name: r.name, task, startedAt: r.startedAt })),
@@ -153,8 +155,8 @@ export class Waker {
     this.scribeTimer = null;
     const since = this.scribeCutoff;
     this.scribeCutoff = this.store.board.seq;
-    // 人が手を入れた発言は直さない
-    const fresh = this._says(since).filter((p) => p.rev === p.seq && !p.pinned && !p.into).slice(-10);
+    // 人が手を入れた発言は直さない。「これにする」を押して置かれた発言は、画面が書いた文なので直すところがない
+    const fresh = this._says(since).filter((p) => p.rev === p.seq && !p.pinned && !p.into && p.point?.how !== "pick").slice(-10);
     if (!fresh.length) return this._scribeDone();
     const { c, first } = this._conv("scribe");
     // 直前の発言はいつも渡す（一つの考えならつなげるので、いまの文と rev が要る）
@@ -359,6 +361,25 @@ export class Waker {
 const textOf = (d) => (typeof d === "string" ? d : d?.text ?? JSON.stringify(d));
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
 
+// パネルを一行で呼ぶ（id と中身の頭）
+function label(board, id) {
+  const p = board.get(id);
+  const d = p?.data;
+  const t = typeof d === "string" ? d : Array.isArray(d) ? d.map((x) => textOf(x)).find((x) => typeof x === "string") : d?.title ?? d?.text;
+  const line = typeof t === "string" ? t.split("\n").map((x) => x.trim()).find(Boolean) : "";
+  return line ? `${id}「${clip(line, 30)}」` : p ? `${id}（${p.view}）` : `${id}（もうない）`;
+}
+// 人がその発言をしたときに指していたパネル（合流した発言のぶんも）。押して選んだものは決定、ほかは手がかり
+const HOW = { pick: "を押して選んだ", hover: "を指して", view: "を見ながら" };
+function pointNotes(board, says) {
+  const out = [];
+  for (const p of says) {
+    const note = p?.point && HOW[p.point.how] ? `${label(board, p.point.id)}${HOW[p.point.how]}` : "";
+    if (note && !out.includes(note)) out.push(note);
+  }
+  return out;
+}
+
 // その人がいちばん最近受け持った仕事：宛てられた仕事か、結果を置いた仕事
 function lastTaskOf(board, name) {
   let best = null;
@@ -413,7 +434,10 @@ export function managerPrompt(since, board = null, running = [], focus = null) {
   for (const t of tasks) lines.push(`- ${t.id}［${t.state}${busy.has(t.id) ? "・動いている" : ""}${board.get(t.about)?.view === "topic" ? `・話題 ${t.about}` : ""}］${t.data?.to ? `${t.data.to}：` : ""}${clip(textOf(t.data), 120)}`);
   lines.push("", "## 新しい発言（清書済み）");
   if (!says.length) lines.push("（なし）");
-  for (const p of says) lines.push(`- ${p.id}${p.to ? `（${p.to}宛て。ボードがそのまま${p.to}に渡すので、取り次がない）` : ""}：${textOf(p.data)}`);
+  for (const p of says) {
+    const notes = [p.to ? `${p.to}宛て。ボードがそのまま${p.to}に渡すので、取り次がない` : "", ...pointNotes(board, [p, ...all.filter((q) => q.into === p.id)])].filter(Boolean);
+    lines.push(`- ${p.id}${notes.length ? `（${notes.join("、")}）` : ""}：${textOf(p.data)}`);
+  }
   if (placed.length) {
     lines.push("", "## 新しく置かれたもの");
     for (const p of placed) lines.push(`- ${p.id}（${p.by}${p.about ? `、${p.about} について` : ""}${p.state ? `、${p.state}` : ""}）：${clip(textOf(p.data), 300)}`);
@@ -443,6 +467,7 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
     topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
+    ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
     `結果は about: "${task.id}" でボードに置き、終わったら仕事 ${task.id} の state を done にしてください。`,
     "ほかにも、人が一瞬で状況をつかむのに役立つパネルは、about なしで自由に新しく置いてかまいません。",
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),

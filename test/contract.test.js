@@ -8,7 +8,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Store } from "../src/store.js";
-import { Board, CODES, STATES, RELS, marks, sourceApproved } from "../src/board.js";
+import { Board, CODES, STATES, RELS, POINTS, marks, sourceApproved } from "../src/board.js";
 import { Feeds, parseOutput, asStdin } from "../src/feeds.js";
 import { createServer } from "../src/server.js";
 import { handleRpc, TOOLS } from "../src/mcp.js";
@@ -92,6 +92,10 @@ test("約束：パネルの形と拒否コード", () => {
   for (const k of ["pinned", "forbidden", "not_found", "conflict", "invalid"]) assert.ok(k in CODES, k);
   assert.deepEqual(STATES, ["task", "proposal", "done"]);
   assert.deepEqual(RELS, ["compare", "sequence"]);
+  // point：発言のとき指していたパネル（0.7.0 から）
+  const sp = b.apply({ by: "human", type: "add", panel: { view: "say", data: "これ", point: { id: p.id, how: "hover" } } }).op.panel;
+  assert.deepEqual(b.get(sp.id).point, { id: p.id, how: "hover" });
+  assert.deepEqual(POINTS, ["hover", "view", "pick"]);
   // 断り方：{ ok: false, code, message }
   const no = b.apply({ by: "アリス", type: "edit", panel: { id: p.id, pinned: true }, reason: "x" });
   assert.deepEqual([no.ok, no.code, typeof no.message], [false, "forbidden", "string"]);
