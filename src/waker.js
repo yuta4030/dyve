@@ -360,7 +360,7 @@ export class Waker {
     this.store.apply({
       by: "board",
       type: "add",
-      panel: { view: "task", state: "task", about: id, data: { text: textOf(p.data), accepted: id, ...(name ? { to: name } : {}), ...(task ? { after: task.id } : {}), ...(from ? { from } : {}) } },
+      panel: { view: "task", state: "task", about: id, data: { title: titleOf(p.data), text: plainOf(p.data), accepted: id, ...(name ? { to: name } : {}), ...(task ? { after: task.id } : {}), ...(from ? { from } : {}) } },
       reason: `人が提案 ${id} を受け入れたので、${name ? this.call(name) : "控室"}に提案のとおり進めてもらう`,
     });
   }
@@ -419,6 +419,14 @@ export class Waker {
 }
 
 const textOf = (d) => (typeof d === "string" ? d : d?.text ?? JSON.stringify(d));
+// 提案の中身を、頼む文に：箇条書きは一行ずつ、ほかは文のまま（JSON の文字列にしない）
+function plainOf(d) {
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) return d.map((x) => `- ${typeof x === "string" ? x : textOf(x)}`).join("\n");
+  return typeof d?.text === "string" ? d.text : JSON.stringify(d);
+}
+// 行に出す短い名前：提案の一行目の頭
+const titleOf = (d) => clip(plainOf(d).split("\n").map((x) => x.replace(/^\s*[-・*]\s*/, "").trim()).find(Boolean) ?? "", 20);
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + "…" : s);
 
 // パネルを一行で呼ぶ（id と中身の頭）
