@@ -322,3 +322,16 @@ test("指して喋る：マネージャと控室に、発言のとき指して�
   assert.equal(w.status().read, 0, "マネージャがまだ読んでいない");
   w.stop();
 });
+
+test("同じ行の結果は重ねない：控室への文に、その行に前に置かれた結果を出して書き換えさせる", () => {
+  const store = new Store();
+  const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "t" } }, reason: "r" }).op.panel.id;
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: tp, data: { title: "比べる", text: "比べて" } }, reason: "r" }).op.panel.id;
+  assert.doesNotMatch(taskPrompt(store.board, store.board.get(t), "アリス"), /前に置いたもの/);
+  const old = store.apply({ by: "アリス", type: "add", panel: { view: "list", about: t, data: ["案 A が速い", "案 B は安い"] }, reason: "r" }).op.panel.id;
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: "補い" }, reason: "r" });
+  const p = taskPrompt(store.board, store.board.get(t), "ボブ");
+  assert.match(p, new RegExp(`前に置いたもの[\\s\\S]*- ${old}（list、アリス、rev \\d+）：`));
+  assert.doesNotMatch(p, /補い/, "マネージャの補いは結果に数えない");
+  assert.match(p, /面に置くものは数行まで/);
+});
