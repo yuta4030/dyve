@@ -24,3 +24,10 @@ test("入れたときに要るものだけを配る", () => {
   for (const f of ["bin", "src", "agents", "skills"]) assert.ok(files.includes(f), f);
   assert.ok(!files.includes("test"));
 });
+
+test("MCP の口が名乗る版も同じ", async () => {
+  const { handleRpc } = await import("../src/mcp.js");
+  const { Store } = await import("../src/store.js");
+  const r = handleRpc(new Store(), null, "アリス", { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  assert.equal(r.result.serverInfo.version, version());
+});

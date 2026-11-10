@@ -9,6 +9,7 @@ import { toMarkdown } from "./export.js";
 import { samplesOf, fitsSample } from "./desk.js";
 import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog } from "./panels.js";
 import { Focus } from "./focus.js";
+import { asStdin } from "./feeds.js";
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
 // 画面の版。立て直して変わっていたら、開いたままのタブは読み直す（古い画面が、知らない項目を消して書き戻さないように）
@@ -166,6 +167,18 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         const body = await readJson(req);
         const ok = cur.feeds?.run(String(body.id || "")) ?? false;
         return json(ok ? 200 : 409, ok ? { ok: true } : { ok: false, code: "forbidden", message: "許可されたコマンドがない" });
+      }
+      if (req.method === "POST" && url.pathname === "/api/send") {
+        // 送り出しは人だけ（画面から）。送ったことは人の操作としてログに残し、そのあと許可されたコマンドに渡す
+        const body = await readJson(req);
+        const id = String(body.id || "");
+        const why = cur.feeds ? cur.feeds.cantSend(id, body.input) : "送り出せない起動のしかた";
+        if (why) return json(409, { ok: false, code: "forbidden", message: why });
+        const p = cur.store.board.get(id), text = asStdin(body.input).trim();
+        const r = cur.store.apply({ by: "human", type: "add", panel: { view: "text", about: id, data: text || `$ ${p.send.label || p.send.shell}` } });
+        if (!r.ok) return json(409, r);
+        cur.feeds.send(id, body.input);
+        return json(200, { ok: true, op: r.op });
       }
       if (url.pathname === "/api/restart" && req.method === "POST") {
         // 更新と再起動は人だけ（画面から）
