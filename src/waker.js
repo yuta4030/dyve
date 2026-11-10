@@ -10,12 +10,11 @@ import { Focus } from "./focus.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
 // 毎回起こし直すと前置きの一部（約 7 千トークン）が毎回キャッシュに書き直しになるので、清書係もマネージャも会話を続ける。
-// 会話は伸びるので、目安を超えたら起こし直す。マネージャの引き継ぎは「いまの要点」パネルが持つ
+// 会話は伸びるので、目安を超えたら起こし直す。マネージャの引き継ぎは話題の表（行・帰った一行・話題の note）が持つ
 const TURNS = { scribe: 50, manager: 20 };
 const IDLE = 55 * 60 * 1000;
 const CONTEXT = 5;
 const NEAR = 3;
-const SUMMARY_MAX = 15;
 
 export { NAMES };
 
@@ -497,19 +496,15 @@ export function managerPrompt(since, board = null, running = [], focus = null, o
   const says = all.filter((p) => p.view === "say" && isPerson(p.by) && !p.into && (p.seq > since || all.some((q) => q.into === p.id && q.seq > since)));
   const placed = all.filter((p) => p.rev > since && p.view !== "layout" && !isPerson(p.by) && !STAFF.has(p.by) && p.by !== "scribe");
   const lines = [head, ""];
-  lines.push(summary ? `## いまの要点（${summary.id}、rev ${summary.rev}）` : "## いまの要点（まだない）");
-  if (summary) {
-    lines.push(JSON.stringify(summary.data));
-    // 長くなりすぎたら、数えて知らせる（定義だけでは守られにくい）
-    const n = ["points", "decided", "open"].reduce((a, k) => a + (Array.isArray(summary.data?.[k]) ? summary.data[k].length : 0), 0);
-    if (n > SUMMARY_MAX) lines.push(`（いま ${n} 項目あります。今回の書き換えで ${SUMMARY_MAX} 項目までに減らしてください。済んだ話・言い換えの重複・細かい感想から消します）`);
-  }
+  // 前の版のマネージャが要点に置いた、まだ決まっていない問い。行になっていなければ行にする（落とさない）
+  const open = Array.isArray(summary?.data?.open) ? summary.data.open.map((x) => (typeof x === "string" ? x : x?.text)).filter((x) => typeof x === "string" && x.trim()) : [];
+  if (open.length) lines.push(`## いまの要点に残っている問い（${summary.id}。要点はもう書き換えない。まだ行になっていないものは、合う話題の行にする）`, ...open.map((x) => `- ${clip(x, 100)}`), "");
   const topics = all.filter((p) => p.view === "topic");
   lines.push("", "## 話題");
   if (!topics.length) lines.push("（まだない）");
   for (const t of topics) {
     const rows = all.filter((p) => p.about === t.id && p.view === "task");
-    lines.push(`- ${t.id}${t.state === "done" ? "［済み］" : ""}${t.pinned ? "［ピン留め］" : ""}：${clip(typeof t.data === "string" ? t.data : t.data?.title ?? textOf(t.data), 60)}（行 ${rows.length}）`);
+    lines.push(`- ${t.id}（rev ${t.rev}）${t.state === "done" ? "［済み］" : ""}${t.pinned ? "［ピン留め］" : ""}：${clip(typeof t.data === "string" ? t.data : t.data?.title ?? textOf(t.data), 60)}（行 ${rows.length}）${t.data?.note ? `　いまどこまで：${clip(String(t.data.note), 80)}` : "　いまどこまで：（まだない）"}`);
     // 済んだ話題の表は、決まっていない行だけ
     const shown = t.state === "done" ? rows.filter((r) => !["ok", null].includes(turnOf(board, r))) : rows;
     const tree = (r, depth) => [`${"  ".repeat(depth + 1)}${rowLine(board, r, busy)}`, ...all.filter((q) => q.about === r.id && q.view === "task").flatMap((q) => tree(q, depth + 1))];

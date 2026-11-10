@@ -1470,11 +1470,14 @@ const baseOf = (k) => ({ ...(HOME[k] || AUTO[k] || { x: 1, y: 1, w: 8, h: 8 }), 
 const panelById = (id) => S.panels.find((p) => p.id === id);
 const isDone = (p) => (p?.view === "task" || p?.view === "topic") && p.state === "done";
 const descOf = (id, kids) => kids(id).flatMap((k) => [k, ...descOf(k.id, kids)]);
-// 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）
+// 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）。
+// いまの要点と「いま」は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
+const FOLD_FIRST = ["summary", "now"];
 function isFolded(k) {
   if (SHOT) return false;
   const f = LAYOUT.fold?.[k];
   if (f != null) return f;
+  if (FOLD_FIRST.includes(k)) return true;
   const p = panelById(k);
   return isDone(p) && !descOf(k, S.kids || (() => [])).some((x) => markOf(x));
 }
