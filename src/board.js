@@ -12,7 +12,7 @@ export const CODES = {
   conflict: "あいだに別の変更が入った",
   invalid: "操作の形が正しくない",
 };
-const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to", "into", "rel", "point"];
+const FIELDS = ["view", "data", "about", "state", "pinned", "source", "send", "to", "into", "rel", "point"];
 // into：清書係が一つの考えにまとめた発言の合流先。元の発言は消さず、印を外せば分け直せる
 // view layout：画面の並びを持つパネル。ボードに一枚だけで、並びのピン留め（pinned）は人だけが決める
 // to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
@@ -52,11 +52,23 @@ function badSource(src) {
   if (src.every != null && !(Number.isFinite(src.every) && src.every >= 5)) return "source.every は 5 秒以上";
   return null;
 }
-export function sourceApproved(board, id) {
+// send：パネルから外へ送り出す（{ shell, label? }）。人が画面で「送る」を押すと、入力を標準入力に渡して shell コマンドを走らせる。
+// source（入ってくる向き）と対になる出口。許可の決まりは source と同じで、走らせるのは人だけ（MCP に口はない）
+function badSend(send) {
+  if (send == null) return null;
+  if (typeof send !== "object" || Array.isArray(send)) return "send は { shell, label? }";
+  if (typeof send.shell !== "string" || !send.shell.trim() || send.shell.length > 2000) return "send.shell はコマンドの文字列";
+  if (send.label != null && !(typeof send.label === "string" && send.label.trim() && send.label.length <= 40)) return "send.label は 40 字までの文字列";
+  return null;
+}
+// コマンド（source・send）を走らせてよいか：最後にその項目を置いたのが人のときだけ
+function approved(board, id, field) {
   let ok = false;
-  for (const op of board.history(id)) if ("source" in op.panel) ok = isPerson(op.by) && op.panel.source != null;
+  for (const op of board.history(id)) if (field in op.panel) ok = isPerson(op.by) && op.panel[field] != null;
   return ok;
 }
+export const sourceApproved = (board, id) => approved(board, id, "source");
+export const sendApproved = (board, id) => approved(board, id, "send");
 
 // 並び（view layout のパネルの data）。画面に並ぶパネルの key は、組み込みのパネルの名前か、パネルの id
 // { v: 3, density, metric, pos: { key: {x,y,w,h} }, zoom: { key }, fold: { key: true|false }, out: [取り出したパネルの id], pinned: [ピン留めした key], inner: { tpos, sizes } }
@@ -174,6 +186,11 @@ export class Board {
         if (bad) return refuse("invalid", bad);
         body.source = panel.source;
       }
+      if (panel.send != null) {
+        const bad = badSend(panel.send);
+        if (bad) return refuse("invalid", bad);
+        body.send = panel.send;
+      }
       if (panel.to != null) {
         if (badTo(panel.to)) return refuse("invalid", badTo(panel.to));
         body.to = panel.to;
@@ -216,6 +233,7 @@ export class Board {
         }
         if ("view" in body && (typeof body.view !== "string" || !body.view)) return refuse("invalid", "view がない");
         if ("source" in body && badSource(body.source)) return refuse("invalid", badSource(body.source));
+        if ("send" in body && badSend(body.send)) return refuse("invalid", badSend(body.send));
         if ("to" in body && badTo(body.to)) return refuse("invalid", badTo(body.to));
         if ("rel" in body) {
           const bad = badRel(body.rel, "about" in body ? body.about : cur.about, this.panels, cur.id);
@@ -274,6 +292,7 @@ export class Board {
       if (next.about == null) delete next.about;
       if (next.state == null) delete next.state;
       if (next.source == null) delete next.source;
+      if (next.send == null) delete next.send;
       if (next.to == null) delete next.to;
       if (next.into == null) delete next.into;
       if (next.rel == null) delete next.rel;
@@ -292,7 +311,7 @@ export function marks(board, { running = [] } = {}) {
   const busy = new Set(running);
   const out = {};
   for (const p of board.list()) {
-    if (p.state === "proposal" || (p.source && !sourceApproved(board, p.id))) out[p.id] = "waiting";
+    if (p.state === "proposal" || (p.source && !sourceApproved(board, p.id)) || (p.send && !sendApproved(board, p.id))) out[p.id] = "waiting";
     else if (p.state === "task" && !busy.has(p.id) && !hasAiAnswer(board, p.id)) out[p.id] = "untouched";
   }
   return out;

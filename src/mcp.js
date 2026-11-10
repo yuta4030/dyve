@@ -3,7 +3,7 @@
 import { isPerson, marks, layoutOf } from "./board.js";
 import { legend, boardPng, changeLayout, layoutPanel } from "./view.js";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
@@ -16,6 +16,7 @@ const panelFields = {
   about: { type: "string", description: "どのパネルについてのものか（関係する場所に置く）" },
   state: { type: "string", enum: ["task", "proposal", "done"], description: "仕事・提案・済み" },
   source: { type: "object", description: "データを shell コマンドの結果から流し込む：{ shell, every? }（every は秒、5 以上）。AI が置いたコマンドは、人が許可するまで走らない" },
+  send: { type: "object", description: "パネルから外へ送り出す：{ shell, label? }（label は「送る」のボタンの字、40 字まで）。人が画面で書いて「送る」を押すと、その入力を標準入力に渡して shell コマンドを走らせる（文字列はそのまま、ほかは JSON。環境変数 DYVE_PANEL にパネルの id）。送るのは人だけで、AI が置いたコマンドは人が許可するまで走らない。null で外す" },
   rel: { type: "object", description: "ほかのパネルとの関係：{ kind: compare（比べる）| sequence（順番。並びは置いた順）, with: [id] }。with は同じものについての（about が同じ）パネル。画面は組を横に並べる。null で外す" },
 };
 
@@ -81,7 +82,8 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 書く操作は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。読むのは board_read、絵で見るのは board_view（全体）と panel_view（一枚）。
 
 ## パネル
-- 形は { id, by, view, data, about?, state?, rel?, point?, pinned, source? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
+- 形は { id, by, view, data, about?, state?, rel?, point?, pinned, source?, send? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
+- source は入ってくる口（shell コマンドの結果がデータになる）、send は出ていく口（人が送った入力が shell コマンドに渡る）。どちらも、走らせてよいかは人が決める。送ったものは、そのパネルに about した人の text として残る
 - about：どのパネルについてのものか。関係するパネルに about して置く
 - rel：比べるもの（compare。案 A と案 B など）・順番のあるもの（sequence。手順や、順にやる仕事）を置くときに、同じものについてのパネルを with に入れる。画面はその組を横に並べる
 - 話題（view topic、about なし、data { title, note? }）は仕事を束ねる。仕事は view task・state task で話題に about して置き、元の発言は data.from に id の配列で持つ
@@ -115,6 +117,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - 人に質問して答えを待たない。聞きたいことは関係するパネルに about して短く置く
 - 人がいま考えているところについていく。古い話を蒸し返さない
 - ピン留めされたものは変えない。人が置いたパネルは外せない。人が書き換えた直後のものに手を入れない
+- ボードに書くのはこの MCP の口からだけ。画面の口（/api/…）と dyve put・dyve add は人のものなので使わない
 - 外に届くこと（push・送信・起票など）はしない。要るなら state proposal で置き、人に決めてもらう。提案には、受け入れたら何をするか（コマンド・宛先・中身）をそのまま書く。人が受け入れると、提案を置いた人に仕事（data.accepted）として戻ってくるので、そのときは提案の範囲でやる。見送るときは人が外す
 - 少なく、短く`;
 

@@ -125,6 +125,14 @@ open http://127.0.0.1:4740/        # 画面
   - `df -h | dyve put p12`：標準入力をそのパネルのデータにする（JSON なら JSON で）
   - `dyve add --view bars --shell "du -s * | sort -n" --every 60`：shell コマンドの結果を流し込むパネルを置く
   - エージェントが置いた shell コマンドは、人が画面で「実行を許可」を押すまで走らない。AI がコマンドを変えたら許可は外れる
+- パネルから外へ送り出す（流し込みの逆向き）：
+  - パネルの `send` に shell コマンドを持たせる：`{ "shell": "tee -a notes.txt", "label": "書き足す" }`。パネルの下に入力欄と「送る」が出る
+  - `dyve add --view text --send "tee -a notes.txt" --label 書き足す`：人として、送り出し付きのパネルを置く
+  - 人が「送る」を押すと、入力を標準入力に渡してコマンドを部屋で走らせる（文字列はそのまま、ほかは JSON。空でなければ改行で終える）。入力はコマンドの文字列に混ぜない。環境変数 `DYVE_PANEL` にパネルの id が入る
+  - 利用者の view は `ctx.send(値)` で「これを送りたい」と頼める。view は自分では送れず、送る中身がパネルの下に出て、人が「送る」を押してから走る
+  - 送ったものは、そのパネルについての人の text として操作ログに残る。コマンドの結果はログに積まず、最後の一行をパネルに出す。うまくいくと、同じパネルの流し込み（`source`）を取り直す
+  - 許可の決まりは流し込みと同じ。エージェントが置いた・変えたコマンドは、人が「送り出しを許可」を押すまで走らない。送るのは画面の人だけで、MCP に送る道具はない
+  - `source` と `send` を組にすると、外の道具の様子を並べて、そこへ答えを返すパネルになる（例：`source` で待ちの一覧を JSON で取り、view で選んで、`send` のコマンドが標準入力から読んで答える）
 - パネルの「移す」で、別の話題へ・話題の外へ移せる。話題に残したまま一枚でも見せられる（枠の ✕ で話題に戻す）
 - 「移す」から親のパネルを作って、いくつかを一枚にまとめられる。親のパネルの「ほどく」で元の場所に戻る
 - ボードは Ctrl（⌘）＋ホイールかピンチ、右下のマップのボタンで縮める・広げる。見出しのダブルクリックでそのパネルに合わせる。倍率はブラウザごとに覚える
@@ -179,7 +187,7 @@ dyve 設定のアイコンから、別のタブで管理のページを開く。
 ## しくみ
 
 ```
-Panel { id, by, view, data, about?, state?, rel?, to?, point?, pinned }
+Panel { id, by, view, data, about?, state?, rel?, to?, point?, pinned, source?, send? }
 Op    { seq, at, by, type: add | edit | drop, panel, reason? }
 ```
 
@@ -210,6 +218,10 @@ Op    { seq, at, by, type: add | edit | drop, panel, reason? }
 | 発言を合成する（`into`）・分ける | できる | できる。宛てた発言・ピン留めは断られる |
 | 辞書に足す | できる | できる。人が書いた項目と人が消した言葉は断られる（forbidden） |
 | 辞書から消す | できる | 断られる（forbidden） |
+| コマンド（`source`・`send`）を置く・変える | できる（そのまま走らせてよい） | できる（人が許可するまで走らない） |
+| コマンドを許可する・「今すぐ更新」・「送る」 | できる | 口がない |
+
+`dyve put`・`dyve add` と画面の口（`/api/…`）は人のもの。エージェントには MCP の口だけを使わせる（決まりは MCP の説明に書いてある）。同じ利用者として動く手元のプロセスを技術的に見分けてはいないので、shell を使えるエージェントがこの決まりを破ることまでは止めていない。
 
 拒否コードは pinned・forbidden・not_found・conflict・invalid。
 
@@ -229,6 +241,26 @@ Op    { seq, at, by, type: add | edit | drop, panel, reason? }
 - **辞書**（`src/words.js`）：`~/.dyve/words.jsonl`。追記だけのログで、全部のボードで共通。エージェントが `word_add` で足し、清書係が使う。dyve 設定の情報のボタンから見る・足す・消す
 - **絵**：`board_view` は枠と番号の PNG と対応表（日本語は対応表に）。`real: true` で本当の画面の絵も付く。`panel_view` はブラウザのヘッドレスで撮る。ブラウザは PATH と決まった場所（WSL の Windows 版を含む）から探す。設定の `browser` か環境変数 `DYVE_BROWSER` で指定でき、なければ絵の代わりに中身を返す
 
+## 互換性
+
+dyve に外の道具をつなぐ人（shell のスクリプト、ほかの道具の hook、自分の view）のために、次のものを約束として扱う。
+
+- **守るもの**
+  - CLI のコマンド名・引数と終了コード（成功は 0、エラーは 1 と stderr）。`dyve put`・`dyve add` は置いたパネルの id を一行で返す
+  - パネルの形（`id`・`by`・`view`・`data`・`about`・`state`・`rel`・`to`・`point`・`pinned`・`source`・`send`）と、拒否コード（pinned・forbidden・not_found・conflict・invalid）
+  - 流し込みと送り出しの形（`source: { shell, every? }`、`send: { shell, label? }`）とデータの読み方（標準出力・`dyve put` は JSON として読めればその形、読めなければ文字列。`send` の標準入力は文字列ならそのまま、ほかは JSON）
+  - 利用者の view の書き方（`views/<名前>.js`、`dyve.view(fn)`、`fn(el, data, ctx)`、`ctx.panel`・`ctx.board()`・`ctx.open(id)`・`ctx.send(値)`、色の CSS 変数）
+  - 操作ログ（`board.jsonl`）の形。古い版が書いたログは当て直せるように保つ
+  - MCP の口（`POST /mcp?as=<名前>`）の道具の名前と引数、返事の `{ ok, code, message }`
+  - 設定（`config.json`）の項目
+- **壊れる変更とみなさないもの**
+  - パネル・操作・設定・道具の引数に、項目を足すこと。つなぐ側は知らない項目を無視する
+  - 並びのパネル（view `layout`）の data の中身。画面のためのもので、まだ動く。古い形は読み替える
+  - 画面のための口（`/api/…`）。外からは CLI と MCP を使う
+  - 組み込みのパネルと本体の view の見た目、画面の言葉、エラーの文言、エージェントの定義と MCP の説明の文
+- **版の付け方**：[セマンティック バージョニング](https://semver.org/lang/ja/)に従う。1.0 より前は、壊れる変更か新しい機能があればマイナー（0.6 → 0.7）、直すだけならパッチ（0.6.0 → 0.6.1）を上げる。壊れる変更は CHANGELOG のその版に「壊れる変更」として書く
+- 約束は `test/contract.test.js` が確かめる（0.5.0 が書いた操作ログの見本は `test/fixtures/`）
+
 ## 開発
 
 ```sh
@@ -239,7 +271,7 @@ npm test
 
 ## リリース
 
-1. `package.json` と `.claude-plugin/plugin.json` の `version` を上げる（テストがそろっているかを確かめる）
+1. `package.json`・`.claude-plugin/plugin.json` の `version` と、`src/mcp.js` の `VERSION` を上げる（テストがそろっているかを確かめる）
 2. `CHANGELOG.md` に `## [<版>] - <日付>` の節を書く（テストが、いまの版の節があるかを確かめる）
 3. PR をマージする。main の版にまだタグがなければ、CI（`.github/workflows/release.yml`）が `v<版>` のタグと GitHub Release を作る。Release の本文は CHANGELOG のその版の節
 4. README の「入れる」の版を新しいタグに直す
