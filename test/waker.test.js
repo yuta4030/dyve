@@ -275,3 +275,25 @@ test("途中経過を置いたあとで落ちた仕事にも止まったこと�
   assert.equal(fromBoard(b).length, 0);
   w.stop();
 });
+
+test("指して喋る：マネージャと控室に、発言のとき指していたパネルを渡す。押して選んだ発言は清書係に渡さない", async () => {
+  const store = new Store();
+  const a = store.apply({ by: "manager", type: "add", panel: { view: "list", data: ["キャッシュ案"] }, reason: "r" }).op.panel.id;
+  const s = store.apply({ by: "human", type: "add", panel: { view: "say", data: "これの手間は", point: { id: a, how: "hover" } } }).op.panel.id;
+  const pk = store.apply({ by: "human", type: "add", panel: { view: "say", data: "これにする：キャッシュ案", point: { id: a, how: "pick" } } }).op.panel.id;
+  const m = managerPrompt(0, store.board);
+  assert.match(m, new RegExp(`${s}（${a}「キャッシュ案」を指して）`));
+  assert.match(m, new RegExp(`${pk}（${a}「キャッシュ案」を押して選んだ）`));
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる", from: [s] } }, reason: "r" }).op.panel.id;
+  assert.match(taskPrompt(store.board, store.board.get(t), "アリス"), /人はそのとき .*を指して（手がかり/);
+  // 清書係：押して選んだ発言は画面が書いた文なので渡さない
+  const st = new Store(), g = fakeSession();
+  const w = new Waker({ store: st, spawn: fakeSpawn().spawn, session: g.open, pause: 1e6, scribePause: 1 }).start();
+  const s2 = st.apply({ by: "human", type: "add", panel: { view: "say", data: "これで", point: { id: "x", how: "view" } } }).op.panel.id;
+  const pk2 = st.apply({ by: "human", type: "add", panel: { view: "say", data: "これにする：x", point: { id: "x", how: "pick" } } }).op.panel.id;
+  await tick(20);
+  assert.match(g.sessions[0].sent[0], new RegExp(`${s2}（rev`));
+  assert.doesNotMatch(g.sessions[0].sent[0], new RegExp(`${pk2}（rev`));
+  assert.equal(w.status().read, 0, "マネージャがまだ読んでいない");
+  w.stop();
+});

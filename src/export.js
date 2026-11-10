@@ -19,7 +19,7 @@ export function toMarkdown(board, { title = "ボード", now = new Date(), runni
   const lines = [`# ${title}`, "", `${now.toISOString().slice(0, 16).replace("T", " ")} 時点・${panels.length} 枚`, ""];
   const walk = (p, depth) => {
     const pad = "  ".repeat(depth);
-    const tags = [p.state && STATE[p.state], m[p.id] && MARK[m[p.id]], p.pinned && "ピン留め"].filter(Boolean);
+    const tags = [p.state && STATE[p.state], m[p.id] && MARK[m[p.id]], p.pinned && "ピン留め", p.point && `${p.point.how === "pick" ? "選んだ" : "指した"}：${p.point.id}`].filter(Boolean);
     const who = isPerson(p.by) ? "" : `${p.by}：`;
     const body = render(p.data).split("\n");
     lines.push(`${pad}- ${who}${body[0]}${tags.length ? `（${tags.join("・")}）` : ""}`);

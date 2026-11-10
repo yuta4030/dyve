@@ -85,7 +85,12 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         const r = body.action === "drop" ? words.drop({ by: "human", heard: body.heard }) : words.add({ by: "human", heard: body.heard, write: body.write, when: body.when });
         return json(r.ok ? 200 : 409, r);
       }
-      if (req.method === "GET" && url.pathname === "/api/history") return json(200, cur.store.board.history(url.searchParams.get("id")));
+      if (req.method === "GET" && url.pathname === "/api/history") {
+        // at を渡すと、その seq の時点での中身だけ（まだ置かれていなければ null）
+        const id = url.searchParams.get("id"), at = url.searchParams.get("at");
+        if (at != null) return json(200, { data: cur.store.board.dataAt(id, Number(at)) ?? null });
+        return json(200, cur.store.board.history(id));
+      }
       if (req.method === "GET" && url.pathname === "/api/export.md") {
         res.writeHead(200, {
           "content-type": "text/markdown; charset=utf-8",

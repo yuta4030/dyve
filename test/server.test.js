@@ -149,3 +149,13 @@ test("エージェントの起こし方：役割ごとのモデル", () => {
   const n = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", { manager: "haiku" });
   assert.ok(!n.includes("--model"));
 });
+
+test("履歴：at を渡すと、その時点での中身だけ", async () => {
+  await withServer(async ({ store, base }) => {
+    const id = store.apply({ by: "manager", type: "add", panel: { view: "list", data: ["a"] }, reason: "r" }).op.panel.id;
+    store.apply({ by: "manager", type: "edit", panel: { id, data: ["a", "b"] }, reason: "r" });
+    assert.deepEqual(await (await fetch(`${base}/api/history?id=${id}&at=1`)).json(), { data: ["a"] });
+    assert.deepEqual(await (await fetch(`${base}/api/history?id=${id}&at=0`)).json(), { data: null });
+    assert.equal((await (await fetch(`${base}/api/history?id=${id}`)).json()).length, 2);
+  });
+});

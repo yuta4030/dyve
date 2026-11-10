@@ -12,7 +12,7 @@ export const CODES = {
   conflict: "あいだに別の変更が入った",
   invalid: "操作の形が正しくない",
 };
-const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to", "into", "rel"];
+const FIELDS = ["view", "data", "about", "state", "pinned", "source", "to", "into", "rel", "point"];
 // into：清書係が一つの考えにまとめた発言の合流先。元の発言は消さず、印を外せば分け直せる
 // view layout：画面の並びを持つパネル。ボードに一枚だけで、並びのピン留め（pinned）は人だけが決める
 // to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
@@ -29,6 +29,17 @@ function badRel(rel, about, panels, self = null) {
     if (!p || id === self) return `rel.with のパネル ${id} がない`;
     if ((p.about ?? null) !== (about ?? null)) return `rel.with のパネル ${id} は、同じものについてのパネルではない`;
   }
+  return null;
+}
+
+// point：人がその発言をしたときに指していたパネル（{ id, how }）。画面だけが付け、発言にだけ付く。
+// how は hover（マウスの下）・view（見ていたまん中）・pick（「これにする」を押して選んだ）。
+// 指した先があるかは確かめない（手がかりであって、つながりではない。先が外されていても発言は落とさない）
+export const POINTS = ["hover", "view", "pick"];
+function badPoint(pt, view) {
+  if (pt == null) return null;
+  if (view !== "say") return "point は発言にだけ付く";
+  if (typeof pt !== "object" || Array.isArray(pt) || typeof pt.id !== "string" || !pt.id || pt.id.length > 40 || !POINTS.includes(pt.how)) return `point は { id, how: ${POINTS.join("|")} }`;
   return null;
 }
 
@@ -122,6 +133,17 @@ export class Board {
     return this.log.filter((op) => op.panel.id === id);
   }
 
+  // seq の時点での中身（そのあとの書き換えを当てる前）。まだ置かれていなければ undefined。
+  // 画面が、人が最後に見たときとの差（変わった行）を導くのに使う
+  dataAt(id, seq) {
+    let data;
+    for (const op of this.log) {
+      if (op.seq > seq) break;
+      if (op.panel.id === id && "data" in op.panel) data = op.panel.data;
+    }
+    return data;
+  }
+
   // 操作を確かめてから積む。返り値は { ok, op } か { ok:false, code, message }
   apply({ by, type, panel, reason } = {}, now = new Date()) {
     if (typeof by !== "string" || !by) return refuse("invalid", "by がない");
@@ -161,6 +183,12 @@ export class Board {
         if (bad) return refuse(/がない/.test(bad) ? "not_found" : "invalid", bad);
         body.rel = { kind: panel.rel.kind, with: [...panel.rel.with] };
       }
+      if (panel.point != null) {
+        if (!person) return refuse("forbidden", "指したものを付けるのは人（画面）だけ");
+        const bad = badPoint(panel.point, body.view);
+        if (bad) return refuse("invalid", bad);
+        body.point = { id: panel.point.id, how: panel.point.how };
+      }
     } else if (type === "edit" || type === "drop") {
       const cur = this.panels.get(panel.id);
       if (!cur) return refuse("not_found");
@@ -192,6 +220,12 @@ export class Board {
         if ("rel" in body) {
           const bad = badRel(body.rel, "about" in body ? body.about : cur.about, this.panels, cur.id);
           if (bad) return refuse(/がない/.test(bad) ? "not_found" : "invalid", bad);
+        }
+        if ("point" in body) {
+          if (!person) return refuse("forbidden", "指したものを付けるのは人（画面）だけ");
+          const bad = badPoint(body.point, "view" in body ? body.view : cur.view);
+          if (bad) return refuse("invalid", bad);
+          if (body.point != null) body.point = { id: body.point.id, how: body.point.how };
         }
         if ("state" in body && body.state != null && !STATES.includes(body.state)) return refuse("invalid", `state は ${STATES.join("・")} のどれか`);
         if ("state" in body && cur.state === "proposal" && body.state !== "proposal" && !person) return refuse("forbidden", "提案を受け入れるのは人だけ");
@@ -243,6 +277,7 @@ export class Board {
       if (next.to == null) delete next.to;
       if (next.into == null) delete next.into;
       if (next.rel == null) delete next.rel;
+      if (next.point == null) delete next.point;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
       this.panels.set(p.id, next);
     } else if (op.type === "drop") {

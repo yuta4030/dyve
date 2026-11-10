@@ -169,6 +169,9 @@ dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
 .topics { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .topics button { min-height: 0; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: none; font-size: 11px; color: var(--mute); }
 .topics button:hover { color: var(--ink); }
+/* トークの発言：指したパネル（☞）・押して選んだもの（✓）・要点への行き先・マネージャがまだ読んでいないもの */
+.topics button.pick { color: var(--ok); border-color: var(--ok); }
+.topics .wait { padding: 0 6px; border: 1px dashed var(--line); border-radius: 999px; font-size: 11px; color: var(--mute); }
 /* 話題：話題の欄のまとまりの頭になる */
 dv-panel .meta .topic-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; font-weight: 700; color: var(--ink); }
 dv-topic p { margin: 2px 0 0; color: var(--mute); }
@@ -239,6 +242,11 @@ iframe.uview { display: block; width: 100%; border: 0; background: transparent; 
 dv-panel.folded > :not(.meta) { display: none; }
 dv-panel.folded { height: auto !important; padding-block: 4px; resize: none; opacity: .75; }
 dv-panel .fold { color: var(--mute); }
+/* 畳んだ見出しの一行：仕事は結果、話題はいまどこまで来たか、ほかは中身の頭 */
+.gist { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+dv-panel .meta .gist { flex-basis: 6em; color: var(--ink); }
+.tile-head .gist { font-weight: 400; }
+.tile:not(.folded) .tile-head .gist { display: none; }
 .hl { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius); }
 
 dv-panel { display: block; position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
@@ -296,6 +304,20 @@ dv-panel.waiting { border: 3px double var(--warn); }
 .mark.untouched { color: var(--mute); border: 1px dashed var(--mute); }
 .mark.waiting { color: var(--warn); background: var(--warn-soft); }
 .mark.done { color: var(--ok); }
+/* まだ見ていない変更：変わった行だけに、色と記号 */
+li.fresh { list-style-type: "＋ "; background: var(--accent-soft); border-radius: 3px; }
+tr.fresh td { background: var(--accent-soft); }
+tr.fresh td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+/* 見たことになった知らせは、静かに薄れる */
+dv-panel.seen-now { animation: seen-now 1.4s ease-out; }
+@keyframes seen-now { from { border-color: var(--accent); } }
+@media (prefers-reduced-motion: reduce) { dv-panel.seen-now { animation: none; } }
+/* 比べる組：選んだものと、選ばなかったもの */
+dv-panel.picked { border-color: var(--ok); }
+dv-panel.unpicked { opacity: .6; }
+/* いまの要点の行：元の発言があれば、押すとそこへ */
+dv-summary li[data-from] { cursor: pointer; }
+dv-summary li[data-from]:hover { text-decoration: underline dotted; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .body ul { margin: 0; padding-left: 1.2em; white-space: normal; }
 .body table { border-collapse: collapse; font-size: 13px; width: 100%; white-space: normal; display: block; overflow-x: auto; }
@@ -361,7 +383,14 @@ const L = {
   move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   pinnedNow: "ピン留め中", pinOn: "ピン留め", pinOff: "ピン留めを外す",
-  folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）",
+  folded: (n) => n ? `✓ 済み・結果 ${n}（押すと開く）` : "✓ 済み（押すと開く）", unfoldHint: "押すと開く",
+  more: (n) => `（ほか ${n}）`, rows: (n) => `（${n} 行）`,
+  pick: "これにする", pickTitle: "比べたなかから、これを選ぶ（選んだことが発言として置かれる）", picked: "✓ 選んだ", pickSay: (n) => `これにする：${n}`,
+  ptChip: (n) => `☞ ${n}`, pickChip: (n) => `✓ ${n}`,
+  ptTitle: { hover: "この発言のとき、マウスの下にあったパネル（押すとそこへ）", view: "この発言のとき、見ていたパネル（押すとそこへ）", pick: "押して選んだパネル（押すとそこへ）" },
+  ptPlaceholder: (n) => `「${n}」を指して話す（止まると置かれます）`, ptGone: "もうないパネル",
+  unpoint: "☞ 外す", unpointTitle: "指したパネルを、この発言から外す（違うものが付いたとき）",
+  landed: (k) => `→ ${k}`, notYet: "まだ", notYetTitle: "マネージャがまだ読んでいない発言", fromTitle: "押すと、元の発言へ",
   pinTile: "ピン留め（AI が動かさない・書き換えない）", putBack: "話題に戻す",
   replyWait: "受け取りました", replyBusy: "取りかかっています…",
   toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
@@ -478,6 +507,75 @@ const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria
 const sizeOf = (view) => S.panelSet?.views?.[view] || {};
 const topicTitle = (p) => typeof p.data === "string" ? p.data : p.data?.title ?? textOf(p.data);
 
+// ── 一行にする：畳んだ見出しと、パネルを名前で呼ぶところで使う ──
+const clipText = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
+const dataOf = (p) => (S.feeds[p.id]?.data !== undefined ? S.feeds[p.id].data : p.data);
+// 中身の頭の一行。list は一つ目、table は一行目、要点は決まったこと・まだ決まっていない・要点の順に一つ目
+function lineOf(d, words = null) {
+  const first = (s) => String(s).split("\n").map((x) => x.trim()).find(Boolean) || "";
+  if (d == null) return "";
+  if (typeof d === "string") return first(d);
+  if (Array.isArray(d)) return d.length ? lineOf(d[0]) + (d.length > 1 && words ? words.more(d.length - 1) : "") : "";
+  if (typeof d !== "object") return String(d);
+  if (typeof d.title === "string") return first(d.title);
+  if (typeof d.text === "string") return first(d.text);
+  if (Array.isArray(d.columns) && Array.isArray(d.rows)) return (d.rows.length ? d.rows[0] : d.columns).map((c) => String(c ?? "")).join("　") + (d.rows.length > 1 && words ? words.rows(d.rows.length) : "");
+  for (const k of ["decided", "open", "points"]) if (Array.isArray(d[k]) && d[k].length) return lineOf(d[k][0]);
+  return "";
+}
+const nameOf = (p) => (p.view === "topic" ? topicTitle(p) : lineOf(dataOf(p))) || `${who(p.by)}・${p.view}`;
+// 仕事の結果の一行目（控室は結論から書く）。直接話しかけた仕事は、最初の短い返事を飛ばす
+const STAFF = ["scribe", "manager", "board"];
+function resultLine(task) {
+  const all = S.panels.filter((x) => x.about === task.id && !isPerson(x.by) && x.view !== "task");
+  const own = all.filter((x) => !STAFF.includes(x.by));
+  let list = own.length ? own : all;
+  if (task.data?.direct && list.length > 1) list = list.slice(1);
+  return list.map((x) => lineOf(dataOf(x), L)).find(Boolean) || "";
+}
+// 畳んだパネルの見出しに出す一行
+function gistOf(p) {
+  if (p.view === "topic") return lineOf(p.data?.note);
+  if (p.view !== "task") return lineOf(dataOf(p), L);
+  const ask = lineOf(textOf(p.data)), res = resultLine(p);
+  return res ? `${clipText(ask, 18)} → ${res}` : ask;
+}
+// 合流した発言は先頭に寄せる
+const headOf = (id) => S.panels.find((p) => p.id === id)?.into || id;
+
+// ── まだ見ていない変更：人が最後に見たときの中身との差。印と同じで、データに持たず操作ログから導く ──
+// 前に見たときの中身（old）になかった行を返す。summary は欄ごと、list は項目、table は行（列が同じときだけ）
+function freshOf(view, now, old) {
+  const key = (x) => (typeof x === "string" ? x : typeof x?.text === "string" ? x.text : JSON.stringify(x));
+  const added = (a, b) => { const had = new Set(b.map(key)); return new Set(a.map((x, i) => (had.has(key(x)) ? -1 : i)).filter((i) => i >= 0)); };
+  if (now == null || old == null || typeof now !== "object" || typeof old !== "object") return null;
+  if (view === "list") return Array.isArray(now) && Array.isArray(old) ? added(now, old) : null;
+  if (view === "table") {
+    if (!Array.isArray(now.rows) || !Array.isArray(old.rows) || JSON.stringify(now.columns) !== JSON.stringify(old.columns)) return null;
+    return added(now.rows, old.rows);
+  }
+  if (view !== "summary") return null;
+  const out = {};
+  for (const k of ["points", "decided", "open"]) if (Array.isArray(now[k])) out[k] = added(now[k], Array.isArray(old[k]) ? old[k] : []);
+  return out;
+}
+const DIFFABLE = ["summary", "list", "table"];
+const PREV = new Map(); // パネル id -> { key, data }。key はいまの rev と見た位置。data は読めるまで undefined
+// 人が最後に見たときの中身。差を出さないもの・まだ読めていないものは undefined
+function prevOf(p) {
+  const seen = S.seen[p.id] || 0;
+  if (!seen || SHOT || p.source || isPerson(p.by) || !DIFFABLE.includes(p.view) || !(p.aiSeq > seen)) return undefined;
+  const key = `${p.rev}:${seen}`;
+  if (PREV.get(p.id)?.key === key) return PREV.get(p.id).data;
+  PREV.set(p.id, { key, data: undefined });
+  fetch(`/api/history?id=${encodeURIComponent(p.id)}&at=${seen}`).then((r) => r.json()).then((h) => {
+    if (PREV.get(p.id)?.key !== key || h.data == null) return;
+    PREV.get(p.id).data = h.data;
+    render();
+  }).catch(() => {});
+  return undefined;
+}
+
 // ── view：パネルの JSON の流し込み先。コンポーネントを書くのは本体だけ ──
 class View extends HTMLElement {
   set data(v) { this._d = v; this.render(v); }
@@ -488,14 +586,14 @@ class TextView extends View { render(v) { this.innerHTML = `<div class="body">${
 class ListView extends View {
   render(v) {
     if (!Array.isArray(v)) return super.render(v);
-    this.innerHTML = `<div class="body"><ul>${v.map((x) => `<li>${linkify(textOf(x))}</li>`).join("")}</ul></div>`;
+    this.innerHTML = `<div class="body"><ul>${v.map((x, i) => `<li${this.fresh?.has?.(i) ? ' class="fresh"' : ""}>${linkify(textOf(x))}</li>`).join("")}</ul></div>`;
   }
 }
 class TableView extends View {
   render(v) {
     if (!v || !Array.isArray(v.columns) || !Array.isArray(v.rows)) return super.render(v);
     this.innerHTML = `<div class="body"><table><thead><tr>${v.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>` +
-      `<tbody>${v.rows.map((r) => `<tr>${r.map((c) => `<td>${linkify(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+      `<tbody>${v.rows.map((r, i) => `<tr${this.fresh?.has?.(i) ? ' class="fresh"' : ""}>${r.map((c) => `<td>${linkify(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   }
 }
 // 仕事：マネージャからエージェントへの依頼文は読まなくてよいので畳んでおく（押すと開く。開いたものは描き直しても開いたまま）
@@ -507,12 +605,16 @@ class TaskView extends View {
     $("details", this).addEventListener("toggle", (e) => { if (e.target.open) ASK_OPEN.add(id); else ASK_OPEN.delete(id); });
   }
 }
-// いまの要点：{ points, decided, open } を三つの欄に並べる
+// いまの要点：{ points, decided, open } を三つの欄に並べる。項目は文字列か { text, from: [元の発言の id] }。from があれば、押すと元の発言へ
 class SummaryView extends View {
   render(v) {
     if (!v || typeof v !== "object" || Array.isArray(v)) return super.render(v);
     const cols = Object.keys(L.sum).filter((k) => Array.isArray(v[k]) && v[k].length);
-    this.innerHTML = `<div class="body cols">${cols.map((k) => `<div><h3>${esc(L.sum[k])}</h3><ul>${v[k].map((x) => `<li>${linkify(textOf(x))}</li>`).join("")}</ul></div>`).join("")}</div>`;
+    const item = (k) => (x, i) => {
+      const from = Array.isArray(x?.from) ? [...new Set(x.from.filter((id) => typeof id === "string").map(headOf))] : [];
+      return `<li${this.fresh?.[k]?.has(i) ? ' class="fresh"' : ""}${from.length ? ` data-from="${esc(from.join(" "))}" title="${esc(L.fromTitle)}"` : ""}>${linkify(textOf(x))}</li>`;
+    };
+    this.innerHTML = `<div class="body cols">${cols.map((k) => `<div><h3>${esc(L.sum[k])}</h3><ul>${v[k].map(item(k)).join("")}</ul></div>`).join("")}</div>`;
   }
 }
 customElements.define("dv-summary", SummaryView);
@@ -604,16 +706,24 @@ function panelEl(p, kids, { root = false } = {}) {
   const mark = markOf(p);
   const foldable = !root && p.view !== "say" && p.view !== "summary";
   const folded = foldable && isFolded(p.id);
-  el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark, folded && "folded"].filter(Boolean).join(" ");
+  // 比べる組：選んだものに印、選ばなかったものは薄く
+  const cmp = S.cmp?.[p.id], picked = cmp?.picked === p.id;
+  el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark, folded && "folded", picked && "picked", cmp?.picked && !picked && "unpicked",
+    !mark && Date.now() - (JUST.get(p.id) || 0) < 1500 && "seen-now"].filter(Boolean).join(" ");
   el.dataset.id = p.id;
+  if (folded) el.title = L.unfoldHint;
   const tags = [];
   if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
   if (mark) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
   if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(callOf(p.to))}</span>`);
   if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
   else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
+  if (picked) tags.push(`<span class="mark done">${esc(L.picked)}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
-  if (folded && isDone(p)) tags.push(`<span class="fold">${esc(L.folded(descOf(p.id, kids).filter((x) => !isPerson(x.by)).length))}</span>`);
+  // 畳んだら、開かなくても中身がわかる一行を見出しに出す
+  const gist = folded ? gistOf(p) : "";
+  if (gist) tags.push(`<span class="gist" title="${esc(gist)}">${esc(gist)}</span>`);
+  else if (folded && isDone(p)) tags.push(`<span class="fold">${esc(L.folded(descOf(p.id, kids).filter((x) => !isPerson(x.by)).length))}</span>`);
   const feed = S.feeds[p.id];
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
@@ -622,9 +732,11 @@ function panelEl(p, kids, { root = false } = {}) {
     : `<span class="who">${esc(who(p.by))}</span>`;
   el.innerHTML = `<div class="meta">${head}${tags.join("")}
     ${p.state === "proposal" ? `<button data-act="accept">${L.accept}</button>` : ""}
+    ${cmp && !picked ? `<button data-act="pick" title="${esc(L.pickTitle)}">${esc(L.pick)}</button>` : ""}
     ${p.source && !feed?.approved ? `<button data-act="allow" title="${esc(L.allowTitle)}">${L.allow}</button>` : ""}
     <span class="tools">
       ${edited ? `<button class="icon" data-act="orig">${L.orig}</button>` : ""}
+      ${p.point && p.point.how !== "pick" && isPerson(p.by) ? `<button class="icon" data-act="unpoint" title="${esc(L.unpointTitle)}">${esc(L.unpoint)}</button>` : ""}
       ${p.view === "say" && S.panels.some((x) => x.into === p.id) ? `<button class="icon" data-act="split" title="${esc(L.splitTitle)}">${L.split}</button>` : ""}
       ${SIZES[p.id] ? `<button class="icon" data-act="unsize">${L.resetSize}</button>` : ""}
       ${p.view === "topic" && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
@@ -648,6 +760,8 @@ function panelEl(p, kids, { root = false } = {}) {
   } else {
     const view = document.createElement(viewTag(p.view));
     view.panel = p;
+    const old = prevOf(p);
+    view.fresh = old === undefined ? null : freshOf(p.view, data, old);
     view.data = data;
     el.append(view);
   }
@@ -691,6 +805,37 @@ function relRows(kids) {
     rows.get(r).push(p);
   }
   return [...rows.values()];
+}
+// 比べる組（rel compare）と、その中で選ばれたもの：id -> { ids, picked }。組は同じものについての（about が同じ）パネルどうし。
+// 選んだもの＝組のどれかを指した、いちばん新しい「これにする」（人の発言の point.how が pick）。データには持たず導く
+function comparePicks(panels, rows) {
+  const by = new Map(), out = {};
+  for (const p of panels) {
+    const k = p.about ?? "";
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(p);
+  }
+  for (const kids of by.values()) for (const row of rows(kids)) {
+    if (row.length < 2 || row.map((p) => p.rel?.kind).find(Boolean) !== "compare") continue;
+    const ids = row.map((p) => p.id);
+    let picked = null;
+    for (const s of panels) if (s.view === "say" && s.by === "human" && s.point?.how === "pick" && ids.includes(s.point.id)) picked = s.point.id;
+    for (const id of ids) out[id] = { ids, picked };
+  }
+  return out;
+}
+// 要点に拾われた発言：発言の id -> [{ kind, text }]。要点の項目の from から導く（決まったこと・まだ決まっていない・要点の順）
+function landedOf(data, head) {
+  const out = new Map();
+  for (const kind of ["decided", "open", "points"]) for (const x of Array.isArray(data?.[kind]) ? data[kind] : []) {
+    for (const id of Array.isArray(x?.from) ? x.from : []) {
+      if (typeof id !== "string") continue;
+      const h = head(id);
+      if (!out.has(h)) out.set(h, []);
+      out.get(h).push({ kind, text: typeof x.text === "string" ? x.text : "" });
+    }
+  }
+  return out;
 }
 // 話題の中の組：id -> { kind, ids, i }（一枚だけのものは入れない）
 function relOf(box) {
@@ -866,6 +1011,7 @@ function render() {
   const top = kids(null);
   const isSay = (p) => isPerson(p.by) && p.view === "say";
   S.kids = kids;
+  S.cmp = comparePicks(S.panels, relRows);
 
   // トーク：いちばん下を見ていたときだけ追いかける
   const tl = $("#timeline");
@@ -877,6 +1023,9 @@ function render() {
   // 発言から出た仕事が束ねられている話題（data.from から導く）
   const topOf = (p) => { const seen = new Set(); while (p?.about && !seen.has(p.id)) { seen.add(p.id); p = S.panels.find((x) => x.id === p.about); } return p; };
   const fromOf = (p) => Array.isArray(p.data?.from) ? p.data.from : [];
+  // 言ったことの行き先：要点に拾われたか（項目の from）、マネージャがまだ読んでいないか（読み終えた位置より後）
+  const sumNow = top.filter((p) => p.view === "summary").at(-1);
+  const landed = landedOf(sumNow?.data, headOf), readTo = S.live?.read;
   for (const p of said) {
     const el = panelEl(p, () => []);
     const d = desc(p.id);
@@ -889,10 +1038,21 @@ function render() {
       $(".meta .who", el).after(r);
     }
     const topics = [...new Set(S.panels.filter((x) => fromOf(x).includes(p.id)).map(topOf).filter((t) => t?.view === "topic"))];
-    if (topics.length) {
+    const chips = topics.map((t) => `<button data-goto="${esc(t.id)}">→ ${esc(topicTitle(t))}</button>`);
+    const mine = [p, ...S.panels.filter((x) => x.into === p.id)];
+    // 指したパネル（合流した発言のぶんも）
+    for (const pt of mine.map((x) => x.point).filter(Boolean)) {
+      const t = panelById(pt.id), chip = pt.how === "pick" ? L.pickChip : L.ptChip;
+      chips.unshift(t ? `<button${pt.how === "pick" ? ' class="pick"' : ""} data-goto="${esc(t.id)}" title="${esc(L.ptTitle[pt.how] || "")}">${esc(chip(clipText(nameOf(t), 14)))}</button>`
+        : `<span class="wait" title="${esc(L.ptGone)}">${esc(chip(pt.id))}</span>`);
+    }
+    const land = landed.get(p.id);
+    if (land) chips.push(`<button data-goto="${esc(sumNow.id)}" data-item="${esc(p.id)}" title="${esc(land.map((x) => x.text).join("\n"))}">${esc(L.landed(L.sum[land[0].kind]))}</button>`);
+    if (readTo != null && mine.some((x) => x.seq > readTo)) chips.push(`<span class="wait" title="${esc(L.notYetTitle)}">${esc(L.notYet)}</span>`);
+    if (chips.length) {
       const r = document.createElement("span");
       r.className = "topics";
-      r.innerHTML = topics.map((t) => `<button data-goto="${esc(t.id)}">→ ${esc(topicTitle(t))}</button>`).join("");
+      r.innerHTML = chips.join("");
       $(".meta .who", el).after(r);
     }
     tl.append(el);
@@ -968,8 +1128,16 @@ function render() {
     const body = $(".tile-body", t);
     body.innerHTML = "";
     body.append(box);
+    // 畳んでも、いまどこまで来たかが一行でわかるように（話題は note、なければいちばん新しい結果の頭）
+    const inside = g.items.flatMap((p) => [p, ...desc(p.id)]);
+    const note = !g.src && root.view === "topic" ? lineOf(root.data?.note) : "";
+    const results = inside.filter((p) => !isPerson(p.by) && !["task", "topic"].includes(p.view)).sort((a, b) => b.rev - a.rev);
+    const line = note || [...results.filter((p) => !STAFF.includes(p.by)), ...results].map((p) => lineOf(dataOf(p), L)).find(Boolean) || "";
+    const gs = $(".tile-head .gist", t);
+    gs.textContent = line;
+    gs.title = line;
     // 知らせの印は、そのまとまりの見出しに
-    const ms = g.items.flatMap((p) => [p, ...desc(p.id)]).filter((p) => !isPerson(p.by)).map(markOf);
+    const ms = inside.filter((p) => !isPerson(p.by)).map(markOf);
     $(".tile-head .badge", t).textContent = (solo && isDone(root) ? "✓" : "") + (ms.includes("waiting") ? L.markShort.waiting : ms.some(Boolean) ? L.markShort.notice : "");
   }
   // 取り出したパネル
@@ -978,6 +1146,7 @@ function render() {
     if (!t) continue;
     const p = panelById(k);
     $(".tile-head h2", t).textContent = !p ? k : p.view === "topic" ? topicTitle(p) : `${who(p.by)}・${p.view}`;
+    $(".tile-head .gist", t).textContent = p ? gistOf(p) : "";
     const body = $(".tile-body", t);
     body.innerHTML = "";
     if (p && !shownPanels(S.panels, S.marks, offSet()).includes(p)) body.innerHTML = `<p class="empty">${esc(L.offView)}</p>`;
@@ -1045,11 +1214,16 @@ function renderLive() {
 }
 
 // 人が押したときだけ、つながっている先を見せる
-function reveal(el) {
-  if (!el) return;
-  el.scrollIntoView({ block: "nearest" });
+function flash(el) {
   el.classList.add("hl");
   setTimeout(() => el.classList.remove("hl"), 1600);
+}
+function reveal(el) {
+  if (!el) return;
+  // 畳んだ枠の中にあって見えないものは、枠の方を見せる
+  if (!el.getClientRects().length) el = el.closest(".tile") || el;
+  el.scrollIntoView({ block: "nearest" });
+  flash(el);
 }
 const panelOf = (id) => $$("dv-panel").find((x) => x.dataset.id === id);
 // まとまりの枠（key は根のパネルの id）
@@ -1604,7 +1778,7 @@ function setupTile(k) {
   const head = document.createElement("div");
   head.className = "tile-head";
   head.title = L.move;
-  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.builtin[k] || "")}</h2><span class="badge"></span>
+  head.innerHTML = `<span class="grip" aria-hidden="true">⋮⋮</span><h2>${esc(L.builtin[k] || "")}</h2><span class="gist"></span><span class="badge"></span>
     <span class="ctl">
       <span class="lockmark" title="${esc(L.pinnedNow)}" aria-label="${esc(L.pinnedNow)}">${ICON.pin}</span>
       <button class="icon" data-ctl="fold" aria-pressed="false">${ICON.min}</button>
@@ -2070,9 +2244,21 @@ const onClick = async (e) => {
     if (S.to && ta.dataset.task) reveal(panelOf(ta.dataset.task));
     return;
   }
-  const go = e.target.closest("[data-goto]")?.dataset.goto;
-  // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ
-  if (go) return reveal(panelOf(go));
+  // いまの要点の行：元の発言へ（押したので、要点は見たことにする）
+  const li = e.target.closest("li[data-from]");
+  if (li && !e.target.closest("a")) {
+    const from = li.dataset.from.split(" "), sp = panelById(li.closest("dv-panel")?.dataset.id);
+    if (sp && markOf(sp) === "notice") { S.seen[sp.id] = sp.aiSeq; saveSeen(); render(); }
+    from.map(panelOf).filter(Boolean).forEach((x, i) => (i ? flash(x) : reveal(x)));
+    return;
+  }
+  const gb = e.target.closest("[data-goto]"), go = gb?.dataset.goto;
+  // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ、発言の印は指したパネル・拾われた要点の行へ
+  if (go) {
+    reveal(panelOf(go));
+    if (gb.dataset.item) for (const x of $$(`#summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
+    return;
+  }
   const el = e.target.closest("dv-panel");
   if (!el) return;
   const p = S.panels.find((x) => x.id === el.dataset.id);
@@ -2092,6 +2278,9 @@ const onClick = async (e) => {
   }
   // 受け入れるのは、人が見たときの提案（あいだに書き換えられていたら断られる）
   if (act === "accept") return op("edit", { id: p.id, state: "done", rev: p.rev });
+  // 押して決める：声で言うのと同じ道で届くように、選んだことを人の発言として置く（選んだ印は、その発言から画面が導く）
+  if (act === "pick") return op("add", { view: "say", data: L.pickSay(clipText(nameOf(p), 40)), point: { id: p.id, how: "pick" } });
+  if (act === "unpoint") return op("edit", { id: p.id, point: null });
   if (act === "drop") { if (confirm(L.dropAsk)) op("drop", { id: p.id }); return; }
   if (act === "split") {
     const h = await (await fetch(`/api/history?id=${encodeURIComponent(p.id)}`)).json();
@@ -2172,17 +2361,22 @@ async function send() {
   const raw = msg.value, text = raw.trim();
   if (!text) return;
   sending = true;
-  const r = await op("add", { view: "say", data: text, ...(S.to ? { to: S.to } : {}) });
+  FOCUS.input = Date.now(); // 話しているなら、いる
+  // 話しはじめたときに指していたパネルを付ける（手がかり。人の操作として発言に残る）
+  const pt = PT.cur !== undefined ? PT.cur : pointNow();
+  const r = await op("add", { view: "say", data: text, ...(S.to ? { to: S.to } : {}), ...(pt ? { point: pt } : {}) });
   sending = false;
   if (!r) return;
   // 送っているあいだに足された分は残す
   msg.value = msg.value.startsWith(raw) ? msg.value.slice(raw.length).trimStart() : msg.value;
+  PT.cur = msg.value.trim() ? pointNow() : undefined;
   grow();
+  showPoint();
   if (msg.value.trim()) arm();
 }
 // 入力欄は一行から、書いたぶんだけ伸びる
 const grow = () => { msg.style.height = "auto"; msg.style.height = `${msg.scrollHeight + 2}px`; };
-msg.addEventListener("input", () => { grow(); arm(); });
+msg.addEventListener("input", () => { notePoint(); grow(); arm(); });
 msg.addEventListener("compositionstart", () => { composing = true; });
 msg.addEventListener("compositionend", () => { composing = false; arm(); });
 // Enter で置く。改行は Shift+Enter
@@ -2193,6 +2387,7 @@ function setTo(name) {
   b.hidden = !name;
   if (name) { b.textContent = L.toChip(callOf(name)); b.title = L.toOff; }
   msg.placeholder = name ? L.toPlaceholder(callOf(name)) : L.placeholder;
+  showPoint();
   renderLive();
 }
 $("#to").onclick = () => setTo(null);
@@ -2221,6 +2416,7 @@ if (SR) {
         if (ev.results[i].isFinal) fin += ev.results[i][0].transcript; else mid += ev.results[i][0].transcript;
       }
       msg.value = msg.value.slice(0, Math.max(0, msg.value.length - interim)) + fin + mid;
+      notePoint();
       grow();
       interim = mid.length;
       // 確定したらすぐ置く（まとめて整えるのは起こし係の間が受け持つ）
@@ -2282,6 +2478,108 @@ $("#timeline").addEventListener("scroll", () => sendFocus(), { passive: true });
 grid.addEventListener("pointerover", (e) => { HOVER.k = e.target.closest("#grid > .tile")?.dataset.tile ?? null; HOVER.id = e.target.closest("dv-panel")?.dataset.id ?? null; });
 grid.addEventListener("pointerleave", () => { HOVER.k = null; HOVER.id = null; });
 setInterval(() => sendFocus(), 60e3);
+
+// ── 指して喋る：発言を置くとき、そのとき指していたパネルを付ける。「これ」「それ」が何かを、マネージャが取り違えないように ──
+// 指しているもの：さっきまでマウスを乗せていたパネル（hover）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
+// どちらも PT.keep より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
+const PT = { over: null, last: null, looked: 0, cur: undefined, keep: 45e3 };
+function pointNow() {
+  if (SHOT || narrow()) return null;
+  const now = Date.now(), g = stage.getBoundingClientRect();
+  const ok = (el) => {
+    const p = el && panelById(el.dataset.id), r = el?.getBoundingClientRect();
+    return p && !["summary", "layout", "say"].includes(p.view) && r.width > 0 && r.bottom > g.top + 24 && r.top < g.bottom - 24 && r.right > g.left + 24 && r.left < g.right - 24 ? p.id : null;
+  };
+  if (PT.last && now - PT.last.at < PT.keep) {
+    const id = ok($(`#grid dv-panel[data-id="${CSS.escape(PT.last.id)}"]`));
+    if (id) return { id, how: "hover" };
+  }
+  if (now - PT.looked < PT.keep) {
+    const id = ok(document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)?.closest("#grid dv-panel"));
+    if (id) return { id, how: "view" };
+  }
+  return null;
+}
+// 話しはじめたときのものを覚える（置かれるまでにマウスが動いても変わらない）。欄が空に戻ったら忘れる
+function notePoint() {
+  if (!msg.value.trim()) PT.cur = undefined;
+  else if (PT.cur === undefined) PT.cur = pointNow();
+}
+// いま話すと何が付くかは、入力欄の薄い字で知らせる（場所を取らず、何も動かさない）
+function showPoint() {
+  if (S.to) return;
+  const p = panelById(pointNow()?.id);
+  const next = p ? L.ptPlaceholder(clipText(nameOf(p), 16)) : L.placeholder;
+  if (msg.placeholder !== next) msg.placeholder = next;
+}
+// 通りすがりに触れただけのパネルは数えない（マウスが少しのあいだ留まったものだけ）
+const overPanel = (e) => {
+  const p = panelById(e.target.closest?.("#grid dv-panel")?.dataset.id), now = Date.now();
+  if (!p || ["summary", "layout", "say"].includes(p.view)) { PT.over = null; return; }
+  if (PT.over?.id !== p.id) PT.over = { id: p.id, since: now };
+  if (now - PT.over.since < 250) return;
+  const fresh = PT.last?.id !== p.id;
+  PT.last = { id: p.id, at: now };
+  if (fresh) showPoint();
+};
+grid.addEventListener("pointerover", overPanel, { passive: true });
+grid.addEventListener("pointermove", overPanel, { passive: true });
+for (const ev of ["wheel", "touchmove"]) stage.addEventListener(ev, () => { PT.looked = Date.now(); }, { passive: true });
+setInterval(showPoint, 5e3);
+
+// ── 見たら見たことにする：知らせのあるパネルが読める大きさで画面に映っていて、人がいるあいだ、読む時間を数える ──
+// 押さなくても、読めば印は消える。読む時間は中身の量から（変わった行がわかっていれば、その行のぶんだけ）。
+// いちどに読めるのは一枚なので、マウスの下のものがあればそれに、なければ映っているものどうしで時間を分ける
+const DWELL = { got: new Map(), at: performance.now(), tick: 500, min: 1200, perChar: 25, max: 6000, zoom: 0.5 };
+const JUST = new Map(); // パネル id -> 見たことになった時刻（印を静かに薄れさせる）
+function dwellNeed(el) {
+  if (el.classList.contains("folded")) return DWELL.min;
+  const v = [...el.children].find((c) => !c.matches(".meta, .kids, .src-line, .orig"));
+  const fresh = v ? $$(".fresh", v) : [];
+  const n = !v ? 0 : v.matches("iframe") ? 200 : fresh.length ? fresh.reduce((a, x) => a + x.textContent.length, 0) : v.textContent.length;
+  return clamp(DWELL.min + n * DWELL.perChar, DWELL.min, DWELL.max);
+}
+// 画面に映っている、まだ見ていないパネル（AI が置いた・変えたもの）
+function dwellCands() {
+  const g = stage.getBoundingClientRect(), out = [];
+  for (const el of $$("#grid dv-panel")) {
+    const p = panelById(el.dataset.id);
+    if (!p || isPerson(p.by) || !p.aiSeq || p.aiSeq <= (S.seen[p.id] || 0)) continue;
+    const r = el.getBoundingClientRect();
+    // 縮めすぎて読めない大きさのものは、映っていても見たことにしない
+    if (!r.width || r.width / (el.offsetWidth || r.width) < DWELL.zoom) continue;
+    const w = Math.min(r.right, g.right) - Math.max(r.left, g.left), h = Math.min(r.bottom, g.bottom) - Math.max(r.top, g.top);
+    if (w < r.width * 0.6 || h < Math.min(r.height, g.height * 0.5) * 0.8) continue;
+    // 浮かせたパネルの下に隠れているものは数えない
+    const hit = document.elementFromPoint(Math.max(r.left, g.left) + w / 2, Math.max(r.top, g.top) + h / 2);
+    if (hit && el.contains(hit)) out.push({ el, p });
+  }
+  return out;
+}
+function dwellTick() {
+  const now = performance.now(), dt = Math.min(now - DWELL.at, DWELL.tick * 2);
+  DWELL.at = now;
+  if (SHOT || !S.ready || document.visibilityState !== "visible" || Date.now() - FOCUS.input > 5 * 60e3 || $(".editing")) return;
+  const cands = dwellCands();
+  if (!cands.length) return;
+  const done = [], hov = cands.filter(({ el }) => el.matches(":hover"));
+  const reading = hov.length ? hov.slice(-1) : cands;
+  for (const { el, p } of reading) {
+    const key = `${p.id}:${p.aiSeq}`, got = (DWELL.got.get(key) || 0) + dt / reading.length;
+    DWELL.got.set(key, got);
+    if (got >= dwellNeed(el)) done.push(p);
+  }
+  // 文字を選んでいる最中は描き直さない（次の回に回す）
+  if (!done.length || getSelection()?.isCollapsed === false) return;
+  for (const p of done) {
+    S.seen[p.id] = p.aiSeq;
+    JUST.set(p.id, Date.now());
+  }
+  for (const k of DWELL.got.keys()) { const [id, n] = k.split(":"); if (!(panelById(id)?.aiSeq === Number(n) && Number(n) > (S.seen[id] || 0))) DWELL.got.delete(k); }
+  saveSeen();
+  render();
+}
+setInterval(dwellTick, DWELL.tick);
 
 // ── 生きている知らせ ──
 function connect() {

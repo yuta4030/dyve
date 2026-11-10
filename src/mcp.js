@@ -3,7 +3,7 @@
 import { isPerson, marks, layoutOf } from "./board.js";
 import { legend, boardPng, changeLayout, layoutPanel } from "./view.js";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
@@ -11,7 +11,7 @@ const panelFields = {
   view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（いまの要点）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
   data: {
     type: ["string", "array", "object", "number", "boolean", "null"],
-    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}、topic は {title, note?}、summary は {points, decided, open}",
+    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}、topic は {title, note?}、summary は {points, decided, open}（項目は文字列か {text, from: [元の発言の id]}）",
   },
   about: { type: "string", description: "どのパネルについてのものか（関係する場所に置く）" },
   state: { type: "string", enum: ["task", "proposal", "done"], description: "仕事・提案・済み" },
@@ -81,18 +81,23 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 書く操作は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。読むのは board_read、絵で見るのは board_view（全体）と panel_view（一枚）。
 
 ## パネル
-- 形は { id, by, view, data, about?, state?, rel?, pinned, source? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
+- 形は { id, by, view, data, about?, state?, rel?, point?, pinned, source? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
 - about：どのパネルについてのものか。関係するパネルに about して置く
 - rel：比べるもの（compare。案 A と案 B など）・順番のあるもの（sequence。手順や、順にやる仕事）を置くときに、同じものについてのパネルを with に入れる。画面はその組を横に並べる
 - 話題（view topic、about なし、data { title, note? }）は仕事を束ねる。仕事は view task・state task で話題に about して置き、元の発言は data.from に id の配列で持つ
 - state：task（仕事）→ proposal（提案。受け入れるのは人だけ）／done（済み。畳まれる）。結果は仕事に about して置く
 - 人の発言は view say・by human。書き換えるのは清書係だけ
+- point：人がその発言をしたときに指していたパネル（{ id, how }。画面が付け、AI は付けられない）。「これ」「それ」はまずここを指すと読む。how が hover（マウスの下）・view（見ていたまん中）は手がかりで、話が合わなければ無視する。pick は「これにする」を押して選んだという人の決定
 
 ## 画面
 - 人の発言はトーク、summary はいまの要点に出る。それ以外は about のないパネル（話題）ごとに一枚にまとまり、about したものはその中に出る。仕事の結果は仕事と並べて話題の直下に出る
 - 並びは画面が決める：いまの話題を先頭に大きく、次に印のあるもの、新しいもの、済み（畳む）の順に詰める。幅は中身の形（表は列の数、文章は読みやすい幅）から、高さは中身の量から。読んでいるパネルは画面の同じ位置に残る。並べる手間は要らない。置くときは関係するパネルに about し、組には rel を付けるだけ
 - board_layout は、画面の並びが外れたとき（見せたいものが遠い・大きさが合わない）だけ使う。動かしたものはそこに留まる。人がピン留めしたものとその中は変わらない
 - 人は一瞥で読む。文章を書かず、短い list・table を選ぶ。一枚は数行まで
+- 畳んだパネルは見出しの一行だけが見える：仕事は結果の一行目、話題は data.note、ほかは中身の一行目。だから結果は結論の一行から始める
+- 人がまだ見ていない変更は、変わった行だけに色が付く（summary・list・table。前に見たときとの差を画面が導く）。書き換えるときは、変わらない行を言い換えず、そのまま残す
+- 比べるもの（rel compare）には「これにする」が出て、人は押して選べる。選んだことは人の発言（point.how が pick）として届き、画面は選ばれたものに印を付ける
+- summary の項目に from（元の発言の id）を付けると、要点から元の発言へ、発言から要点へたどれる。人は、言ったことが拾われたかをトークで確かめる
 - 画面に並ぶものは全部パネル（トーク・いまの要点・状況・残量・dyve 設定も組み込みのパネル）
 - パネルは about を変えれば移せる（話題から話題へ、about を null で外へ）。いくつかを一枚にまとめるときは、親にする topic を置いて about を寄せる
 - トーク・状況・残量・dyve 設定は浮いていて、ボードのどこを見ていても画面に出ている。ボードの拡大縮小は掛からない。浮かせ方は前面（front。既定。画面に留めて重ねる）・並べる（off。ます目に並べる）
@@ -103,7 +108,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - まだ見ていないものが溜まっているときは、新しく置くより、まとめる・畳む
 
 ## 印
-- 印はボードが導く。未着手＝結果のない仕事、受け入れ待ち＝提案と許可待ちのコマンド、知らせ＝人が最後に見たあとに AI が置いた・変えたもの。置けば知らせになるので、印を付ける操作はない
+- 印はボードが導く。未着手＝結果のない仕事、受け入れ待ち＝提案と許可待ちのコマンド、知らせ＝人が最後に見たあとに AI が置いた・変えたもの。置けば知らせになるので、印を付ける操作はない。知らせは、人が画面で読めば（押さなくても）消える
 
 ## 守ること
 - どの操作にも reason（人が後から読む）を付ける
