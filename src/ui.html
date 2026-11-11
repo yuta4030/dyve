@@ -1784,6 +1784,8 @@ const isGroupTile = (k) => !BUILTIN.includes(k) && !isOut(k);
 // 順番は導く：いまの話題 → 印のあるもの → 新しいもの → 済み（畳んだもの）。幅は中身の形から、高さは中身を測って決める。
 // 一画面の幅の中で、上から空いているところへ順に詰める。覚えないので、中身が増えれば枠も伸びる
 const AUTO = {}; // key -> { x, y, w, h }
+// 面がどの側に置かれたか（left | right | below）。閉じたら忘れる
+const FACE_SIDE = {};
 const isAuto = (k) => !BUILTIN.includes(k) && !LAYOUT.pos?.[k];
 const FRAC = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 1];
 // パネル一枚の幅の好み（ピクセル）。パネルの管理で既定の幅を決めていればそれ
@@ -1864,7 +1866,22 @@ function autoLayout(pos) {
   // 行と面：面はその表の隣に開く（右、左の順。入らなければ下）。表は面より先に、いまの表はまん中に置く。表は動かさず、動くのは面のほう
   const faceOf = (k) => (isRow(panelById(k)) && isOut(k) ? topOfId(k)?.id : null);
   const lead = order.filter((k) => !faceOf(k));
-  const seq = lead.flatMap((k) => [k, ...order.filter((f) => faceOf(f) === k)]).concat(order.filter((f) => faceOf(f) && !lead.includes(faceOf(f))));
+  // 面どうしは開いた順に（印や新しさで順が変わると、左右と上下が入れ替わる）
+  const opened = LAYOUT.out || [], byOpen = (a, b) => opened.indexOf(a) - opened.indexOf(b);
+  const facesOf = (k) => order.filter((f) => faceOf(f) === k).sort(byOpen);
+  const seq = lead.flatMap((k) => [k, ...facesOf(k)]).concat(order.filter((f) => faceOf(f) && !lead.includes(faceOf(f))));
+  for (const k of Object.keys(FACE_SIDE)) if (!faceOf(k) || !keys.includes(k)) delete FACE_SIDE[k];
+  // 幅 cw で置いたときの高さ（ます目の行の数）。測るために枠の幅を当て、話題の中も並べ直す
+  let measured = null;
+  const rowsAt = (k, cw) => {
+    if (isFolded(k)) return minRows();
+    if (measured?.k === k && measured.cw === cw) return measured.h;
+    const t = tileOf(k);
+    t.style.gridColumn = `1 / span ${cw}`;
+    for (const b of $$(".kids.free", t)) layoutFree(b);
+    measured = { k, cw, h: Math.max(needRows(t, m), 3) };
+    return measured.h;
+  };
   const table = S.talking?.[0] && panelById(S.talking[0])?.view === "topic" && S.panels.some((p) => p.about === S.talking[0] && isRow(p)) ? S.talking[0] : null;
   const free = (q) => q.x >= 1 && q.x + q.w <= dens() + 1 && !taken.some((o) => overlap(q, o));
   // 面は浮いているパネル（トーク・いま など）の下に出さない。いま見ているところで、浮いたものが覆うます目を避ける
@@ -1890,18 +1907,35 @@ function autoLayout(pos) {
       const need = Math.min(w[k], Math.max(2, Math.ceil((groupPx(k) + m.gap) / m.sx)));
       const wr = dens() + 1 - n.right, wl = n.left - 1;
       const rw = clamp(Math.min(w[k], wr), need, w[k]), lw = clamp(Math.min(w[k], wl), need, w[k]);
-      const r = { x: n.right, y: n.yr, w: rw, h: h[k] }, l = { x: n.left - lw, y: n.yl, w: lw, h: h[k] };
-      // 左と右に交互に（右上には浮いたパネルが積まれるので左から）。同じ側に二つめは、前の面の下へ
-      const tryR = clear(r), tryL = clear(l);
-      if (tryL && (!tryR || (n.nl || 0) <= (n.nr || 0))) { q = l; n.yl += h[k]; n.nl = (n.nl || 0) + 1; }
-      else if (tryR) { q = r; n.yr += h[k]; n.nr = (n.nr || 0) + 1; }
+      // 高さは置く幅で測る（脇は狭いので折り返しが増える）
+      const at = (x, y, cw) => ({ x, y, w: cw, h: rowsAt(k, cw) });
+      const r = at(n.right, n.yr, rw), l = at(n.left - lw, n.yl, lw);
+      const put = (s, b) => {
+        q = b;
+        FACE_SIDE[k] = s;
+        if (s === "left") { n.yl += b.h; n.nl = (n.nl || 0) + 1; }
+        if (s === "right") { n.yr += b.h; n.nr = (n.nr || 0) + 1; }
+      };
+      // 一度置いた面は、入るあいだ同じ側に置く。浮いたものを避けるのは開いたときだけ（見ている位置で選び直すと左右を行き来する）
+      const was = FACE_SIDE[k];
+      if (was === "left" && free(l)) put("left", l);
+      else if (was === "right" && free(r)) put("right", r);
+      else if (was !== "below") {
+        // 左と右に交互に（右上には浮いたパネルが積まれるので左から）。同じ側に二つめは、前の面の下へ
+        const tryR = clear(r), tryL = clear(l);
+        if (tryL && (!tryR || (n.nl || 0) <= (n.nr || 0))) put("left", l);
+        else if (tryR) put("right", r);
+      }
       // どちらの脇にも入らなければ、表のすぐ下に（表の左端から右へずらして、中身の幅で）
+      const hb = q ? 0 : rowsAt(k, w[k]);
       for (let y = tp.y + tp.h; !q && y < tp.y + tp.h + 400; y++) {
         for (let x = clamp(tp.x, 1, dens() + 1 - w[k]); !q && x <= Math.max(tp.x, dens() + 1 - w[k]); x++) {
-          const b = { x, y, w: w[k], h: h[k] };
-          if (clear(b)) q = b;
+          const b = { x, y, w: w[k], h: hb };
+          if ((was === "below" ? free : clear)(b)) put("below", b);
         }
       }
+      // 話題の中のます目を、置いた幅で並べ直しておく
+      if (q) rowsAt(k, q.w);
     }
     if (!q) q = fit(taken, w[k], h[k], past(k) ? floor : 1);
     if (!past(k)) floor = Math.max(floor, q.y + q.h);
