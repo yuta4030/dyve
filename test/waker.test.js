@@ -373,3 +373,90 @@ test("清書係に画面を見せる：表の行・開いている面の見出�
   assert.doesNotMatch(g.sessions[0].sent[2], /画面の言葉/, "変わっていなければ送らない");
   w.stop();
 });
+
+// 同じ行の頼み直し：行を task に戻したら、前にその行を受け持った人のセッションを引き継いで起こす
+async function reask(store, w, f, t, more) {
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "調べた" }, reason: "x" });
+  f.jobs.filter((j) => j.taskId === t).at(-1).finish(more);
+  await tick(10);
+  const say = store.apply({ by: "human", type: "add", panel: { view: "say", data: "もうちょっと具体的に" } }).op.panel.id;
+  const from = [...store.board.get(t).data.from, say];
+  store.apply({ by: "manager", type: "edit", panel: { id: t, state: "task", data: { ...store.board.get(t).data, from } }, reason: "頼み直し" });
+  await tick(10);
+  return say;
+}
+
+test("同じ行の頼み直し：1 回目は引き継ぎなし。頼み直しは前の人のセッション id を付け、足された発言だけの短い文で起こす", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6, names: ["ボブ", "アリス"] }).start();
+  // ボブが別の仕事で働いているので、この行はアリスが受ける
+  const x = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "ほかの仕事" } }, reason: "x" }).op.panel.id;
+  await tick(10);
+  const s1 = store.apply({ by: "human", type: "add", panel: { view: "say", data: "変更履歴を調べて" } }).op.panel.id;
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "変更履歴を調べる", from: [s1] } }, reason: "x" }).op.panel.id;
+  await tick(10);
+  const first = f.jobs.find((j) => j.taskId === t);
+  assert.deepEqual([first.name, first.resume], ["アリス", undefined], "1 回目はまっさら");
+  // ボブが空いても、頼み直しは前に受け持ったアリスに
+  store.apply({ by: "ボブ", type: "edit", panel: { id: x, state: "done", line: "済んだ" }, reason: "x" });
+  f.jobs.find((j) => j.taskId === x).finish({ code: 0, session: "s-x", cwd: "/room" });
+  await tick(10);
+  const say = await reask(store, w, f, t, { code: 0, session: "s-1", cwd: "/room" });
+  const again = f.jobs.filter((j) => j.taskId === t);
+  assert.equal(again.length, 2);
+  assert.equal(again[1].name, "アリス");
+  assert.deepEqual([again[1].resume.session, again[1].resume.cwd], ["s-1", "/room"]);
+  assert.match(again[1].resume.prompt, /頼み直されました[\s\S]*もうちょっと具体的に[\s\S]*panel_edit で仕事 p\d+ に line と state done/);
+  assert.doesNotMatch(again[1].resume.prompt, /変更履歴を調べて/, "前の回に渡した発言は繰り返さない");
+  assert.ok(again[1].resume.prompt.includes(say));
+  assert.match(again[1].prompt, /元の発言/, "まっさらに戻るときの文は今のまま持つ");
+  w.stop();
+});
+
+test("同じ行の頼み直し：前の人が働いていれば別の人にまっさらで、セッション id が取れなかった回のあとはまっさらで起こす", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6, names: ["アリス", "ボブ"] }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる", from: [] } }, reason: "x" }).op.panel.id;
+  await tick(10);
+  // アリスが別の仕事で働いているあいだに頼み直されたら、ボブがまっさらで受ける
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "調べた" }, reason: "x" });
+  f.jobs.at(-1).finish({ code: 0, session: "s-1", cwd: "/room" });
+  await tick(10);
+  store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "ほかの仕事", to: "アリス" } }, reason: "x" });
+  await tick(10);
+  store.apply({ by: "manager", type: "edit", panel: { id: t, state: "task" }, reason: "頼み直し" });
+  await tick(10);
+  const bob = f.jobs.filter((j) => j.taskId === t).at(-1);
+  assert.deepEqual([bob.name, bob.resume], ["ボブ", undefined]);
+  // ボブの回はセッション id が取れなかった。次の頼み直しはまっさら（アリスの古いセッションも使わない）
+  await reask(store, w, f, t, { code: 0 });
+  const third = f.jobs.filter((j) => j.taskId === t).at(-1);
+  assert.equal(f.jobs.filter((j) => j.taskId === t).length, 3);
+  assert.equal(third.resume, undefined);
+  w.stop();
+});
+
+test("同じ行の頼み直し：役が変われば（調べもの → 開発）引き継がない。名前を呼ばれたらその人", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6, names: ["アリス", "ボブ"] }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる", from: [] } }, reason: "x" }).op.panel.id;
+  await tick(10);
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "調べた" }, reason: "x" });
+  f.jobs.at(-1).finish({ code: 0, session: "s-1", cwd: "/room" });
+  await tick(10);
+  store.apply({ by: "manager", type: "edit", panel: { id: t, state: "task", data: { text: "直す", from: [], write: true } }, reason: "x" });
+  await tick(10);
+  const dev = f.jobs.filter((j) => j.taskId === t).at(-1);
+  assert.deepEqual([dev.role, dev.resume], ["dev", undefined]);
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "直した" }, reason: "x" });
+  dev.finish({ code: 0, session: "s-2", cwd: "/work/p1" });
+  await tick(10);
+  store.apply({ by: "manager", type: "edit", panel: { id: t, state: "task", data: { text: "直す", from: [], write: true, to: "ボブ" } }, reason: "x" });
+  await tick(10);
+  const bob = f.jobs.filter((j) => j.taskId === t).at(-1);
+  assert.deepEqual([bob.name, bob.resume], ["ボブ", undefined], "宛て先は崩さず、人が違えばまっさら");
+  w.stop();
+});
