@@ -353,6 +353,11 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .rows .row .a .more { font-size: 13px; }
 .rows .row.chg { background: var(--accent-soft); }
 .rows .row.open { box-shadow: inset 0 0 0 1px var(--accent); }
+.rows .row.has-sub, .rows .row.sub:not(:last-child) { border-bottom-color: transparent; }
+.rows .row.sub { grid-template-columns: 2.2em minmax(0, 1fr) 1.4em auto; padding-top: 0; font-size: 13px; }
+.rows .row.sub .t { color: var(--ink); }
+.rows .row.sub .t i { font-style: normal; color: var(--mute); }
+.rows .row.more-sub .t { color: var(--mute); }
 .s-you .s { color: var(--warn); }
 .s-ok .s { color: var(--ok); }
 .s-ai .s { color: var(--accent); animation: turn-wait 1.6s ease-in-out infinite; }
@@ -440,7 +445,7 @@ const L = {
   // 行の番：記号と言葉。色だけに頼らず記号でも見分ける
   turnSym: { ai: "…", you: "●", ok: "✓", wait: "⏸\uFE0E" },
   turn: { ai: "AI の番（まだ返っていない）", you: "人の番", ok: "決まった", wait: "待ち（条件つき）" },
-  rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`,
+  rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`, subMore: (n) => `ほかに ${n} 件（面の中）`, rowAsk: "受け入れ待ち",
   face: "面を開く（この行について置かれたもの）", faceClose: "面を閉じて行に戻す",
   faceHere: "ここにいる", faceLeft: "やりかけ",
   nowAt: "いる場所", nowLeft: "やりかけ", nowYou: "人の番", nowNone: "なし", nowFold: (path, n) => n ? `${path}・人の番 ${n}` : path,
@@ -603,6 +608,8 @@ function lineOf(d, words = null) {
   return "";
 }
 const nameOf = (p) => (p.view === "topic" ? topicTitle(p) : lineOf(dataOf(p))) || `${who(p.by)}・${p.view}`;
+// 指したものの名前：表の行なら記号と行の名前（「C 次にやること整理」）
+const ptName = (p, n) => (p.view === "task" && p.key ? `${p.key} ${clipText(lineOf(p.data?.title ?? textOf(p.data)), n)}` : clipText(nameOf(p), n));
 // 仕事の結果の一行目（控室は結論から書く）。直接話しかけた仕事は、最初の短い返事を飛ばす
 const STAFF = ["scribe", "manager", "board"];
 function resultLine(task) {
@@ -643,15 +650,60 @@ function rowText(t) {
   if (turn === "wait") return L.rowWait(t.wait.text);
   if (turn === "ok") return t.decided || t.line || "";
   if (turn === "ai") return t.line || (isWorking(t.id) ? L.rowWorking : L.rowNotYet);
+  // 提案の中身は行の 2 段目に出るので、行には「受け入れ待ち」とだけ
   const prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
-  return t.line || (prop ? lineOf(dataOf(prop)) : "");
+  return t.line || (prop ? L.rowAsk : "");
 }
 // 面を開けるか：行について AI が置いたもの（詳しい結果・問い）か、行の中の行がある
 const openable = (t) => S.panels.some((q) => q.about === t.id && !isPerson(q.by) && q.by !== "board");
 const faceOpen = (id) => (LAYOUT.out || []).includes(id);
+// 行の 2 段目：その行の下（どの深さでも）にある提案と、AI の番の仕事（受け入れて動いているものも）。箇条書きの 2 段目の感覚で、数本まで。
+// 済んだものは出さない（行の一行に畳む）。表だけ見て、受け入れ待ちと動いているものがわかり、面を開かずに受け入れられる
+const SUB_MAX = 3;
+function subOf(t) {
+  const out = [], seen = new Set([t.id]);
+  for (let wave = [t.id]; wave.length; ) {
+    const next = S.panels.filter((q) => wave.includes(q.about) && !seen.has(q.id));
+    for (const q of next) seen.add(q.id);
+    out.push(...next.filter((q) => q.state === "proposal" || (q.view === "task" && q.state === "task")));
+    wave = next.map((q) => q.id);
+  }
+  return out.sort((a, b) => a.seq - b.seq);
+}
+// 2 段目の一行の字：動いている仕事は「いまどこまで来たか」、なければ頼んだこと（受け入れた提案ならその提案の頭）
+function subText(q) {
+  if (q.state === "proposal") return clipText(lineOf(dataOf(q)), 60);
+  const acc = q.data?.accepted ? panelById(q.data.accepted) : null;
+  const what = q.data?.title ?? (acc ? lineOf(dataOf(acc)) : lineOf(textOf(q.data)));
+  return clipText(q.key && !acc ? `${q.key} ${what}` : what, 60);
+}
+function subEl(q) {
+  const d = document.createElement("div"), work = q.state === "task";
+  d.className = `row sub s-${work ? "ai" : "you"}`;
+  d.dataset.row = q.id;
+  const tail = work ? (q.line || (isWorking(q.id) ? L.rowWorking : L.rowNotYet)) : "";
+  d.innerHTML = `<span></span><span class="t" title="${esc(textOf(q.data))}">・${linkify(subText(q))}${tail ? ` <i>${esc(tail)}</i>` : ""}</span>` +
+    `<span class="s" aria-label="${esc(L.turn[work ? "ai" : "you"])}">${work ? (isWorking(q.id) ? '<span class="spin" aria-hidden="true"></span>' : esc(L.turnSym.ai)) : ""}</span>` +
+    `<span class="a">${work ? "" : `<button data-act="accept-row" data-id="${esc(q.id)}" data-rev="${q.rev}">${esc(L.accept)}</button>`}</span>`;
+  return d;
+}
+// 表の一行と、その 2 段目
+function rowEls(t) {
+  const subs = subOf(t), shown = subs.slice(0, SUB_MAX), els = [rowEl(t), ...shown.map(subEl)];
+  if (subs.length > shown.length) {
+    const more = document.createElement("div");
+    more.className = "row sub more-sub";
+    more.innerHTML = `<span></span><span class="t">${esc(L.subMore(subs.length - shown.length))}</span>`;
+    els.push(more);
+  }
+  if (els.length > 1) els[0].classList.add("has-sub");
+  return els;
+}
 // 表の一行
 function rowEl(t) {
-  const turn = turnOf(t), mark = markOf(t), prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
+  const turn = turnOf(t), mark = markOf(t);
+  // 行そのものが提案なら、行の「受け入れる」。行の下の提案は 2 段目に出す
+  const prop = t.state === "proposal" ? t : null;
   const d = document.createElement("div");
   d.className = `row s-${turn || "none"}${mark === "notice" ? " chg" : ""}${faceOpen(t.id) ? " open" : ""}`;
   d.dataset.row = t.id;
@@ -965,7 +1017,7 @@ function panelEl(p, kids, { root = false } = {}) {
   if (rows.length) {
     const tb = document.createElement("div");
     tb.className = "rows";
-    for (const r of rows) tb.append(rowEl(r));
+    for (const r of rows) tb.append(...rowEls(r));
     el.append(tb);
   }
   const box = document.createElement("div");
@@ -1248,7 +1300,7 @@ function render() {
     // 指したパネル（合流した発言のぶんも）
     for (const pt of mine.map((x) => x.point).filter(Boolean)) {
       const t = panelById(pt.id), chip = pt.how === "pick" ? L.pickChip : L.ptChip;
-      chips.unshift(t ? `<button${pt.how === "pick" ? ' class="pick"' : ""} data-goto="${esc(t.id)}" title="${esc(L.ptTitle[pt.how] || "")}">${esc(chip(clipText(nameOf(t), 14)))}</button>`
+      chips.unshift(t ? `<button${pt.how === "pick" ? ' class="pick"' : ""} data-goto="${esc(t.id)}" title="${esc(L.ptTitle[pt.how] || "")}">${esc(chip(ptName(t, 14)))}</button>`
         : `<span class="wait" title="${esc(L.ptGone)}">${esc(chip(pt.id))}</span>`);
     }
     const land = landed.get(p.id);
@@ -1472,11 +1524,14 @@ const panelById = (id) => S.panels.find((p) => p.id === id);
 // 済み：話題と、行でない仕事は state done。行は人が決めたとき（turn ok）。AI が返しただけ（人の番）の行は、読んでいる途中なので済みにしない
 const isDone = (p) => (isRow(p) ? turnOf(p) === "ok" : (p?.view === "task" || p?.view === "topic") && p.state === "done");
 const descOf = (id, kids) => kids(id).flatMap((k) => [k, ...descOf(k.id, kids)]);
-// 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）
+// 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）。
+// いまの要点と「いま」は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
+const FOLD_FIRST = ["summary", "now"];
 function isFolded(k) {
   if (SHOT) return false;
   const f = LAYOUT.fold?.[k];
   if (f != null) return f;
+  if (FOLD_FIRST.includes(k)) return true;
   const p = panelById(k);
   return isDone(p) && !descOf(k, S.kids || (() => [])).some((x) => markOf(x));
 }
@@ -2807,24 +2862,27 @@ grid.addEventListener("pointerleave", () => { HOVER.k = null; HOVER.id = null; }
 setInterval(() => sendFocus(), 60e3);
 
 // ── 指して喋る：発言を置くとき、そのとき指していたパネルを付ける。「これ」「それ」が何かを、マネージャが取り違えないように ──
-// 指しているもの：さっきまでマウスを乗せていたパネル（hover）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
+// 指しているもの：さっきまでマウスを乗せていたパネル（hover）。表の行の上なら、その行（話題ではなく）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
 // どちらも「覚えておく時間」より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
 // 時間はどれも dyve 設定の「調整」で変えられる（tu()。サーバーの ui-settings.json に持ち、立て直さずに効く）
 const PT = { over: null, last: null, looked: 0, cur: undefined };
+// 指した先の要素：表の行（.row[data-row]）が先、なければパネル
+const pointTarget = (el) => el?.closest?.("#grid .row[data-row]") || el?.closest?.("#grid dv-panel") || null;
+const pointEl = (id) => $(`#grid dv-panel[data-id="${CSS.escape(id)}"]`) || $$(`#grid .row[data-row="${CSS.escape(id)}"]`).find((r) => r.getClientRects().length) || null;
 function pointNow() {
   if (SHOT || narrow()) return null;
   const now = Date.now(), g = stage.getBoundingClientRect();
   const ok = (el) => {
-    const p = el && panelById(el.dataset.id), r = el?.getBoundingClientRect();
+    const p = el && panelById(el.dataset.row ?? el.dataset.id), r = el?.getBoundingClientRect();
     return p && !["summary", "layout", "say"].includes(p.view) && r.width > 0 && r.bottom > g.top + 24 && r.top < g.bottom - 24 && r.right > g.left + 24 && r.left < g.right - 24 ? p.id : null;
   };
   const keep = tu("pointKeepSec") * 1000;
   if (PT.last && now - PT.last.at < keep) {
-    const id = ok($(`#grid dv-panel[data-id="${CSS.escape(PT.last.id)}"]`));
+    const id = ok(pointEl(PT.last.id));
     if (id) return { id, how: "hover" };
   }
   if (now - PT.looked < keep) {
-    const id = ok(document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)?.closest("#grid dv-panel"));
+    const id = ok(pointTarget(document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)));
     if (id) return { id, how: "view" };
   }
   return null;
@@ -2838,12 +2896,12 @@ function notePoint() {
 function showPoint() {
   if (S.to) return;
   const p = panelById(pointNow()?.id);
-  const next = p ? L.ptPlaceholder(clipText(nameOf(p), 16)) : L.placeholder;
+  const next = p ? L.ptPlaceholder(ptName(p, 16)) : L.placeholder;
   if (msg.placeholder !== next) msg.placeholder = next;
 }
 // 通りすがりに触れただけのパネルは数えない（マウスが少しのあいだ留まったものだけ）
 const overPanel = (e) => {
-  const p = panelById(e.target.closest?.("#grid dv-panel")?.dataset.id), now = Date.now();
+  const el = pointTarget(e.target), p = panelById(el?.dataset.row ?? el?.dataset.id), now = Date.now();
   if (!p || ["summary", "layout", "say"].includes(p.view)) { PT.over = null; return; }
   if (PT.over?.id !== p.id) PT.over = { id: p.id, since: now };
   if (now - PT.over.since < tu("pointHoldMs")) return;
