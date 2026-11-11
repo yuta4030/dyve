@@ -8,7 +8,7 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
 const panelFields = {
-  view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（いまの要点）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
+  view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（いまの要点）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える（使えるものとデータの形は view_list）。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
   data: {
     type: ["string", "array", "object", "number", "boolean", "null"],
     description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}、topic は {title, note?}、summary は {points, decided, open}（項目は文字列か {text, from: [元の発言の id]}）",
@@ -78,14 +78,20 @@ export const TOOLS = [
     description: "あるパネルへの操作の履歴（清書の前の文など）",
     inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
+  {
+    name: "view_list",
+    description: "使える view と、それぞれのデータの形を読む。builtin は本体の view、user は利用者のパネル置き場の view（about はファイルの頭のコメント。データの形が書いてある）。人が「使わない」にしたものは出ない",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 // ボードの決まりはここに一つだけ書く。どのエージェントも MCP の説明として読む。役ごとの定義（agents・skills）には役割だけを書く
 const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場所。パネルの並びでできている。人も AI も同じ操作で書く。
-書く操作は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。読むのは board_read、絵で見るのは board_view（全体）と panel_view（一枚）。
+書く操作は panel_add・panel_edit・panel_drop・board_layout・word_add だけ。読むのは board_read と view_list（使える view とデータの形）、絵で見るのは board_view（全体）と panel_view（一枚）。
 
 ## パネル
 - 形は { id, by, view, data, about?, state?, rel?, point?, pinned, source?, send?, key?, line?, decided?, wait? }。id は一度振ったら変わらない。view ごとの data の形は panel_add の説明のとおり
+- 結果は中身に合った view で置く。変更（ブランチ・差分）、ファイルや場所の一覧、日ごとの予定、列に分けた札のように形のあるものは、view_list で利用者の view とデータの形を見て、その view と形のデータで置く（文章にして text に入れない）。合うものがなければ text・list・table
 - source は入ってくる口（shell コマンドの結果がデータになる）、send は出ていく口（人が送った入力が shell コマンドに渡る）。どちらも、走らせてよいかは人が決める。送ったものは、そのパネルに about した人の text として残る
 - about：どのパネルについてのものか。関係するパネルに about して置く
 - rel：比べるもの（compare。案 A と案 B など）・順番のあるもの（sequence。手順や、順にやる仕事）を置くときに、同じものについてのパネルを with に入れる。画面はその組を横に並べる
@@ -108,6 +114,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - 人の発言はトーク、summary はいまの要点に出る（いまの要点と「いま」は、既定で畳まれている）。話題は表になり、中の仕事が一行ずつ並ぶ。ほかのものは about のないパネルごとに一枚にまとまり、about したものはその中に出る
 - 行の下（面の中のどの深さでも）にある提案と、AI の番の仕事は、表のその行の下に一段字下げして出る。人は面を開かずに、表で受け入れられる。表に「…」がなければ、何も動いていない
 - 表は動かない。行が開くと、その行について置かれたものが表の隣に面として出て、行と線でつながる。決まった行の面は、ボードが行に畳む（行の ▸ からいつでも開き直せる）
+- 面は役割で並ぶ：頭に行の番と結論の一行、左にやること（行の中の行と、行に置かれた提案・仕事を番ごとの札に）、まん中に主役（AI が置いたいちばん新しい結果）、右に残り（新しい順。多いと古いものは一行に畳む）。行の中の行の結果も、その行の記号つきで面に出る。パネルの見出しは中身の種類で、置いた人は小さな丸。だから結果は一枚ごとに一つの種類にし、いちばん見てほしいものを最後に置く。面の中で置き場所を決めたもの（board_layout の moves）はその場所に残る
 - 面を開く・閉じるはマネージャが人の話についていって決める（board_layout の out）。人がその行の話を始めたら開く。返ってきた結果だけで面を開かない（先回りしない）。閉じるのは、人がいま話している行の面でなければいつでもよい（話が別の行に移った、面が増えて表が見づらい）。中で動いているものや提案は表の 2 段目に出るので、閉じても見失わない
 - 「いま」（組み込みのパネル）は、いる場所（話題 › 開いている面）・やりかけ・人の番の行を一行ずつ出す
 - 並びは画面が決める：いまの話題を先頭に大きく、次に印のあるもの、新しいもの、済み（畳む）の順に詰める。幅は中身の形（表は列の数、文章は読みやすい幅）から、高さは中身の量から。読んでいるパネルは画面の同じ位置に残る。並べる手間は要らない。置くときは関係するパネルに about し、組には rel を付けるだけ
@@ -178,13 +185,27 @@ export function unwrapData(data) {
   return data;
 }
 
-function call(store, waker, as, name, args = {}, offView, words, focus) {
+// 本体の view とデータの形（panel_add の data の説明と同じ）
+const BUILTIN_VIEWS = [
+  { name: "text", about: "文字列" },
+  { name: "list", about: "文字列の配列" },
+  { name: "table", about: "{ columns: [列の名前], rows: [[値]] }" },
+  { name: "json", about: "どんな JSON でも（そのまま見せる）" },
+  { name: "task", about: "{ text, from?, to?, team?, write? }（仕事）" },
+  { name: "topic", about: "{ title, note? }（話題）" },
+  { name: "summary", about: "{ points, decided, open }（いまの要点）" },
+  { name: "say", about: "文字列（人の発言）" },
+];
+
+function call(store, waker, as, name, args = {}, offView, words, focus, views) {
   const { reason: why, ...rest } = args;
   switch (name) {
     case "board_read":
       return boardView(store, waker, rest, focus);
     case "panel_history":
       return store.board.history(rest.id);
+    case "view_list":
+      return { builtin: BUILTIN_VIEWS, user: views?.() ?? [] };
     case "board_layout":
       return changeLayout(store, as, rest, why, focus?.tiles());
     case "word_add":
@@ -243,7 +264,7 @@ async function panelPicture(store, id, shoot) {
   return { content: [asText({ ok: true, picture: false, message: "ブラウザがないので絵は撮れない", panel })] };
 }
 
-export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus = waker?.focus } = {}) {
+export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus = waker?.focus, views } = {}) {
   const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
   const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return fail(-32600, "Invalid Request");
@@ -269,7 +290,7 @@ export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus 
       if (msg.params?.name === "board_view") return boardPicture(store, focus, msg.params?.arguments?.real, shoot).then(reply);
       if (msg.params?.name === "panel_view") return panelPicture(store, msg.params?.arguments?.id, shoot).then(reply);
       try {
-        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView, words, focus);
+        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView, words, focus, views);
         return reply({ content: [{ type: "text", text: JSON.stringify(out) }], isError: out?.ok === false });
       } catch (e) {
         return e.rpc ? fail(e.rpc, e.message) : reply({ content: [{ type: "text", text: e.message }], isError: true });

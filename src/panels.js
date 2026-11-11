@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 export const VIEW_NAME = /^[a-z][a-z0-9-]{0,40}$/;
 
@@ -37,6 +38,8 @@ dyve.view((el, data, ctx) => {
 - 色は CSS 変数で：\`--bg\` \`--card\` \`--ink\` \`--mute\` \`--line\` \`--accent\` \`--accent-soft\` \`--warn\` \`--ok\`
 - 高さは中身に合わせて自動で決まる
 - \`<style>\` は view の中で書いてよい（\`el.innerHTML\` に含める）
+- ファイルの頭のコメントに、データの形を書いておく。エージェントは view を選ぶとき、ここを読む
+- 見本（bars・cards・change・tree・days）は dyve が配る。新しい見本は、まだ配っていないものだけ足す（\`.samples\` に記録する。消したものや同じ名前のものは上書きしない）
 
 ## データの流し込み方
 
@@ -60,27 +63,36 @@ dyve.view((el, data, ctx) => {
 設定は人のものなので、この置き場の外（\`../panel-settings.json\`）に持つ。
 `;
 
-const EXAMPLE = `// 数の並びを横棒で。data は [{label, value}] か { ラベル: 数 }
-dyve.view((el, data) => {
-  const rows = Array.isArray(data) ? data : Object.entries(data || {}).map(([label, value]) => ({ label, value }));
-  const max = Math.max(1, ...rows.map((r) => Number(r.value) || 0));
-  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  el.innerHTML = \`<style>
-    .row { display: grid; grid-template-columns: minmax(4em, 30%) 1fr auto; gap: 8px; align-items: center; margin: 3px 0; }
-    .row span { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row b { display: block; height: 10px; border-radius: 5px; background: var(--accent); min-width: 2px; }
-    .row em { font-style: normal; font-variant-numeric: tabular-nums; }
-  </style>\` + rows.map((r) => \`<div class="row"><span>\${esc(r.label)}</span><b style="width:\${(Number(r.value) / max) * 100}%"></b><em>\${esc(r.value)}</em></div>\`).join("");
-});
-`;
+// 配る見本の view（汎用のものだけ。本体の view には足さない）。中身は src/samples/<名前>.js、管理の絵に使う見本のデータは src/samples/data.json
+const SAMPLE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "samples");
+export const SAMPLES = ["bars", "cards", "change", "tree", "days"];
+export const sampleSource = (name) => fs.readFileSync(path.join(SAMPLE_DIR, `${name}.js`), "utf8");
+export function sampleData() {
+  try { return JSON.parse(fs.readFileSync(path.join(SAMPLE_DIR, "data.json"), "utf8")); } catch { return {}; }
+}
+// 配った見本の名前の記録（置き場の中に持ち、履歴にも積む）。一度配ったものは、消されても上書きされていても二度と配らない
+const HANDED = ".samples";
 
-// 置き場がなければ作る（README と見本、git の履歴）
+// 置き場がなければ作る（README と見本、git の履歴）。すでにあれば、まだ配っていない見本だけ足す。
+// 同じ名前の view があれば上書きしない。消したもの（trash に移したもの）は戻さない
 export function ensurePanels(dir) {
   const views = path.join(dir, "views");
   const fresh = !fs.existsSync(dir);
   fs.mkdirSync(views, { recursive: true });
   if (!fs.existsSync(path.join(dir, "README.md"))) fs.writeFileSync(path.join(dir, "README.md"), README);
-  if (fresh) fs.writeFileSync(path.join(views, "bars.js"), EXAMPLE);
+  const file = path.join(dir, HANDED);
+  // 記録がない置き場は、記録を持つ前の版が作ったもの。そのときは作ったときに bars だけを配っている
+  const handed = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").map((s) => s.trim()).filter(Boolean) : fresh ? [] : ["bars"];
+  const trashed = new Set(listTrash(dir).map((t) => t.name));
+  const added = [], before = handed.length;
+  for (const name of SAMPLES) {
+    if (handed.includes(name)) continue;
+    handed.push(name);
+    const to = path.join(views, `${name}.js`);
+    if (fs.existsSync(to) || trashed.has(name)) continue;
+    try { fs.writeFileSync(to, sampleSource(name)); added.push(name); } catch {}
+  }
+  if (handed.length !== before || !fs.existsSync(file)) fs.writeFileSync(file, handed.join("\n") + "\n");
   if (!fs.existsSync(path.join(dir, ".git"))) {
     try {
       const git = (...a) => execFileSync("git", ["-C", dir, ...a], { stdio: "ignore" });
@@ -88,8 +100,25 @@ export function ensurePanels(dir) {
       git("add", ".");
       git("-c", "user.name=dyve", "-c", "user.email=dyve@localhost", "commit", "-q", "-m", "パネル置き場をつくる");
     } catch {}
+  } else if (handed.length !== before) {
+    record(dir, added.length ? `見本の view を足す：${added.join("・")}` : "配った見本の記録", [HANDED, ...added.map((n) => `views/${n}.js`)]);
   }
   return dir;
+}
+
+// 置いてある view の名前と、頭のコメント（データの形の説明）。エージェントが view を選ぶときに読む
+export function describeViews(dir) {
+  return listViews(dir).map(({ name }) => {
+    const src = readView(dir, name) || "";
+    const head = [];
+    for (const line of src.split("\n")) {
+      const m = /^\s*\/\/\s?(.*)$/.exec(line);
+      if (!m) break;
+      head.push(m[1]);
+    }
+    const about = head.join("\n").trim();
+    return { name, about: about.length > 800 ? `${about.slice(0, 800)}…` : about };
+  });
 }
 
 // 置いてある view の名前と、変わったら変わる印

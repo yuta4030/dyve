@@ -53,7 +53,7 @@ test("MCP の口：初期化・道具の一覧・書き込みは名乗った立�
     const note = await post(`${base}/mcp?as=manager`, { jsonrpc: "2.0", method: "notifications/initialized" });
     assert.equal(note.status, 202);
     const tools = await rpc("manager", "tools/list");
-    assert.deepEqual(tools.result.tools.map((t) => t.name), ["board_read", "panel_add", "panel_edit", "panel_drop", "board_view", "panel_view", "board_layout", "word_add", "panel_history"]);
+    assert.deepEqual(tools.result.tools.map((t) => t.name), ["board_read", "panel_add", "panel_edit", "panel_drop", "board_view", "panel_view", "board_layout", "word_add", "panel_history", "view_list"]);
 
     store.apply({ by: "human", type: "add", panel: { view: "say", data: "えっと、あの" } });
     const add = await rpc("アリス", "tools/call", { name: "panel_add", arguments: { view: "text", about: "p1", data: "答え", reason: "調べた" } });

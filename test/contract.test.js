@@ -162,6 +162,7 @@ test("約束：MCP の口。道具の名前と引数、返事の形", async () =
     panel_view: ["id"],
     board_layout: ["moves", "fold", "zoom", "float", "out", "density", "reset", "reason"],
     word_add: ["heard", "write", "when", "reason"],
+    view_list: [],
   };
   for (const [name, args] of Object.entries(want)) {
     assert.ok(tools[name], name);
@@ -182,6 +183,10 @@ test("約束：MCP の口。道具の名前と引数、返事の形", async () =
     const read = await call("アリス", "board_read", {});
     for (const k of ["seq", "panels", "marks"]) assert.ok(k in read, k);
     assert.equal(read.panels[0].id, added.id);
+    // 使える view とデータの形（パネル置き場がなければ本体の view だけ）
+    const views = await call("アリス", "view_list", {});
+    assert.ok(views.builtin.some((v) => v.name === "text" && typeof v.about === "string"));
+    assert.deepEqual(views.user, []);
     // MCP から人として書けない
     assert.equal((await call("human", "panel_add", { view: "text", reason: "x" })).code, "forbidden");
   });

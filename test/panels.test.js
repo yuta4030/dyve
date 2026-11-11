@@ -6,7 +6,7 @@ import path from "node:path";
 import { Store } from "../src/store.js";
 import { marks, sourceApproved } from "../src/board.js";
 import { Feeds, parseOutput } from "../src/feeds.js";
-import { ensurePanels, listViews, readView, readSettings, setView, offViews, trashView, restoreView, listTrash, catalog } from "../src/panels.js";
+import { ensurePanels, listViews, readView, readSettings, setView, offViews, trashView, restoreView, listTrash, catalog, SAMPLES, sampleSource, sampleData, describeViews } from "../src/panels.js";
 import { execFileSync } from "node:child_process";
 import { createServer } from "../src/server.js";
 import { claudeArgs, claudeSpawner } from "../src/agents.js";
@@ -63,15 +63,63 @@ test("パネル置き場：README と見本と git を用意し、view を名前
   ensurePanels(dir);
   assert.ok(fs.existsSync(path.join(dir, "README.md")));
   assert.ok(fs.existsSync(path.join(dir, ".git")));
-  assert.deepEqual(listViews(dir).map((v) => v.name), ["bars"]);
+  const names = () => listViews(dir).map((v) => v.name).sort();
+  assert.deepEqual(names(), [...SAMPLES].sort());
   assert.match(readView(dir, "bars"), /dyve\.view/);
   assert.equal(readView(dir, "../x"), null);
   fs.writeFileSync(path.join(dir, "views", "Bad Name.js"), "");
-  assert.deepEqual(listViews(dir).map((v) => v.name), ["bars"]);
+  assert.deepEqual(names(), [...SAMPLES].sort());
   // 二度目は見本を書き直さない（利用者が消したものを戻さない）
   fs.rmSync(path.join(dir, "views", "bars.js"));
   ensurePanels(dir);
-  assert.deepEqual(listViews(dir), []);
+  assert.deepEqual(names(), SAMPLES.filter((n) => n !== "bars").sort());
+});
+
+test("見本の配り方：すでにある置き場には、まだ配っていない見本だけ足す。上書きせず、消したものは戻さない", () => {
+  // 記録を持つ前の版が作った置き場（bars だけを配った）
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-panels-")), "panels");
+  fs.mkdirSync(path.join(dir, "views"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "trash"));
+  fs.writeFileSync(path.join(dir, "README.md"), "x");
+  fs.writeFileSync(path.join(dir, "views", "cards.js"), "// 自分の札\ndyve.view(() => {});\n");
+  fs.writeFileSync(path.join(dir, "trash", "tree.1700000000000.js"), "// 消した木\n");
+  const git = (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+  git("init", "-q");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "-m", "前の版");
+  ensurePanels(dir);
+  const names = listViews(dir).map((v) => v.name).sort();
+  assert.deepEqual(names, ["cards", "change", "days"], "bars は前に配ったので戻さない。tree は消したので戻さない");
+  assert.match(readView(dir, "cards"), /自分の札/, "同じ名前のものは上書きしない");
+  assert.equal(readView(dir, "change"), sampleSource("change"));
+  assert.match(git("log", "--format=%s", "-1"), /見本の view を足す：change・days/);
+  assert.equal(git("status", "--porcelain").trim(), "", "足したものと記録は履歴に積む");
+  // 足したものを消しても、もう一度は配らない
+  fs.rmSync(path.join(dir, "views", "change.js"));
+  ensurePanels(dir);
+  assert.equal(readView(dir, "change"), null);
+});
+
+test("見本の view：形の違うデータが来ても投げずに何か描き、頭のコメントにデータの形を書く", () => {
+  const data = sampleData();
+  const odd = [undefined, null, "", "ただの文\n二行目", 3, true, [], [1, "a", null, { x: 1 }], {}, { a: 1 }, { title: 5, files: "x", checks: 3, cards: "y" }, "diff --git a/x b/x\n+++ b/x\n+a\n-b\n"];
+  for (const name of SAMPLES) {
+    const src = sampleSource(name);
+    assert.match(src, /^\/\/ .+\n/, `${name} の頭にコメント`);
+    assert.ok(data[name] != null, `${name} の見本のデータ`);
+    let fn = null;
+    new Function("dyve", src)({ view: (f) => { fn = f; } });
+    for (const d of [data[name], ...odd]) {
+      const el = { innerHTML: "" };
+      fn(el, d, { panel: { id: "p1", view: name } });
+      assert.equal(typeof el.innerHTML, "string");
+      assert.ok(el.innerHTML.length > 0, `${name} が ${JSON.stringify(d)} で何か描く`);
+    }
+  }
+  const dir = ensurePanels(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-panels-")), "panels"));
+  const about = Object.fromEntries(describeViews(dir).map((v) => [v.name, v.about]));
+  assert.match(about.change, /data は \{ title/);
+  assert.ok(!about.change.includes("dyve.view"), "コメントのところだけ");
 });
 
 test("サーバー：view を配り、「今すぐ更新」は許可されたコマンドだけ", async () => {
@@ -86,7 +134,7 @@ test("サーバー：view を配り、「今すぐ更新」は許可されたコ
   try {
     const ai = store.apply({ by: "ボブ", type: "add", panel: { view: "bars", source: { shell: "x" } }, reason: "x" }).op.panel.id;
     let b = await (await fetch(`${base}/api/board`)).json();
-    assert.deepEqual(b.views.map((v) => v.name), ["bars"]);
+    assert.deepEqual(b.views.map((v) => v.name).sort(), [...SAMPLES].sort());
     assert.equal(b.feeds[ai].approved, false);
     assert.match(await (await fetch(`${base}/api/views/bars`)).text(), /dyve\.view/);
     assert.equal((await fetch(`${base}/api/views/nai`)).status, 404);
@@ -168,7 +216,7 @@ test("管理の一覧：自分の view、描き方がないもの、本体の vi
   setView(dir, "bars", { off: true, w: 400 });
   const { views } = catalog(dir, { here: { bars: 2, text: 1, gone: 1 }, all: { bars: 5, text: 3, gone: 1 } });
   const by = Object.fromEntries(views.map((v) => [v.name, v]));
-  assert.deepEqual(views.slice(0, 2).map((v) => v.name), ["bars", "gone"]);
+  assert.deepEqual(views.filter((v) => v.kind !== "builtin").map((v) => v.name), [...[...SAMPLES].sort(), "gone"]);
   assert.deepEqual(by.bars, { name: "bars", kind: "user", off: true, w: 400, h: null, sizable: true, here: 2, all: 5, sample: null, hash: by.bars.hash });
   assert.ok(by.bars.hash);
   assert.equal(catalog(dir, { samples: { bars: [1] } }).views.find((v) => v.name === "bars").sample[0], 1);
@@ -192,7 +240,11 @@ test("使わないにした view：AI も人も新しく置けない。コマン
   const post = async (url, body) => (await fetch(base + url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   const mcp = async (name, args) => JSON.parse((await post("/mcp?as=manager", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { reason: "x", ...args } } })).result.content[0].text);
   try {
+    const listed = async () => (await mcp("view_list", {})).user.map((v) => v.name);
+    assert.ok((await listed()).includes("bars"));
+    assert.match((await mcp("view_list", {})).user.find((v) => v.name === "bars").about, /data は/, "頭のコメントでデータの形を伝える");
     assert.equal((await post("/api/panels", { action: "set", name: "bars", off: true })).ok, true);
+    assert.ok(!(await listed()).includes("bars"), "使わないにした view は出さない");
     assert.equal(feeds.timers.size, 0, "見張りは止まる");
     assert.equal(feeds.run(a), false);
     const refused = await mcp("panel_add", { view: "bars" });
@@ -238,6 +290,10 @@ test("絵の見本：いちばん新しいデータ、コマンドの結果、�
   const sample = async (v) => (await (await fetch(`${base}/api/panels`)).json()).views.find((x) => x.name === v).sample;
   try {
     assert.equal((await sample("bars"))[0].label, "前のボード");
+    // まだ使っていない見本の view は、配った見本のデータで描く。頭の一行を書き換えたら、別の形とみなして使わない
+    assert.deepEqual(await sample("change"), sampleData().change);
+    fs.writeFileSync(path.join(dir, "views", "days.js"), "// 自分の形\ndyve.view(() => {});\n");
+    assert.equal(await sample("days"), null);
     desk.store.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "古い", value: 1 }] } });
     desk.store.apply({ by: "human", type: "add", panel: { view: "bars", data: [{ label: "新しい", value: 1 }] } });
     assert.equal((await sample("bars"))[0].label, "新しい");
