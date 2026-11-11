@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Store } from "../src/store.js";
-import { Waker, managerPrompt, taskPrompt } from "../src/waker.js";
+import { Waker, managerPrompt, taskPrompt, screenWords } from "../src/waker.js";
 import { hasAiAnswer } from "../src/board.js";
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -319,5 +319,44 @@ test("指して喋る：マネージャと控室に、発言のとき指して�
   assert.match(g.sessions[0].sent[0], new RegExp(`${s2}（rev`));
   assert.doesNotMatch(g.sessions[0].sent[0], new RegExp(`${pk2}（rev`));
   assert.equal(w.status().read, 0, "マネージャがまだ読んでいない");
+  w.stop();
+});
+
+test("清書係に画面を見せる：表の行・開いている面の見出し・指した先を渡し、二通目からは変わった分だけ", async () => {
+  const store = new Store();
+  const mg = (panel) => store.apply({ by: "manager", type: "add", panel, reason: "r" }).op.panel.id;
+  const topic = mg({ view: "topic", data: { title: "動作確認" } });
+  const row = mg({ view: "task", state: "task", about: topic, data: { title: "見積もりを送る", text: "送る" } });
+  store.apply({ by: "アリス", type: "edit", panel: { id: row, state: "done", line: "下書きできた" }, reason: "r" });
+  store.apply({ by: "アリス", type: "add", panel: { view: "table", about: row, data: { columns: ["項目", "中身"], rows: [["宛先", "x"]] } }, reason: "r" });
+  store.apply({ by: "human", type: "add", panel: { view: "layout", data: { v: 3, out: [row] } } });
+  const words = screenWords(store.board);
+  assert.deepEqual(words, ["- 話題「動作確認」", "  - A 見積もりを送る → 下書きできた", "    - A の面：項目・中身／宛先"]);
+  const old = store.apply({ by: "human", type: "add", panel: { view: "say", data: "前の話" } }).op.panel.id;
+  store.apply({ by: "human", type: "edit", panel: { id: old, data: "前の話（手で直した）" } });
+  const g = fakeSession();
+  const w = new Waker({ store, spawn: fakeSpawn().spawn, session: g.open, pause: 1e6, scribePause: 1 });
+  w.cutoff = w.scribeCutoff = store.board.seq;
+  w.start();
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "三森は送った", point: { id: row, how: "hover" } } });
+  await tick(20);
+  const first = g.sessions[0].sent[0];
+  assert.match(first, /画面の言葉[\s\S]*A 見積もりを送る → 下書きできた[\s\S]*A の面：項目・中身/);
+  assert.match(first, new RegExp(`（rev \\d+、A（${row}）「見積もりを送る」を指して）：三森は送った`));
+  assert.match(first, new RegExp(`${old}（人が直した。触らない）`), "人が直した文脈の発言は触らせない");
+  g.sessions[0].reply();
+  await tick(5);
+  // 二通目：行の一行が変わったぶんだけ
+  store.apply({ by: "アリス", type: "edit", panel: { id: row, line: "送った" }, reason: "r" });
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "次" } });
+  await tick(20);
+  const second = g.sessions[0].sent[1];
+  assert.match(second, /A 見積もりを送る → 送った/);
+  assert.doesNotMatch(second, /話題「動作確認」|A の面/);
+  g.sessions[0].reply();
+  await tick(5);
+  store.apply({ by: "human", type: "add", panel: { view: "say", data: "次の次" } });
+  await tick(20);
+  assert.doesNotMatch(g.sessions[0].sent[2], /画面の言葉/, "変わっていなければ送らない");
   w.stop();
 });
