@@ -221,15 +221,14 @@ test("マネージャへの指示：要点・仕事・新しい発言・置か�
   store.apply({ by: "human", type: "add", panel: { view: "say", data: "索引かな" } });
   store.apply({ by: "ボブ", type: "add", panel: { view: "text", about: t, data: "索引がない" }, reason: "結果" });
   const p = managerPrompt(since, store.board, [t]);
-  assert.match(p, /いまの要点（p2、rev 2）[\s\S]*検索の話/);
+  assert.doesNotMatch(p, /いまの要点/, "要点はもう渡さない");
   assert.match(p, new RegExp(`${t}［task・動いている］ボブ：遅さを調べる`));
   assert.match(p, /新しい発言[\s\S]*索引かな/);
   assert.doesNotMatch(p, /：検索が遅い/);
   assert.match(p, /新しく置かれたもの[\s\S]*ボブ[\s\S]*索引がない/);
-  assert.doesNotMatch(p, /項目までに減らして/);
-  const long = store.apply({ by: "manager", type: "add", panel: { view: "summary", data: { points: Array(20).fill("x") } }, reason: "要点" });
-  assert.ok(long.ok);
-  assert.match(managerPrompt(since, store.board, []), /いま 20 項目あります。今回の書き換えで 15 項目までに減らして/);
+  // 前の版が要点の open に置いた問いは、行にするように渡す（落とさない）
+  store.apply({ by: "manager", type: "add", panel: { view: "summary", data: { points: ["x"], open: ["「良い」の基準を決める", { text: "要点を真ん中へ", from: [say] }] } }, reason: "要点" });
+  assert.match(managerPrompt(since, store.board, []), /いまの要点に残っている問い[\s\S]*「良い」の基準を決める\n- 要点を真ん中へ/);
 });
 
 test("アイコンで宛てた発言：続けて話したぶんをまとめてその相手に渡し、働いていれば終わってから続きとして渡す", async () => {
@@ -276,7 +275,7 @@ test("話題：マネージャには話題の一覧を渡し、控室には話�
   const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "パネルの整理" } }, reason: "話題" }).op.panel.id;
   const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: tp, data: { text: "diff の view を作る", from: [s1] } }, reason: "x" }).op.panel;
   const m = managerPrompt(0, store.board);
-  assert.match(m, new RegExp(`## 話題\\n- ${tp}：パネルの整理（行 1）`));
+  assert.match(m, new RegExp(`## 話題\\n- ${tp}（rev \\d+）：パネルの整理（行 1）　いまどこまで：`));
   assert.match(m, new RegExp(`A（${t.id}）［AI の番］diff の view を作る`));
   const p = taskPrompt(store.board, store.board.get(t.id), "アリス");
   assert.match(p, /話題（.+）：パネルの整理/);
