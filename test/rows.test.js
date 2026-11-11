@@ -101,10 +101,11 @@ test("声で受け入れる：マネージャが、提案のあとの人の発�
   assert.equal(b.apply({ by: "manager", type: "edit", panel: { id: pr, data: "x" }, from: "p1", reason: "x" }).code, "invalid");
 });
 
-test("起こし係：声で受け入れた提案は、提案を置いた人に仕事として戻る", async () => {
+test("起こし係：声で受け入れた提案は、提案を置いた人に仕事として戻る", async (t) => {
   const store = new Store();
   const f = fakeSpawn();
   const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  t.after(() => w.stop());
   const { ap, row } = morning(store);
   const apply = (o) => { const r = store.apply(o); assert.ok(r.ok, JSON.stringify(r)); return r.op.panel.id; };
   const e = row("返信");
@@ -114,6 +115,14 @@ test("起こし係：声で受け入れた提案は、提案を置いた人に�
   const act = store.board.list().find((p) => p.data?.accepted === pr);
   assert.ok(act, "受け入れた提案の仕事");
   assert.equal(act.data.to, "ボブ");
+  assert.equal(act.data.title, "下書きを送る");
+  // 箇条書きの提案は、JSON の文字列でなく一行ずつの文で頼む
+  const pr2 = apply({ by: "ボブ", type: "add", panel: { view: "list", about: e, state: "proposal", data: ["PR #16 をマージする（gh pr merge 16 --merge）", "タグは CI が作る"] }, reason: "提案" });
+  const yes2 = apply({ by: "human", type: "add", panel: { view: "say", data: "マージしていいよ" } });
+  apply({ by: "manager", type: "edit", panel: { id: pr2, state: "done" }, from: [yes2], reason: "声で受け入れた" });
+  const act2 = store.board.list().find((p) => p.data?.accepted === pr2);
+  assert.equal(act2.data.text, "- PR #16 をマージする（gh pr merge 16 --merge）\n- タグは CI が作る");
+  assert.equal(act2.data.title, "PR #16 をマージする（gh pr …");
   void ap;
   w.stop();
 });
