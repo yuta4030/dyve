@@ -203,3 +203,13 @@ test("要点に拾われた発言：項目の from から、合流した発言�
   assert.equal(m.has("s2"), false);
   assert.equal(landedOf(null, head).size, 0);
 });
+
+test("指す先：表の行の上なら行、ほかはパネル", () => {
+  const line = html.match(/^const pointTarget = .*$/m)[0];
+  const pointTarget = new Function(`${line}; return pointTarget;`)();
+  const row = { dataset: { row: "pe" } }, panel = { dataset: { id: "p4" } };
+  const el = (hit) => ({ closest: (sel) => (sel.includes(".row[data-row]") ? hit.row : hit.panel) ?? null });
+  assert.equal(pointTarget(el({ row, panel })), row);
+  assert.equal(pointTarget(el({ panel })), panel);
+  assert.equal(pointTarget(null), null);
+});

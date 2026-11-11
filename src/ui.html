@@ -602,6 +602,8 @@ function lineOf(d, words = null) {
   return "";
 }
 const nameOf = (p) => (p.view === "topic" ? topicTitle(p) : lineOf(dataOf(p))) || `${who(p.by)}・${p.view}`;
+// 指したものの名前：表の行なら記号と行の名前（「C 次にやること整理」）
+const ptName = (p, n) => (p.view === "task" && p.key ? `${p.key} ${clipText(lineOf(p.data?.title ?? textOf(p.data)), n)}` : clipText(nameOf(p), n));
 // 仕事の結果の一行目（控室は結論から書く）。直接話しかけた仕事は、最初の短い返事を飛ばす
 const STAFF = ["scribe", "manager", "board"];
 function resultLine(task) {
@@ -1247,7 +1249,7 @@ function render() {
     // 指したパネル（合流した発言のぶんも）
     for (const pt of mine.map((x) => x.point).filter(Boolean)) {
       const t = panelById(pt.id), chip = pt.how === "pick" ? L.pickChip : L.ptChip;
-      chips.unshift(t ? `<button${pt.how === "pick" ? ' class="pick"' : ""} data-goto="${esc(t.id)}" title="${esc(L.ptTitle[pt.how] || "")}">${esc(chip(clipText(nameOf(t), 14)))}</button>`
+      chips.unshift(t ? `<button${pt.how === "pick" ? ' class="pick"' : ""} data-goto="${esc(t.id)}" title="${esc(L.ptTitle[pt.how] || "")}">${esc(chip(ptName(t, 14)))}</button>`
         : `<span class="wait" title="${esc(L.ptGone)}">${esc(chip(pt.id))}</span>`);
     }
     const land = landed.get(p.id);
@@ -2783,24 +2785,27 @@ grid.addEventListener("pointerleave", () => { HOVER.k = null; HOVER.id = null; }
 setInterval(() => sendFocus(), 60e3);
 
 // ── 指して喋る：発言を置くとき、そのとき指していたパネルを付ける。「これ」「それ」が何かを、マネージャが取り違えないように ──
-// 指しているもの：さっきまでマウスを乗せていたパネル（hover）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
+// 指しているもの：さっきまでマウスを乗せていたパネル（hover）。表の行の上なら、その行（話題ではなく）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
 // どちらも「覚えておく時間」より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
 // 時間はどれも dyve 設定の「調整」で変えられる（tu()。サーバーの ui-settings.json に持ち、立て直さずに効く）
 const PT = { over: null, last: null, looked: 0, cur: undefined };
+// 指した先の要素：表の行（.row[data-row]）が先、なければパネル
+const pointTarget = (el) => el?.closest?.("#grid .row[data-row]") || el?.closest?.("#grid dv-panel") || null;
+const pointEl = (id) => $(`#grid dv-panel[data-id="${CSS.escape(id)}"]`) || $$(`#grid .row[data-row="${CSS.escape(id)}"]`).find((r) => r.getClientRects().length) || null;
 function pointNow() {
   if (SHOT || narrow()) return null;
   const now = Date.now(), g = stage.getBoundingClientRect();
   const ok = (el) => {
-    const p = el && panelById(el.dataset.id), r = el?.getBoundingClientRect();
+    const p = el && panelById(el.dataset.row ?? el.dataset.id), r = el?.getBoundingClientRect();
     return p && !["summary", "layout", "say"].includes(p.view) && r.width > 0 && r.bottom > g.top + 24 && r.top < g.bottom - 24 && r.right > g.left + 24 && r.left < g.right - 24 ? p.id : null;
   };
   const keep = tu("pointKeepSec") * 1000;
   if (PT.last && now - PT.last.at < keep) {
-    const id = ok($(`#grid dv-panel[data-id="${CSS.escape(PT.last.id)}"]`));
+    const id = ok(pointEl(PT.last.id));
     if (id) return { id, how: "hover" };
   }
   if (now - PT.looked < keep) {
-    const id = ok(document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)?.closest("#grid dv-panel"));
+    const id = ok(pointTarget(document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2)));
     if (id) return { id, how: "view" };
   }
   return null;
@@ -2814,12 +2819,12 @@ function notePoint() {
 function showPoint() {
   if (S.to) return;
   const p = panelById(pointNow()?.id);
-  const next = p ? L.ptPlaceholder(clipText(nameOf(p), 16)) : L.placeholder;
+  const next = p ? L.ptPlaceholder(ptName(p, 16)) : L.placeholder;
   if (msg.placeholder !== next) msg.placeholder = next;
 }
 // 通りすがりに触れただけのパネルは数えない（マウスが少しのあいだ留まったものだけ）
 const overPanel = (e) => {
-  const p = panelById(e.target.closest?.("#grid dv-panel")?.dataset.id), now = Date.now();
+  const el = pointTarget(e.target), p = panelById(el?.dataset.row ?? el?.dataset.id), now = Date.now();
   if (!p || ["summary", "layout", "say"].includes(p.view)) { PT.over = null; return; }
   if (PT.over?.id !== p.id) PT.over = { id: p.id, since: now };
   if (now - PT.over.since < tu("pointHoldMs")) return;
