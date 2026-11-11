@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Store } from "../src/store.js";
-import { Waker, managerPrompt, taskPrompt, screenWords } from "../src/waker.js";
+import { Waker, managerPrompt, taskPrompt, screenWords, scribePrompt } from "../src/waker.js";
 import { hasAiAnswer } from "../src/board.js";
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -306,10 +306,10 @@ test("指して喋る：マネージャと控室に、発言のとき指して�
   const s = store.apply({ by: "human", type: "add", panel: { view: "say", data: "これの手間は", point: { id: a, how: "hover" } } }).op.panel.id;
   const pk = store.apply({ by: "human", type: "add", panel: { view: "say", data: "これにする：キャッシュ案", point: { id: a, how: "pick" } } }).op.panel.id;
   const m = managerPrompt(0, store.board);
-  assert.match(m, new RegExp(`${s}（${a}「キャッシュ案」を指して）`));
+  assert.match(m, new RegExp(`${s}（マウスは ${a}「キャッシュ案」の上）`));
   assert.match(m, new RegExp(`${pk}（${a}「キャッシュ案」を押して選んだ）`));
   const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる", from: [s] } }, reason: "r" }).op.panel.id;
-  assert.match(taskPrompt(store.board, store.board.get(t), "アリス"), /人はそのとき .*を指して（手がかり/);
+  assert.match(taskPrompt(store.board, store.board.get(t), "アリス"), /発言のとき、マウスは .*の上（手がかり/);
   // 清書係：押して選んだ発言は画面が書いた文なので渡さない
   const st = new Store(), g = fakeSession();
   const w = new Waker({ store: st, spawn: fakeSpawn().spawn, session: g.open, pause: 1e6, scribePause: 1 }).start();
@@ -320,6 +320,28 @@ test("指して喋る：マネージャと控室に、発言のとき指して�
   assert.doesNotMatch(g.sessions[0].sent[0], new RegExp(`${pk2}（rev`));
   assert.equal(w.status().read, 0, "マネージャがまだ読んでいない");
   w.stop();
+});
+
+test("指したものの言い方：押して選んだものは決定として言い切り、マウスの下と見ていたまん中は画面のありさまとして弱く言う", () => {
+  const store = new Store();
+  const tp = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "版" } }, reason: "r" }).op.panel.id;
+  const c = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "done", about: tp, line: "次の版は 0.9.0 でよいか", data: { title: "次の版の番号", text: "版" } }, reason: "r" }).op.panel.id;
+  const say = (data, how) => store.apply({ by: "human", type: "add", panel: { view: "say", data, point: { id: c, how } } }).op.panel.id;
+  const h = say("はい", "hover"), v = say("これで", "view"), pk = say("これにする：0.9.0", "pick");
+  const m = managerPrompt(0, store.board);
+  const row = `A（${c}）「次の版の番号」`;
+  assert.ok(m.includes(`${h}（マウスは ${row}の上）：はい`), m);
+  assert.ok(m.includes(`${v}（画面のまん中は ${row}）：これで`), m);
+  assert.ok(m.includes(`${pk}（${row}を押して選んだ）`), m);
+  assert.doesNotMatch(m, /を指して/, "hover を人が指したと言い切らない");
+  // 控室：押して選んだものだけ手がかりの但し書きを付けない
+  const task = (from) => store.board.get(store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる", from: [from] } }, reason: "r" }).op.panel.id);
+  assert.match(taskPrompt(store.board, task(v), "アリス"), /発言のとき、画面のまん中は .*（手がかり/);
+  const picked = taskPrompt(store.board, task(pk), "アリス");
+  assert.match(picked, /人はそのとき .*を押して選んだ\n/);
+  assert.doesNotMatch(picked, /手がかり/);
+  // 清書係にも同じ言い方
+  assert.match(scribePrompt([store.board.get(h)], [], [], { board: store.board }), new RegExp(`${h}（rev \\d+、マウスは A（${c}）「次の版の番号」の上）：はい`));
 });
 
 test("同じ行の結果は重ねない：控室への文に、その行に前に置かれた結果を出して書き換えさせる", () => {
@@ -355,7 +377,7 @@ test("清書係に画面を見せる：表の行・開いている面の見出�
   await tick(20);
   const first = g.sessions[0].sent[0];
   assert.match(first, /画面の言葉[\s\S]*A 見積もりを送る → 下書きできた[\s\S]*A の面：項目・中身/);
-  assert.match(first, new RegExp(`（rev \\d+、A（${row}）「見積もりを送る」を指して）：三森は送った`));
+  assert.match(first, new RegExp(`（rev \\d+、マウスは A（${row}）「見積もりを送る」の上）：三森は送った`));
   assert.match(first, new RegExp(`${old}（人が直した。触らない）`), "人が直した文脈の発言は触らせない");
   g.sessions[0].reply();
   await tick(5);
