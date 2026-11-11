@@ -217,3 +217,13 @@ test("行の 2 段目：行の下のどの深さの提案と、AI の番の仕�
   const subOf = new Function("S", `${src}; return subOf;`)({ panels });
   assert.deepEqual(subOf(panels[0]).map((p) => p.id), ["pr", "run"]);
 });
+
+test("指す先：表の行の上なら行、ほかはパネル", () => {
+  const line = html.match(/^const pointTarget = .*$/m)[0];
+  const pointTarget = new Function(`${line}; return pointTarget;`)();
+  const row = { dataset: { row: "pe" } }, panel = { dataset: { id: "p4" } };
+  const el = (hit) => ({ closest: (sel) => (sel.includes(".row[data-row]") ? hit.row : hit.panel) ?? null });
+  assert.equal(pointTarget(el({ row, panel })), row);
+  assert.equal(pointTarget(el({ panel })), panel);
+  assert.equal(pointTarget(null), null);
+});
