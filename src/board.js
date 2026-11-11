@@ -73,17 +73,20 @@ function badWait(w, panels) {
   return null;
 }
 const cleanWait = (w) => (w == null ? null : { text: w.text, ...(w.until != null ? { until: w.until } : {}), ...(w.after != null ? { after: w.after } : {}) });
-// 誰の番か：ai（投げて、まだ返っていない）・you（返ってきて、人が決めるのを待っている）・ok（決まった）・wait（条件つきの待ち）。データに持たず導く
-export const TURNS = ["ai", "you", "ok", "wait"];
+// 誰の番か：ai（投げて、まだ返っていない）・you（人が決めるのを待っている：問い・提案・止まった・待ちが明けた）・back（仕事が帰った。読むだけ）・ok（決まった）・wait（条件つきの待ち）。データに持たず導く
+// 帰った（back）：一度仕事（state task）になった行に、受けた人が一行を帰したもの（ボードが帰した「止まった」「待ちが明けた」は人の番）。下に人の番のもの（提案・問いの行）があれば人の番
+// 仕事になったか（taskSeq）と、一行を書いたのは誰か（lineBy）は、ボードが当て直しのときに導いて持つ（ログには持たない）
+export const TURNS = ["ai", "you", "back", "ok", "wait"];
 export function turnOf(board, p) {
   if (!p) return null;
   if (p.view !== "task") return p.state === "proposal" ? "you" : null;
   if (p.state === "task") return "ai";
   if (p.wait) return "wait";
-  if (p.state === "proposal" || board.list().some((q) => q.about === p.id && q.state === "proposal")) return "you";
+  const below = board.list().filter((q) => q.about === p.id);
+  if (p.state === "proposal" || below.some((q) => q.state === "proposal")) return "you";
   const back = p.line ? p.lineSeq || 0 : 0;
   if (p.decided && (p.decidedSeq || 0) >= back) return "ok";
-  if (p.state === "done" && p.line) return "you";
+  if (p.state === "done" && p.line) return p.taskSeq && p.lineBy !== "board" && !below.some((q) => turnOf(board, q) === "you") ? "back" : "you";
   return p.state === "done" || p.decided ? "ok" : null;
 }
 // 行の記号：話題の中は A, B, …、行の中の行（面の中の呼び出し）は親の記号に数字（F1, F2）。声で呼ぶための名前で、ボードが振る
@@ -370,7 +373,7 @@ export class Board {
   _commit(op) {
     const p = op.panel;
     if (op.type === "add") {
-      this.panels.set(p.id, { ...p, at: op.at, seq: op.seq, rev: op.seq, ...(isPerson(op.by) ? {} : { aiSeq: op.seq }), ...(p.line ? { lineSeq: op.seq } : {}), ...(p.decided ? { decidedSeq: op.seq } : {}) });
+      this.panels.set(p.id, { ...p, at: op.at, seq: op.seq, rev: op.seq, ...(isPerson(op.by) ? {} : { aiSeq: op.seq }), ...(p.line ? { lineSeq: op.seq, lineBy: op.by } : {}), ...(p.decided ? { decidedSeq: op.seq } : {}), ...(p.state === "task" ? { taskSeq: op.seq } : {}) });
       this._rekey(p.id);
     } else if (op.type === "edit") {
       const cur = this.panels.get(p.id);
@@ -384,7 +387,8 @@ export class Board {
       if (next.rel == null) delete next.rel;
       if (next.point == null) delete next.point;
       for (const k of ["line", "decided", "wait"]) if (next[k] == null) delete next[k];
-      if (p.line != null) next.lineSeq = op.seq;
+      if (p.line != null) { next.lineSeq = op.seq; next.lineBy = op.by; }
+      if (p.state === "task") next.taskSeq = op.seq;
       if (p.decided != null) next.decidedSeq = op.seq;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
       this.panels.set(p.id, next);

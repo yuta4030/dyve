@@ -360,7 +360,7 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .s-ok .s { color: var(--ok); }
 .s-ai .s { color: var(--accent); animation: turn-wait 1.6s ease-in-out infinite; }
 .s-ai .t, .s-wait .t, .s-ok .t, .s-none .t { color: var(--mute); }
-.s-wait .s { color: var(--mute); }
+.s-wait .s, .s-back .s { color: var(--mute); }
 @keyframes turn-wait { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .s-ai .s { animation: none; } }
 .rowline { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 6px; margin: 2px 0 6px; font-weight: 600; }
@@ -376,7 +376,7 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .turnchip.t-you { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
 .turnchip.t-ai { color: var(--accent); border-color: var(--accent); }
 .turnchip.t-ok { color: var(--ok); border-color: var(--ok); }
-.turnchip.t-wait { color: var(--mute); }
+.turnchip.t-wait, .turnchip.t-back { color: var(--mute); }
 dv-panel.face-root > dv-task .rowline { grid-template-columns: minmax(0, 1fr); margin: 4px 0 6px; font-size: 18px; line-height: 1.45; }
 dv-panel.face-root > dv-task .rowline .s { display: none; }
 dv-panel.face-root > dv-task .rowline .t { color: var(--ink); }
@@ -416,7 +416,7 @@ dv-panel .meta .by { display: inline-flex; }
 .card [data-act="accept-row"] { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); font-weight: 700; }
 .card.s-you { border-left-color: var(--warn); }
 .card.s-ai, .card.s-none { border-left-color: var(--accent); }
-.card.s-wait { border-left-color: var(--mute); }
+.card.s-wait, .card.s-back { border-left-color: var(--mute); }
 .card.s-ok { border-left-color: var(--ok); opacity: .75; }
 .card.chg { background: var(--accent-soft); }
 .card.open { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -481,14 +481,14 @@ const L = {
   builtin: { talk: "トーク", status: "状況", quota: "残量", tools: "dyve 設定" },
   sumName: "いまの要点",
   // 行の番：記号と言葉。色だけに頼らず記号でも見分ける
-  turnSym: { ai: "…", you: "●", ok: "✓", wait: "⏸\uFE0E" },
-  turn: { ai: "AI の番（まだ返っていない）", you: "人の番", ok: "決まった", wait: "待ち（条件つき）" },
+  turnSym: { ai: "…", you: "●", back: "↩\uFE0E", ok: "✓", wait: "⏸\uFE0E" },
+  turn: { ai: "AI の番（まだ返っていない）", you: "人の番", back: "帰った（読むだけ）", ok: "決まった", wait: "待ち（条件つき）" },
   rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`, subMore: (n) => `ほかに ${n} 件（面の中）`, rowAsk: "受け入れ待ち",
   face: "面を開く（この行について置かれたもの）", faceClose: "面を閉じて行に戻す",
   faceHere: "ここにいる", faceLeft: "やりかけ",
   // 面の頭の番（一語）と、左の帯の段。パネルの見出しは中身の種類で呼ぶ（利用者の view で名前のないものは、view の名前のまま）
-  turnWord: { ai: "AI の番", you: "あなたの番", ok: "決まった", wait: "待ち" }, turnCount: (w, n) => `${w}　${n} 件`,
-  todo: "やること", lane: { you: "あなたの番", ai: "AI の番", wait: "待ち", ok: "決まった" },
+  turnWord: { ai: "AI の番", you: "あなたの番", back: "帰った", ok: "決まった", wait: "待ち" }, turnCount: (w, n) => `${w}　${n} 件`,
+  todo: "やること", lane: { you: "あなたの番", ai: "AI の番", back: "帰った", wait: "待ち", ok: "決まった" },
   kind: { text: "文", list: "箇条", table: "表", json: "データ", say: "発言", task: "仕事", topic: "話題", summary: "要点", proposal: "提案",
     bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", md: "文書", diff: "差分" },
   refTitle: (k) => `${k} の結果`,
@@ -697,10 +697,12 @@ function turnOf(p) {
   if (p.view !== "task") return p.state === "proposal" ? "you" : null;
   if (p.state === "task") return "ai";
   if (p.wait) return "wait";
-  if (p.state === "proposal" || S.panels.some((q) => q.about === p.id && q.state === "proposal")) return "you";
+  const below = S.panels.filter((q) => q.about === p.id);
+  if (p.state === "proposal" || below.some((q) => q.state === "proposal")) return "you";
   const back = p.line ? p.lineSeq || 0 : 0;
   if (p.decided && (p.decidedSeq || 0) >= back) return "ok";
-  if (p.state === "done" && p.line) return "you";
+  // 仕事が帰った行は読むだけ（back）。問いの行・ボードが帰した行（止まった・待ちが明けた）・下に人の番があるものは人の番
+  if (p.state === "done" && p.line) return p.taskSeq && p.lineBy !== "board" && !below.some((q) => turnOf(q) === "you") ? "back" : "you";
   return p.state === "done" || p.decided ? "ok" : null;
 }
 // 行の名前（短く）と、行に出す一行
@@ -796,10 +798,10 @@ function benchPlan(row, panels, kids, turn, { placed = () => false, marked = () 
     return false;
   };
   const loose = panels.filter((p) => !keyed(p) && p.id !== row.id && (p.state === "proposal" || p.view === "task") && nearRow(p));
-  const lanes = { you: [], ai: [], wait: [], ok: [] };
+  const lanes = { you: [], ai: [], back: [], wait: [], ok: [] };
   for (const p of [...subs, ...loose].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
     const t = turn(p);
-    lanes[t === "you" || t === "wait" || t === "ok" ? t : "ai"].push(p);
+    lanes[t === "you" || t === "back" || t === "wait" || t === "ok" ? t : "ai"].push(p);
   }
   // パネル：行について置かれたものと、行の中の行について置かれたもの（仕事は札にしたので除く）
   const isCell = (p) => !keyed(p) && p.view !== "task";
@@ -913,7 +915,7 @@ function benchBox(t, kids, plan) {
     return c;
   };
   // 並べた順が一列のときの順になる：あなたの番 → 主役 → 残り → ほかの番
-  const cells = [laneCell("you", ["you"]), plan.main && panelCell(plan.main, "main"), ...plan.rest.map((x) => panelCell(x, "rest")), ...plan.placed.map((x) => panelCell(x, "rest")), laneCell("lanes", ["ai", "wait", "ok"])];
+  const cells = [laneCell("you", ["you"]), plan.main && panelCell(plan.main, "main"), ...plan.rest.map((x) => panelCell(x, "rest")), ...plan.placed.map((x) => panelCell(x, "rest")), laneCell("lanes", ["ai", "back", "wait", "ok"])];
   for (const c of cells.filter(Boolean)) {
     box.append(c);
     if (c.matches(".lanes")) FREE.observe(c);

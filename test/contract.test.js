@@ -8,7 +8,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Store } from "../src/store.js";
-import { Board, CODES, STATES, RELS, POINTS, marks, sourceApproved } from "../src/board.js";
+import { Board, CODES, STATES, RELS, POINTS, TURNS, marks, sourceApproved } from "../src/board.js";
 import { Feeds, parseOutput, asStdin } from "../src/feeds.js";
 import { createServer } from "../src/server.js";
 import { handleRpc, TOOLS } from "../src/mcp.js";
@@ -182,6 +182,9 @@ test("約束：MCP の口。道具の名前と引数、返事の形", async () =
     assert.equal(store.board.get(added.id).by, "アリス", "?as= の名前で書く");
     const read = await call("アリス", "board_read", {});
     for (const k of ["seq", "panels", "marks"]) assert.ok(k in read, k);
+    // 行の番（turns）の値。足すのはよいが、ある値の意味は変えない
+    assert.ok("turns" in read);
+    for (const t of ["ai", "you", "back", "ok", "wait"]) assert.ok(TURNS.includes(t), t);
     assert.equal(read.panels[0].id, added.id);
     // 使える view とデータの形（パネル置き場がなければ本体の view だけ）
     const views = await call("アリス", "view_list", {});

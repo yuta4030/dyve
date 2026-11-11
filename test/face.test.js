@@ -18,7 +18,7 @@ const kidsOf = (panels) => (id) => panels.filter((p) => {
   }
   return false;
 });
-const TURNS = { c1: "you", c2: "ai", c3: "ok", c4: "wait", prop: "you", job: "ai" };
+const TURNS = { c1: "you", c2: "ai", c3: "ok", c4: "wait", c5: "back", prop: "you", job: "ai" };
 const turn = (p) => TURNS[p.id] ?? null;
 const ids = (a) => a.map((p) => p.id);
 
@@ -27,6 +27,7 @@ test("面：行の中の行と、行に置かれた提案・仕事は番ごと�
     { id: "c", view: "task", key: "C", seq: 1 },
     { id: "c1", view: "task", key: "C1", about: "c", seq: 2 }, { id: "c2", view: "task", key: "C2", about: "c", seq: 3 },
     { id: "c3", view: "task", key: "C3", about: "c", seq: 4 }, { id: "c4", view: "task", key: "C4", about: "c", seq: 5 },
+    { id: "c5", view: "task", key: "C5", about: "c", seq: 5.5 },
     { id: "prop", view: "text", state: "proposal", about: "c", by: "アリス", seq: 6 },
     { id: "job", view: "task", state: "task", about: "c", seq: 7 },
     { id: "deep", view: "text", state: "proposal", about: "c1", by: "アリス", seq: 8 },
@@ -36,6 +37,7 @@ test("面：行の中の行と、行に置かれた提案・仕事は番ごと�
   assert.deepEqual(ids(plan.lanes.ai), ["c2", "job"]);
   assert.deepEqual(ids(plan.lanes.ok), ["c3"]);
   assert.deepEqual(ids(plan.lanes.wait), ["c4"]);
+  assert.deepEqual(ids(plan.lanes.back), ["c5"], "帰った行は人の番に数えない");
 });
 
 test("面：主役は AI が置いたいちばん新しい結果。残りは新しい順で、多いと古いものを畳む。行の中の行の結果は記号つき", () => {

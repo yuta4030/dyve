@@ -228,6 +228,26 @@ test("面を畳む：行は人が決めたときだけ。AI が返しただけ�
   assert.equal(isDone({ view: "topic", state: "done" }), true);
 });
 
+test("画面の番：ボードの turnOf と同じに、帰った行（back）を人の番と分ける。言葉もそろえる", () => {
+  const pick = (re) => html.match(re)[0];
+  const src = [pick(/^const isRow = .*$/m), pick(/^function turnOf\([\s\S]*?^}$/m)].join("\n");
+  const S = { panels: [] };
+  const turnOf = new Function("S", `${src}; return turnOf;`)(S);
+  const back = { id: "a", view: "task", key: "A", state: "done", line: "返った", lineSeq: 5, taskSeq: 2, lineBy: "アリス" };
+  assert.equal(turnOf(back), "back", "投げた仕事が帰った");
+  assert.equal(turnOf({ ...back, taskSeq: undefined, lineBy: "manager" }), "you", "問いの行");
+  assert.equal(turnOf({ ...back, lineBy: "board" }), "you", "止まった・待ちが明けた");
+  assert.equal(turnOf({ ...back, decided: "見た", decidedSeq: 6 }), "ok");
+  S.panels.push({ id: "p", view: "text", about: "a", state: "proposal" });
+  assert.equal(turnOf(back), "you", "行に提案");
+  S.panels.splice(0, 1, { id: "a1", view: "task", key: "A1", about: "a", state: "done", line: "どうする", lineSeq: 7, lineBy: "manager" });
+  assert.equal(turnOf(back), "you", "下に問いの行");
+  S.panels[0].taskSeq = 3; S.panels[0].lineBy = "ボブ";
+  assert.equal(turnOf(back), "back", "下も帰っただけ");
+  for (const k of ["turnSym", "turn", "turnWord", "lane"]) assert.match(html, new RegExp(`${k}: \\{[^}]*back: "`), k);
+  assert.match(html, /laneCell\("lanes", \["ai", "back", "wait", "ok"\]\)/);
+});
+
 test("行の 2 段目：行の下のどの深さの提案と、AI の番の仕事も拾う。済んだものは拾わない", () => {
   const src = html.match(/^function subOf\([\s\S]*?^}$/m)[0];
   const panels = [
