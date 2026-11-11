@@ -56,7 +56,7 @@ export function changeLayout(store, by, change, reason, tiles = null) {
   const old = layoutOf(lp.data, board.panels), inner = old.inner || {};
   const d = { ...old, pos: { ...old.pos }, zoom: { ...old.zoom }, fold: { ...old.fold }, out: [...(old.out || [])] };
   const t = { tpos: { ...inner.tpos }, sizes: { ...inner.sizes } };
-  const done = [], refused = [];
+  const done = [], refused = [], already = []; // already：もうそうなっている（断りに数えず、ログにも積まない）
   const no = (key, why) => refused.push({ key, why });
   const pinned = (k) => fixedTile(board.panels, old, k);
   const known = (k) => k in d.pos || BUILTIN.includes(k) || board.get(k);
@@ -94,9 +94,10 @@ export function changeLayout(store, by, change, reason, tiles = null) {
     if (!ok(id)) continue;
     if (on) {
       if (!p?.about || p.view === "say") { no(id, "取り出せるのは、話題の中のパネルだけ"); continue; }
-      if (!d.out.includes(id)) d.out.push(id);
+      if (d.out.includes(id)) { already.push(id); continue; }
+      d.out.push(id);
     } else {
-      if (!d.out.includes(id)) { no(id, "取り出したパネルではない"); continue; }
+      if (!d.out.includes(id)) { if (p) already.push(id); else no(id, "取り出したパネルではない"); continue; }
       d.out = d.out.filter((x) => x !== id);
       delete d.pos[id];
     }
@@ -168,13 +169,16 @@ export function changeLayout(store, by, change, reason, tiles = null) {
     }
     d.float = cur;
   }
-  if (!done.length) return { ok: false, code: refused.some((x) => /ピン留め/.test(x.why)) ? "pinned" : "invalid", message: "変えられるものがなかった", refused };
+  if (!done.length && !already.length) return { ok: false, code: refused.some((x) => /ピン留め/.test(x.why)) ? "pinned" : "invalid", message: "変えられるものがなかった", refused };
+  const shown = Object.keys(d.pos);
+  const overlaps = shown.flatMap((a, i) => shown.slice(i + 1).filter((z) => overlap(d.pos[a], d.pos[z])).map((z) => [a, z]));
+  const extra = already.length ? { already: [...new Set(already)] } : {};
+  // 変わったものがなければ、ログに何も積まない（seq なし）
+  if (!done.length) return { ok: true, changed: [], ...extra, refused, overlaps };
   const data = { ...d, inner: { tpos: t.tpos, sizes: t.sizes } };
   const r = store.apply({ by, type: "edit", panel: { id: lp.id, data }, reason });
   if (!r.ok) return { ...r, refused };
-  const shown = Object.keys(d.pos);
-  const overlaps = shown.flatMap((a, i) => shown.slice(i + 1).filter((z) => overlap(d.pos[a], d.pos[z])).map((z) => [a, z]));
-  return { ok: true, seq: r.op.seq, changed: [...new Set(done)], refused, overlaps };
+  return { ok: true, seq: r.op.seq, changed: [...new Set(done)], ...extra, refused, overlaps };
 }
 
 // ── PNG（依存ゼロ）──

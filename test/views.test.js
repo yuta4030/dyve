@@ -168,6 +168,36 @@ test("board_layout：人が画面でできる操作を全部できる（ピン�
   assert.equal(changeLayout(s, "manager", { nothing: 1 }, "r").code, "invalid");
 });
 
+test("board_layout：もう閉じている面を閉じる・もう開いている面を開くは、断らずに通し、変わらなければログに積まない", async () => {
+  const b = new Board();
+  const topic = human(b, "add", { view: "topic", data: { title: "話題" } }).op.panel.id;
+  const [r1, r2, r3] = ["a", "b", "c"].map((x) => ai(b, "add", { view: "task", state: "task", about: topic, data: x }, "manager").op.panel.id);
+  laid(b, { v: 3, density: 24, pos: { tools: { x: 1, y: 1, w: 4, h: 4 } }, out: [r3] });
+  const s = storeOf(b), seq = () => b.seq;
+  // ボードが先に畳んでいた三つを閉じる：全部もうそうなっているので、成功で返し、ログは増えない
+  const before = seq();
+  const all = JSON.parse((await tools(s, "manager", "board_layout", { out: { [r1]: false, [r2]: false }, reason: "話題を終える" })).result.content[0].text);
+  assert.deepEqual([all.ok, all.seq, all.changed, all.already, all.refused], [true, undefined, [], [r1, r2], []]);
+  assert.equal(seq(), before);
+  const open = changeLayout(s, "manager", { out: { [r3]: true } }, "もう開いている");
+  assert.deepEqual([open.ok, open.seq, open.already], [true, undefined, [r3]]);
+  assert.equal(seq(), before);
+  // 混ざっていれば、変わったものだけを一つ積む
+  const mixed = changeLayout(s, "manager", { out: { [r1]: false, [r3]: false } }, "閉じる");
+  assert.deepEqual([mixed.ok, mixed.seq, mixed.changed, mixed.already], [true, before + 1, [r3], [r1]]);
+  assert.deepEqual(b.get(layoutPanelId(b)).data.out, []);
+  // 存在しない id は今までどおり断る。もうそうなっているものと並べても断りは残る
+  const nope = changeLayout(s, "manager", { out: { nope: false } }, "r");
+  assert.deepEqual([nope.ok, nope.code, nope.refused], [false, "invalid", [{ key: "nope", why: "そのパネルはない" }]]);
+  const both = changeLayout(s, "manager", { out: { nope: false, [r1]: false } }, "r");
+  assert.deepEqual([both.ok, both.already, both.refused.map((x) => x.key)], [true, [r1], ["nope"]]);
+  // ピン留めした行は、閉じていても断る
+  human(b, "edit", { id: r2, pinned: true });
+  assert.equal(changeLayout(s, "manager", { out: { [r2]: false } }, "r").code, "pinned");
+  assert.equal(seq(), before + 2);
+});
+const layoutPanelId = (b) => b.list().find((p) => p.view === "layout").id;
+
 test("board_layout：ピン留めしたものとその中は動かず、ピン留めがあるとます目は変えられない。並びのピン留めそのものは変えられない", () => {
   const b = new Board();
   const say = human(b, "add", { view: "say", data: "発言" }).op.panel.id;
