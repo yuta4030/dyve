@@ -26,7 +26,7 @@ const panelFields = {
 export const TOOLS = [
   {
     name: "board_read",
-    description: "ボードを読む。since を渡すと、その seq より後に変わったパネルだけ。about を渡すと、そのパネルとそれについてのパネルだけ。marks は印、turns は行の番（ai・you・ok・wait）、live はいまの状況（動いているエージェント・残量）、focus は人のいま（presence・listening・viewing・inside・talking・followingTalk・unseen）",
+    description: "ボードを読む。since を渡すと、その seq より後に変わったパネルだけ。about を渡すと、そのパネルとそれについてのパネルだけ。marks は印、turns は行の番（ai・you・back・ok・wait）、live はいまの状況（動いているエージェント・残量）、focus は人のいま（presence・listening・viewing・inside・talking・followingTalk・unseen）",
     inputSchema: { type: "object", properties: { since: { type: "integer" }, about: { type: "string" } } },
   },
   {
@@ -104,7 +104,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - 一行に収まらないもの（比べる案、人が先に決めること、出典の並び）だけ、仕事に about して置く。行から開ける面になり、面の中で人は考えて喋る。面の中の呼び出しは、その行に about した仕事（行の中の行）
 - まだ決まっていない問い（人が迷っていること・案のまま決めていないこと）は、話題の表の人の番の行にする（view task・state done・line に問いの一行）。人は行の記号で「E は見送り」と決める
 - 話題の data.note は「いまどこまで来たか」の一行。話が進んだら書き換える
-- 行の状態は誰の番かで、ボードが導く（turn）：AI の番（state task）、人の番（返ってきた line・提案・止まった）、決まった（decided）、待ち（wait）。同じ行で何往復もする。決まったあとも、実行に移れば state を task に戻す（AI の番）
+- 行の状態は誰の番かで、ボードが導く（turn）：AI の番（state task）、人の番（問いの行・提案・止まった・待ちが明けた）、帰った（back。仕事として投げた行に結果の line が帰った。読むだけで、人のやることはない。下に提案や問いの行があれば人の番）、決まった（decided）、待ち（wait）。帰った行を「読むだけ」と decided に書いて消さない。同じ行で何往復もする。決まったあとも、実行に移れば state を task に戻す（AI の番）
 - 人が行で決めたこと（「今日やる」「見送り」）は decided に書く。条件つきの待ち（「明日まで」「B のあと」）は wait { text, until?, after? }。条件が満たされると、ボードが人の番で帰す
 - 人が声で提案を受け入れたら（「それでいいよ」）、マネージャがその発言を from に付けて、提案の state を done にする
 - 人の発言は view say・by human。書き換えるのは清書係だけ
@@ -160,7 +160,7 @@ export function boardView(store, waker, { since, about } = {}, focus = waker?.fo
     panels,
     layout: lp ? { id: lp.id, rev: lp.rev, data: layoutOf(lp.data, board.panels) } : null,
     marks: marks(board, { running: waker?.runningTasks() ?? [] }),
-    // 行の番（話題の中の仕事）：ai・you・ok・wait
+    // 行の番（話題の中の仕事）：ai・you・back・ok・wait
     turns: Object.fromEntries(all.filter((p) => p.view === "task").map((p) => [p.id, turnOf(board, p)])),
     live: waker?.status() ?? null,
     names: waker?.names ?? [],

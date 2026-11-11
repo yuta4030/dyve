@@ -522,7 +522,7 @@ export function scribePrompt(fresh, before = [], words = [], { screen = [], boar
 }
 
 // マネージャへの指示。読むものをはじめから渡して、board_read の往復を減らす
-const TURN_WORD = { ai: "AI の番", you: "人の番", ok: "決まった", wait: "待ち" };
+const TURN_WORD = { ai: "AI の番", you: "人の番", back: "帰った（読むだけ）", ok: "決まった", wait: "待ち" };
 // 行を一行で：記号・番・頼んだこと → 帰った一行（決まったこと・待ち）
 export function rowLine(board, t, busy = new Set()) {
   const turn = turnOf(board, t);
