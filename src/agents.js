@@ -98,6 +98,8 @@ export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = 
   const mcp = { mcpServers: { board: { type: "http", url: `${boardUrl}/mcp?as=${encodeURIComponent(job.name)}` } } };
   return [
     ...(stream ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["-p", job.prompt, "--output-format", "json"]),
+    // 同じ行の頼み直し：前にその行を受け持ったセッションを引き継ぐ（job.resume はセッション id）
+    ...(!stream && typeof job.resume === "string" ? ["--resume", job.resume] : []),
     "--mcp-config", JSON.stringify(mcp),
     "--strict-mcp-config",
     "--append-system-prompt", systemPrompt(job.role, job.name, { room, crew, names }),
@@ -281,11 +283,45 @@ function logStream(logDir, job, cmd, cwd, model) {
   return out;
 }
 
-// job: { role, name, prompt } -> { done: Promise<{code, error?, usage?}>, kill() }
+// job: { role, name, prompt, resume? } -> { done: Promise<{code, error?, usage?, session, cwd, resumed}>, kill() }
+// resume：同じ行の頼み直しで、前の回を引き継ぐときの手がかり（{ session, cwd, prompt }。prompt は引き継いだ相手に渡す短い文）。
+// セッションは起きた場所ごとに持たれるので、今回の起きる場所が前の回と同じときだけ引き継ぐ。違えばまっさらで起こす。
+// 引き継ぎが始まらずに終わったら（セッションが見つからないなど、claude が結果を返さなかった）、まっさらで起こし直す
+// 返す session：claude の結果にあったセッション id（取れなければ null）。cwd：起きた場所
 // staff：清書係とマネージャが起きる作業場
 // workDir：開発の worktree を置くところ。panels：利用者のパネル置き場
 export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = room, workDir = path.join(staff, "..", "work"), panels = path.join(staff, "..", "panels"), boardUrl, logDir = null, models = {}, crew = null, names = NAMES }) {
+  const run = (job, cwd) => {
+    const args = claudeArgs(job, boardUrl, models, { room, crew, names });
+    fs.mkdirSync(cwd, { recursive: true });
+    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role, crew, job.name));
+    let child;
+    const done = new Promise((resolve) => {
+      try {
+        child = nodeSpawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      } catch (e) {
+        resolve({ code: -1, error: e.message, session: null, cwd });
+        return;
+      }
+      let stdout = "", tail = "";
+      child.stdout.on("data", (b) => { out?.write(b); stdout += b; });
+      child.stderr.on("data", (b) => { out?.write(b); tail = (tail + b).slice(-400); });
+      child.on("error", (e) => resolve({ code: -1, error: e.message, session: null, cwd }));
+      child.on("close", (code) => {
+        let r = null;
+        try { r = JSON.parse(stdout); } catch {}
+        const usage = r ? usageOf(r) : null;
+        const session = typeof r?.session_id === "string" ? r.session_id : null;
+        const res = code === 0 ? { code, usage, session, cwd } : { code, usage, session, cwd, error: exitError(code, r, tail, stdout) };
+        // ログを書き切ってから終わったことにする（書き込みは非同期なので、先に知らせるとログが空のまま読まれる）
+        if (out) out.end(() => resolve(res)); else resolve(res);
+      });
+    });
+    return { done, kill: () => child?.kill("SIGTERM") };
+  };
   return (job) => {
+    const { resume, ...fresh } = job;
+    job = fresh;
     const mine = roomOf(crew, job.name, room);
     let cwd = inRoom(job.role) ? mine : staffOf(crew, job.role, staff);
     if (job.role === "panels") {
@@ -298,34 +334,22 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
         cwd = ws.dir;
         job = { ...job, prompt: job.prompt + "\n" + devNote(ws) };
       } catch (e) {
-        return { done: Promise.resolve({ code: -1, error: `作業場を作れませんでした：${String(e.stderr || e.message).trim().split("\n").at(-1)}` }), kill: () => {} };
+        return { done: Promise.resolve({ code: -1, error: `作業場を作れませんでした：${String(e.stderr || e.message).trim().split("\n").at(-1)}`, session: null }), kill: () => {} };
       }
     }
-    const args = claudeArgs(job, boardUrl, models, { room, crew, names });
-    fs.mkdirSync(cwd, { recursive: true });
-    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role, crew, job.name));
-    let child;
-    const done = new Promise((resolve) => {
-      try {
-        child = nodeSpawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-      } catch (e) {
-        resolve({ code: -1, error: e.message });
-        return;
-      }
-      let stdout = "", tail = "";
-      child.stdout.on("data", (b) => { out?.write(b); stdout += b; });
-      child.stderr.on("data", (b) => { out?.write(b); tail = (tail + b).slice(-400); });
-      child.on("error", (e) => resolve({ code: -1, error: e.message }));
-      child.on("close", (code) => {
-        let r = null;
-        try { r = JSON.parse(stdout); } catch {}
-        const usage = r ? usageOf(r) : null;
-        const res = code === 0 ? { code, usage } : { code, usage, error: exitError(code, r, tail, stdout) };
-        // ログを書き切ってから終わったことにする（書き込みは非同期なので、先に知らせるとログが空のまま読まれる）
-        if (out) out.end(() => resolve(res)); else resolve(res);
-      });
+    const same = resume?.session && resume.cwd && inRoom(job.role) && real(resume.cwd) === real(cwd);
+    if (!same) {
+      const h = run(job, cwd);
+      return { done: h.done.then((r) => ({ ...r, resumed: false })), kill: h.kill };
+    }
+    let cur = run({ ...job, prompt: resume.prompt ?? job.prompt, resume: resume.session }, cwd), killed = false;
+    const done = cur.done.then((r) => {
+      // 結果（JSON）を返したなら、引き継いだ会話は動いた。返さずに落ちたときだけ、まっさらで起こし直す
+      if (killed || r.code === 0 || r.usage) return { ...r, resumed: true };
+      cur = run(job, cwd);
+      return cur.done.then((x) => ({ ...x, resumed: false }));
     });
-    return { done, kill: () => child?.kill("SIGTERM") };
+    return { done, kill: () => { killed = true; cur.kill(); } };
   };
 }
 

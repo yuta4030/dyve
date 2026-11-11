@@ -190,3 +190,72 @@ test("人が開発でない提案を受け入れたら、提案を置いた人�
   assert.ok(!a.includes("--disallowedTools"), "push などを止めない（危ない操作は auto の判定に任せる）");
   assert.ok(claudeArgs({ role: "task", name: "ボブ", prompt: "x" }, "http://x", {}).includes("Bash(git push:*)"), "ほかの仕事では今までどおり止める");
 });
+
+// 偽の claude：受けた引数と起きた場所を書き残し、claude の json の結果（session_id 付き）を返す。
+// 引き継ぐセッションが見つからないとき（--resume gone）は、結果を返さずに落ちる
+function fakeClaude(dir) {
+  const cmd = path.join(dir, "fake-claude");
+  const seen = path.join(dir, "seen.jsonl");
+  fs.writeFileSync(cmd, `#!/usr/bin/env node
+const fs = require("node:fs");
+const a = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ args: a, cwd: process.cwd() }) + "\\n");
+const r = a.indexOf("--resume");
+if (r >= 0 && a[r + 1] === "gone") { process.stderr.write("No conversation found with session ID: gone\\n"); process.exit(1); }
+process.stdout.write(JSON.stringify({ type: "result", result: "ok", session_id: r >= 0 ? a[r + 1] : "s-new", usage: { input_tokens: 1 } }));
+`);
+  fs.chmodSync(cmd, 0o755);
+  const runs = () => fs.readFileSync(seen, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  return { cmd, runs };
+}
+
+test("頼み直しの引き継ぎ：--resume は print モードの json のときだけ、前の回のセッション id で付く", () => {
+  const a = claudeArgs({ role: "task", name: "ボブ", prompt: "続けて", resume: "s-1" }, "http://x");
+  assert.deepEqual(a.slice(0, 6), ["-p", "続けて", "--output-format", "json", "--resume", "s-1"]);
+  assert.ok(a.includes("--append-system-prompt") && a.includes("--mcp-config"), "前置きと MCP は今までどおり渡す");
+  assert.ok(!claudeArgs({ role: "task", name: "ボブ", prompt: "x" }, "http://x").includes("--resume"));
+  assert.ok(!claudeArgs({ role: "scribe", name: "scribe", resume: "s-1" }, "http://x", {}, { stream: true }).includes("--resume"));
+});
+
+test("頼み直しの引き継ぎ：同じ場所なら前のセッションを引き継いで短い文で起こし、場所が違えばまっさら。見つからなければまっさらで起こし直す", async () => {
+  const { dir, room } = repo();
+  const f = fakeClaude(dir);
+  const spawn = claudeSpawner({ cmd: f.cmd, room, staff: path.join(dir, "staff"), workDir: path.join(dir, "work"), boardUrl: "http://x" });
+  const job = { role: "task", name: "アリス", taskId: "p9", prompt: "まっさらの文" };
+  const r1 = await spawn(job).done;
+  assert.deepEqual([r1.code, r1.session, r1.resumed, fs.realpathSync(r1.cwd)], [0, "s-new", false, fs.realpathSync(room)]);
+  assert.ok(!f.runs()[0].args.includes("--resume"));
+  // 同じ場所：引き継ぐ
+  const r2 = await spawn({ ...job, resume: { session: "s-1", cwd: r1.cwd, prompt: "短い文" } }).done;
+  assert.deepEqual([r2.code, r2.session, r2.resumed], [0, "s-1", true]);
+  const two = f.runs()[1].args;
+  assert.deepEqual([two[1], two[4], two[5]], ["短い文", "--resume", "s-1"]);
+  // 場所が違う：まっさら
+  const r3 = await spawn({ ...job, resume: { session: "s-1", cwd: path.join(dir, "elsewhere"), prompt: "短い文" } }).done;
+  assert.equal(r3.resumed, false);
+  assert.ok(!f.runs()[2].args.includes("--resume"));
+  assert.equal(f.runs()[2].args[1], "まっさらの文");
+  // 見つからない：まっさらで起こし直す（二度目は --resume なし、元の文で）
+  const r4 = await spawn({ ...job, resume: { session: "gone", cwd: r1.cwd, prompt: "短い文" } }).done;
+  assert.deepEqual([r4.code, r4.session, r4.resumed], [0, "s-new", false]);
+  const [bad, retry] = f.runs().slice(3);
+  assert.ok(bad.args.includes("gone"));
+  assert.ok(!retry.args.includes("--resume"));
+  assert.equal(retry.args[1], "まっさらの文");
+  assert.equal(f.runs().length, 5);
+});
+
+test("頼み直しの引き継ぎ：開発の仕事は同じ worktree のときだけ引き継ぐ", async () => {
+  const { dir, room } = repo();
+  const f = fakeClaude(dir);
+  const spawn = claudeSpawner({ cmd: f.cmd, room, staff: path.join(dir, "staff"), workDir: path.join(dir, "work"), boardUrl: "http://x" });
+  const job = { role: "dev", name: "アリス", taskId: "p7", prompt: "直して" };
+  const r1 = await spawn(job).done;
+  const r2 = await spawn({ ...job, resume: { session: r1.session, cwd: r1.cwd, prompt: "もう少し" } }).done;
+  assert.equal(r2.resumed, true);
+  assert.equal(f.runs()[1].cwd, f.runs()[0].cwd);
+  assert.ok(f.runs()[1].args.includes("--resume"));
+  // 作業場が片付けられて別の worktree になったら（場所が違う）、まっさら
+  const r3 = await spawn({ ...job, resume: { session: r1.session, cwd: path.join(dir, "work", "old"), prompt: "もう少し" } }).done;
+  assert.equal(r3.resumed, false);
+});

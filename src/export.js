@@ -3,7 +3,7 @@ import { isPerson, marks, turnOf } from "./board.js";
 
 const STATE = { task: "仕事", proposal: "提案", done: "済み" };
 const MARK = { waiting: "受け入れ待ち", untouched: "未着手" };
-const TURN = { ai: "AI の番", you: "人の番", ok: "決まった", wait: "待ち" };
+const TURN = { ai: "AI の番", you: "人の番", back: "帰った", ok: "決まった", wait: "待ち" };
 
 export function toMarkdown(board, { title = "ボード", now = new Date(), running = [] } = {}) {
   // 置き場所は画面のためのもの。合流した発言は先頭に入っている（下に付いたものは先頭へ寄せる）
