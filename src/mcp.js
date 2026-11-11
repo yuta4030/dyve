@@ -62,7 +62,7 @@ export const TOOLS = [
       fold: { type: "object", description: "畳む・開く：{ key: true|false }。畳むと見出しだけ残る。済みの仕事と話題は、何も言わなければ畳まれる" },
       zoom: { type: "object", description: "画面に並ぶパネルの中身の拡大率：{ key: 0.1〜5 }" },
       float: { type: "object", description: "浮かせる（talk・status・quota・tools）：{ mode?: front|off（既定は front）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
-      out: { type: "object", description: "面を開く・閉じる：{ 行（話題の中の仕事）の id: true|false }。開くと、その行について置かれたものが表の隣に面として出る。ほかの話題の中のパネルなら、取り出すと画面に一枚で並ぶ" },
+      out: { type: "object", description: "面を開く・閉じる：{ 行（話題の中の仕事）の id: true|false }。開くと、その行について置かれたものが表の隣に面として出る。ほかの話題の中のパネルなら、取り出すと画面に一枚で並ぶ。もう閉じている・開いているものは断らずに already で返し、何も変えない" },
       density: { type: "integer", enum: [12, 24, 48], description: "ます目の細かさ。全体が同じ見た目の大きさで直る。ピン留めしたものがあると変えられない" },
       reset: { type: "boolean", description: "並びを既定に戻す。全部が自動の並びに戻る（ピン留めしたものは残す）" },
       reason,
