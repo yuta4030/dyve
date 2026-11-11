@@ -500,12 +500,14 @@ function label(board, id) {
   const name = p?.key ? `${p.key}（${id}）` : id;
   return line ? `${name}「${clip(line, 30)}」` : p ? `${name}（${p.view}）` : `${id}（もうない）`;
 }
-// 人がその発言をしたときに指していたパネル（合流した発言のぶんも）。押して選んだものは決定、ほかは手がかり
-const HOW = { pick: "を押して選んだ", hover: "を指して", view: "を見ながら" };
+// 人がその発言をしたときに指していたパネル（合流した発言のぶんも）。押して選んだものは決定なので言い切り、
+// マウスの下（hover）と見ていたまん中（view）は手がかりなので、人の意図ではなく画面のありさまとして言う
+const PICKED = "を押して選んだ";
+const HOW = { pick: (l) => `${l}${PICKED}`, hover: (l) => `マウスは ${l}の上`, view: (l) => `画面のまん中は ${l}` };
 function pointNotes(board, says) {
   const out = [];
   for (const p of says) {
-    const note = p?.point && HOW[p.point.how] ? `${label(board, p.point.id)}${HOW[p.point.how]}` : "";
+    const note = p?.point && Object.hasOwn(HOW, p.point.how) ? HOW[p.point.how](label(board, p.point.id)) : "";
     if (note && !out.includes(note)) out.push(note);
   }
   return out;
@@ -717,7 +719,7 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
     topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
-    ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
+    ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => (n.endsWith(PICKED) ? `人はそのとき ${n}` : `発言のとき、${n}（手がかり。話が合わなければ無視する）`)),
     ...(relays.length ? [`${returned ? `この行はいちど帰したあと、伝言が届いたので戻ってきました。` : ""}この仕事への伝言です。応えて、答えをこの行に帰します：`, ...relays.map((p) => `- ${p.id}（${p.by}${p.data.to === name || p.data.to === call ? "" : `、${p.data.to} 宛て`}）：${clip(textOf(p.data), 500)}`)] : []),
     task.key ? `この仕事は表の行 ${task.key} です。${parent?.view === "task" ? `行 ${parent.key || parent.id} の面の中から呼ばれました。` : ""}` : "",
     `結果は行に帰します：終わったら panel_edit で仕事 ${task.id} に line（答えの一行。60 字くらいまで）と state done を一度に渡してください。一行に収まるなら、それだけです。新しいパネルは足しません。`,
@@ -741,7 +743,7 @@ export function reaskPrompt(board, task, name, call = name, focus = null, upto =
     `いまの頼み：${text}`,
     added.length ? "前の回のあとに人が足したこと：" : "前の回のあとに人が足した発言はありません。いまの頼みと、ボードの行（board_read）を見て続けてください。",
     ...added.map((p) => `- ${p.id}：${textOf(p.data)}`),
-    ...pointNotes(board, added.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
+    ...pointNotes(board, added.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => (n.endsWith(PICKED) ? `人はそのとき ${n}` : `発言のとき、${n}（手がかり。話が合わなければ無視する）`)),
     `結果は同じ行に帰します：終わったら panel_edit で仕事 ${task.id} に line と state done を一度に渡します。新しいパネルは足しません。前の回に置いたものを直すなら、足さずに panel_edit で書き換えます。`,
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
   ].filter(Boolean).join("\n");
