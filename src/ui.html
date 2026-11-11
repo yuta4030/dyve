@@ -298,8 +298,6 @@ dv-panel.pinned { box-shadow: inset 0 0 0 1px var(--ink); }
 #timeline dv-panel { padding: 4px 10px 6px; cursor: pointer; }
 #timeline dv-panel .meta { min-height: 18px; }
 #timeline dv-panel .meta .who { display: none; }
-#summary dv-panel { border: none; background: none; padding: 0; }
-#summary dv-panel > .meta .who { display: none; }
 dv-summary .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 4px 16px; }
 dv-summary h3 { margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--mute); }
 dv-summary ul { margin: 0; padding-left: 1.1em; }
@@ -324,7 +322,7 @@ dv-panel.seen-now { animation: seen-now 1.4s ease-out; }
 /* 比べる組：選んだものと、選ばなかったもの */
 dv-panel.picked { border-color: var(--ok); }
 dv-panel.unpicked { opacity: .6; }
-/* いまの要点の行：元の発言があれば、押すとそこへ */
+/* 要点（summary）の行：元の発言があれば、押すとそこへ */
 dv-summary li[data-from] { cursor: pointer; }
 dv-summary li[data-from]:hover { text-decoration: underline dotted; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -422,16 +420,6 @@ dv-panel .meta .by { display: inline-flex; }
 .card.s-ok { border-left-color: var(--ok); opacity: .75; }
 .card.chg { background: var(--accent-soft); }
 .card.open { box-shadow: inset 0 0 0 1px var(--accent); }
-#now dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 13px; }
-#now dt { color: var(--mute); white-space: nowrap; }
-#now dd { margin: 0; min-width: 0; display: grid; gap: 2px; }
-#now .path { font-weight: 600; display: block; }
-#now .path i { font-style: normal; color: var(--mute); margin: 0 4px; }
-#now .none { color: var(--mute); }
-#now .nowrow { display: flex; gap: 6px; min-height: 22px; padding: 0 4px; border-color: transparent; background: none; text-align: left; font-size: 13px; }
-#now .nowrow:hover { border-color: var(--line); }
-#now .nowrow b { color: var(--warn); font-weight: 600; }
-#now .nowrow span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @media (max-width: 760px) {
   .rows .row { grid-template-columns: 2.2em minmax(0, 1fr) 1.4em auto; }
   .rows .row .t { grid-row: 2; grid-column: 2 / -1; }
@@ -458,10 +446,8 @@ dv-panel .meta .by { display: inline-flex; }
       </div>
     </div>
   </section>
-  <section class="tile" data-tile="summary"><div class="tile-body" id="summary"></div></section>
   <section class="tile" data-tile="status"><div class="tile-body"><div id="status" aria-live="polite"></div></div></section>
   <section class="tile" data-tile="quota"><div class="tile-body" id="quota"></div></section>
-  <section class="tile" data-tile="now"><div class="tile-body" id="now"></div></section>
   <section class="tile" data-tile="tools">
     <div class="tile-body">
       <div id="tools">
@@ -492,7 +478,8 @@ dv-panel .meta .by { display: inline-flex; }
 // 画面の言葉はここにまとめる
 const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
-  builtin: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定", now: "いま" },
+  builtin: { talk: "トーク", status: "状況", quota: "残量", tools: "dyve 設定" },
+  sumName: "いまの要点",
   // 行の番：記号と言葉。色だけに頼らず記号でも見分ける
   turnSym: { ai: "…", you: "●", ok: "✓", wait: "⏸\uFE0E" },
   turn: { ai: "AI の番（まだ返っていない）", you: "人の番", ok: "決まった", wait: "待ち（条件つき）" },
@@ -505,7 +492,6 @@ const L = {
   kind: { text: "文", list: "箇条", table: "表", json: "データ", say: "発言", task: "仕事", topic: "話題", summary: "要点", proposal: "提案",
     bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", md: "文書", diff: "差分" },
   refTitle: (k) => `${k} の結果`,
-  nowAt: "いる場所", nowLeft: "やりかけ", nowYou: "人の番", nowNone: "なし", nowFold: (path, n) => n ? `${path}・人の番 ${n}` : path,
   move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   pinnedNow: "ピン留め中", pinOn: "ピン留め", pinOff: "ピン留めを外す",
@@ -524,7 +510,6 @@ const L = {
   send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
-  emptySummary: "話しはじめると、マネージャがここに要点をまとめます。",
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
   newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
   boards: "ボードの管理（切り替え・呼び名・しまう）", boardsNow: (n) => `ボードの管理（いま：${n}）`, panels: "パネルの管理（使う・使わない・既定の大きさ・消す）", offView: "この種類のパネルは「使わない」にしています（パネルの管理で戻せます）", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
@@ -582,20 +567,21 @@ const L = {
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
 // 組み込みのパネル（ボードの操作ログには持たず、画面が描く）。並びの key はこの名前か、パネルの id
-const BUILTIN = ["talk", "summary", "status", "quota", "tools", "now"];
-// 浮かせる組み込みのパネル（いまの要点はボードに残す）。どれも同じ扱い
-const FLOATS = ["talk", "now", "status", "quota", "tools"];
+// 前の版にあった「いまの要点」と「いま」の枠はなくした（表と行が同じことを持つ）。前の版が置いた要点（summary）は、ふつうのパネルとして並ぶ
+const BUILTIN = ["talk", "status", "quota", "tools"];
+// 浮かせる組み込みのパネル。どれも同じ扱い
+const FLOATS = ["talk", "status", "quota", "tools"];
 const FLOAT_MODES = ["front", "off"]; // 先頭が既定
 // 置き場所はピクセルで、近い端からの距離で持つ（窓の大きさが変わっても端に付いたまま）。h がなければ中身の高さ。stack は右上から順に積む
 const FLOAT_HOME = {
-  talk: { left: 14, bottom: 14, w: 300, h: 260 }, now: { right: 14, stack: true, w: 260 }, status: { right: 14, stack: true, w: 224 },
+  talk: { left: 14, bottom: 14, w: 300, h: 260 }, status: { right: 14, stack: true, w: 224 },
   quota: { right: 14, stack: true, w: 224 }, tools: { right: 14, stack: true, w: 224 },
 };
 const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
-  talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
-  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 }, now: { x: 10, y: 12, w: 3, h: 5 },
+  talk: { x: 1, y: 1, w: 3, h: 15 }, status: { x: 10, y: 1, w: 3, h: 3 },
+  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 },
 };
 // HOME は「ふつう」（24 列）のます目で書く。細かさを変えたら置き場所も同じ割合で直す
 const DENSITY = { 12: { row: 44, gap: 10 }, 24: { row: 18, gap: 8 }, 48: { row: 7, gap: 5 } };
@@ -998,7 +984,7 @@ class TaskView extends View {
     $("details", this).addEventListener("toggle", (e) => { if (e.target.open) ASK_OPEN.add(id); else ASK_OPEN.delete(id); });
   }
 }
-// いまの要点：{ points, decided, open } を三つの欄に並べる。項目は文字列か { text, from: [元の発言の id] }。from があれば、押すと元の発言へ
+// 要点（summary）：{ points, decided, open } を三つの欄に並べる。項目は文字列か { text, from: [元の発言の id] }。from があれば、押すと元の発言へ
 class SummaryView extends View {
   render(v) {
     if (!v || typeof v !== "object" || Array.isArray(v)) return super.render(v);
@@ -1478,7 +1464,7 @@ function tree() {
   return (id) => by.get(id) || [];
 }
 
-// 人の発言はトークに、要点は要点に、それ以外は話題の欄に。どこに出すかはデータに持たず導く
+// 人の発言はトークに、それ以外は話題の欄に。どこに出すかはデータに持たず導く
 // 読んでいる場所：作り直すと中のスクロールは 0 に戻るので、前に覚えて後で戻す。トークはいちばん下なら追いかける方に任せる
 function scrollMarks() {
   const marks = [];
@@ -1589,18 +1575,10 @@ function render() {
   }
   if (follow) tl.scrollTop = tl.scrollHeight;
 
-  // いまの要点（いちばん新しいもの）
-  const sum = top.filter((p) => p.view === "summary").at(-1);
-  const sb = $("#summary");
-  sb.innerHTML = "";
-  if (sum) sb.append(panelEl(sum, kids));
-  else sb.innerHTML = `<p class="empty">${esc(L.emptySummary)}</p>`;
-
   // 話題ごと（なければ発言ごと）にまとめて、それぞれ画面に一枚で並べる（key は根のパネルの id）。
   // 新しいまとまりは、ほかを押しのけずに空いているところへ出る（最近動いたものから上に）
   const groups = [];
   for (const p of top) {
-    if (p === sum || p.view === "summary") continue;
     if (!isSay(p)) groups.push({ key: p.id, src: null, items: [p] });
     else if (kids(p.id).length) groups.push({ key: p.id, src: p, items: kids(p.id) });
   }
@@ -1627,7 +1605,7 @@ function render() {
     const t = tileOf(g.key), solo = !g.src && g.items.length === 1, root = g.items[0];
     // 発言から出たまとまりは、見出しがその発言。押すとトークの発言へ
     const h2 = $(".tile-head h2", t);
-    h2.textContent = g.src ? `← ${textOf(g.src.data)}` : root.view === "topic" ? topicTitle(root) : `${who(root.by)}・${root.view}`;
+    h2.textContent = g.src ? `← ${textOf(g.src.data)}` : root.view === "topic" ? topicTitle(root) : root.view === "summary" ? L.sumName : `${who(root.by)}・${root.view}`;
     h2.title = h2.textContent;
     if (g.src) h2.dataset.goto = g.src.id; else delete h2.dataset.goto;
     const box = document.createElement("div");
@@ -1671,7 +1649,6 @@ function render() {
     if (p && !shownPanels(S.panels, S.marks, offSet()).includes(p)) body.innerHTML = `<p class="empty">${esc(L.offView)}</p>`;
     else if (p) body.append(panelEl(p, kids, { root: true, face: true })); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
   }
-  renderNow();
   // 中身が変わると高さも変わるので、毎回並べ直す（読んでいるパネルは画面の同じ位置に残る）。人が動かしている最中は待つ
   if (!$(".editing")) applyLayout();
   // 中のます目を並べてから戻す（並ぶ前は高さが足りず、0 に押し戻される）。次のコマで伸びることがあるので、もう一度
@@ -1687,23 +1664,6 @@ function render() {
 const faces = () => (LAYOUT.out || []).filter((id) => isRow(panelById(id)));
 const hereFace = () => faces().at(-1) ?? null;
 const topOfId = (id) => { let p = panelById(id); const seen = new Set(); while (p?.about && !seen.has(p.id) && panelById(p.about)) { seen.add(p.id); p = panelById(p.about); } return p; };
-// 「いま」：いる場所（話題 › 面）・やりかけ（ほかに開いている面）・人の番の行を、一行ずつ
-function renderNow() {
-  const el = $("#now");
-  if (!el) return;
-  const here = hereFace(), topic = here ? topOfId(here) : panelById(S.talking?.[0]);
-  const path = [topic && topic.view === "topic" ? topicTitle(topic) : "", here ? panelById(here).key : ""].filter(Boolean);
-  const left = faces().filter((id) => id !== here).map(panelById);
-  const you = S.panels.filter((p) => isRow(p) && turnOf(p) === "you").sort((a, b) => Math.max(b.lineSeq || 0, b.rev) - Math.max(a.lineSeq || 0, a.rev));
-  const go = (p, text) => `<button class="nowrow" data-goto="${esc(p.id)}"><b>${esc(p.key)}</b><span>${esc(clipText(text, 40))}</span></button>`;
-  el.innerHTML = `<dl>
-    <dt>${esc(L.nowAt)}</dt><dd class="path">${path.length ? path.map(esc).join("<i>›</i>") : `<span class="none">${esc(L.nowNone)}</span>`}</dd>
-    <dt>${esc(L.nowLeft)}</dt><dd>${left.length ? left.map((p) => go(p, rowName(p))).join("") : `<span class="none">${esc(L.nowNone)}</span>`}</dd>
-    <dt>${esc(L.nowYou)}</dt><dd>${you.length ? you.slice(0, 8).map((p) => go(p, rowText(p))).join("") : `<span class="none">${esc(L.nowNone)}</span>`}</dd></dl>`;
-  const gs = $('.tile[data-tile="now"] .tile-head .gist');
-  if (gs) { gs.textContent = L.nowFold(path.join(" › ") || L.nowNone, you.length); gs.title = gs.textContent; }
-}
-
 // いまの話題：いちばん新しい人の発言から出たものが入っている枠（話題か、発言から出たまとまり）。新しい順に三つまで
 function talkingKeys(keys) {
   const byId = new Map(S.panels.map((p) => [p.id, p]));
@@ -1784,14 +1744,14 @@ const panelById = (id) => S.panels.find((p) => p.id === id);
 const isDone = (p) => (isRow(p) ? turnOf(p) === "ok" : (p?.view === "task" || p?.view === "topic") && p.state === "done");
 const descOf = (id, kids) => kids(id).flatMap((k) => [k, ...descOf(k.id, kids)]);
 // 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）。
-// いまの要点と「いま」は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
-const FOLD_FIRST = ["summary", "now"];
+// 前の版が置いた要点（summary）は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
 function isFolded(k) {
   if (SHOT) return false;
   const f = LAYOUT.fold?.[k];
   if (f != null) return f;
-  if (FOLD_FIRST.includes(k) || BENCH_FOLD.has(k)) return true;
+  if (BENCH_FOLD.has(k)) return true;
   const p = panelById(k);
+  if (p?.view === "summary") return true;
   return isDone(p) && !descOf(k, S.kids || (() => [])).some((x) => markOf(x));
 }
 const setFold = (k, on) => { LAYOUT.fold = { ...LAYOUT.fold, [k]: on }; saveLayout(); render(); applyLayout(); };
@@ -2163,12 +2123,6 @@ function applyLayout(appear = null) {
   const live = !narrow() && CANVAS.homed;
   const snap = live ? { anchor: anchorOf(), before: REDUCE ? null : rectsOf() } : null;
   const pos = Object.fromEntries(gridTiles().filter((k) => !isAuto(k)).map((k) => [k, posOf(k)]));
-  // いまの要点は、中身があふれるときだけ下へ伸ばす（半画面まで。覚えた大きさは変えない）
-  const st = tileOf("summary");
-  if (st && !narrow() && !isFolded("summary")) {
-    const m = metrics(), half = Math.floor(stage.clientHeight / m.sy / 2);
-    pos.summary = { ...pos.summary, h: Math.max(pos.summary.h, Math.min(half, needRows(st, m))) };
-  }
   place(autoLayout(settle(pos, null, appear)), false, snap);
   wiresSoon();
   $("#density").value = String(dens());
@@ -2875,7 +2829,7 @@ const onClick = async (e) => {
     if (S.to && ta.dataset.task) reveal(panelOf(ta.dataset.task));
     return;
   }
-  // いまの要点の行：元の発言へ（押したので、要点は見たことにする）
+  // 要点（summary）の行：元の発言へ（押したので、要点は見たことにする）
   const li = e.target.closest("li[data-from]");
   if (li && !e.target.closest("a")) {
     const from = li.dataset.from.split(" "), sp = panelById(li.closest("dv-panel")?.dataset.id);
@@ -2904,7 +2858,7 @@ const onClick = async (e) => {
   // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ、発言の印は指したパネル・拾われた要点の行へ
   if (go) {
     reveal(panelOf(go) || $(`.row[data-row="${CSS.escape(go)}"]`));
-    if (gb.dataset.item) for (const x of $$(`#summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
+    if (gb.dataset.item) for (const x of $$(`dv-summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
     return;
   }
   const el = e.target.closest("dv-panel");
@@ -3132,7 +3086,7 @@ setInterval(() => sendFocus(), 60e3);
 
 // ── 指して喋る：発言を置くとき、そのとき指していたパネルを付ける。「これ」「それ」が何かを、マネージャが取り違えないように ──
 // 指しているもの：さっきまでマウスを乗せていたパネル（hover）。表の行の上なら、その行（話題ではなく）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
-// どちらも「覚えておく時間」より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
+// どちらも「覚えておく時間」より前のものは使わない。要点（summary）は指したことにしない
 // 時間はどれも dyve 設定の「調整」で変えられる（tu()。サーバーの ui-settings.json に持ち、立て直さずに効く）
 const PT = { over: null, last: null, looked: 0, cur: undefined };
 // 指した先の要素：表の行（.row[data-row]）が先、なければパネル

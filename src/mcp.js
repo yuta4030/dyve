@@ -8,7 +8,7 @@ const PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const reason = { type: "string", description: "なぜこの操作をするのか。人が後から読む" };
 const panelFields = {
-  view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（いまの要点）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える（使えるものとデータの形は view_list）。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
+  view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（要点の三つの欄）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える（使えるものとデータの形は view_list）。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
   data: {
     type: ["string", "array", "object", "number", "boolean", "null"],
     description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・text・md は文字列、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}、topic は {title, note?}、summary は {points, decided, open}（項目は文字列か {text, from: [元の発言の id]}）",
@@ -61,7 +61,7 @@ export const TOOLS = [
       moves: { type: "object", description: "動かす・大きさを変える：{ key: { x?, y?, w?, h? } }（ます目。w・h は 2 以上）。動かしたものはその場所に留まり、自動の並びから外れる。position: null で自動の並びへ戻す。話題の中のパネルなら話題の中のます目で、h: null は中身の高さ、size: [幅, 高さ]（ピクセル。null で戻す）も使える" },
       fold: { type: "object", description: "畳む・開く：{ key: true|false }。畳むと見出しだけ残る。済みの仕事と話題は、何も言わなければ畳まれる" },
       zoom: { type: "object", description: "画面に並ぶパネルの中身の拡大率：{ key: 0.1〜5 }" },
-      float: { type: "object", description: "浮かせる（talk・now・status・quota・tools）：{ mode?: front|off（既定は front）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
+      float: { type: "object", description: "浮かせる（talk・status・quota・tools）：{ mode?: front|off（既定は front）, pos?: { key: { left か right, top か bottom, w, h? } | null }, zoom?: { key: 0.1〜5 } }。pos はピクセル（近い端からの距離。h を省くと中身の高さ。null で既定の場所）" },
       out: { type: "object", description: "面を開く・閉じる：{ 行（話題の中の仕事）の id: true|false }。開くと、その行について置かれたものが表の隣に面として出る。ほかの話題の中のパネルなら、取り出すと画面に一枚で並ぶ" },
       density: { type: "integer", enum: [12, 24, 48], description: "ます目の細かさ。全体が同じ見た目の大きさで直る。ピン留めしたものがあると変えられない" },
       reset: { type: "boolean", description: "並びを既定に戻す。全部が自動の並びに戻る（ピン留めしたものは残す）" },
@@ -111,20 +111,19 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - point：人がその発言をしたときに指していたパネル（{ id, how }。画面が付け、AI は付けられない）。「これ」「それ」はまずここを指すと読む。how が hover（マウスの下）・view（見ていたまん中）は手がかりで、話が合わなければ無視する。pick は「これにする」を押して選んだという人の決定
 
 ## 画面
-- 人の発言はトーク、summary はいまの要点に出る（いまの要点と「いま」は、既定で畳まれている）。話題は表になり、中の仕事が一行ずつ並ぶ。ほかのものは about のないパネルごとに一枚にまとまり、about したものはその中に出る
+- 人の発言はトークに出る。話題は表になり、中の仕事が一行ずつ並ぶ。ほかのものは about のないパネルごとに一枚にまとまり、about したものはその中に出る
 - 行の下（面の中のどの深さでも）にある提案と、AI の番の仕事は、表のその行の下に一段字下げして出る。人は面を開かずに、表で受け入れられる。表に「…」がなければ、何も動いていない
 - 表は動かない。行が開くと、その行について置かれたものが表の隣に面として出て、行と線でつながる。決まった行の面は、ボードが行に畳む（行の ▸ からいつでも開き直せる）
 - 面は役割で並ぶ：頭に行の番と結論の一行、左にやること（行の中の行と、行に置かれた提案・仕事を番ごとの札に）、まん中に主役（AI が置いたいちばん新しい結果）、右に残り（新しい順。多いと古いものは一行に畳む）。行の中の行の結果も、その行の記号つきで面に出る。パネルの見出しは中身の種類で、置いた人は小さな丸。だから結果は一枚ごとに一つの種類にし、いちばん見てほしいものを最後に置く。面の中で置き場所を決めたもの（board_layout の moves）はその場所に残る
 - 面を開く・閉じるはマネージャが人の話についていって決める（board_layout の out）。人がその行の話を始めたら開く。返ってきた結果だけで面を開かない（先回りしない）。閉じるのは、人がいま話している行の面でなければいつでもよい（話が別の行に移った、面が増えて表が見づらい）。中で動いているものや提案は表の 2 段目に出るので、閉じても見失わない
-- 「いま」（組み込みのパネル）は、いる場所（話題 › 開いている面）・やりかけ・人の番の行を一行ずつ出す
 - 並びは画面が決める：いまの話題を先頭に大きく、次に印のあるもの、新しいもの、済み（畳む）の順に詰める。幅は中身の形（表は列の数、文章は読みやすい幅）から、高さは中身の量から。読んでいるパネルは画面の同じ位置に残る。並べる手間は要らない。置くときは関係するパネルに about し、組には rel を付けるだけ
 - board_layout は、画面の並びが外れたとき（見せたいものが遠い・大きさが合わない）だけ使う。動かしたものはそこに留まる。人がピン留めしたものとその中は変わらない
 - 人は一瞥で読む。文章を書かず、短い list・table を選ぶ。一枚は数行まで
 - 畳んだパネルは見出しの一行だけが見える：仕事は結果の一行目、話題は data.note、ほかは中身の一行目。だから結果は結論の一行から始める
 - 人がまだ見ていない変更は、変わった行だけに色が付く（summary・list・table。前に見たときとの差を画面が導く）。書き換えるときは、変わらない行を言い換えず、そのまま残す
 - 比べるもの（rel compare）には「これにする」が出て、人は押して選べる。選んだことは人の発言（point.how が pick）として届き、画面は選ばれたものに印を付ける
-- summary の項目に from（元の発言の id）を付けると、要点から元の発言へ、発言から要点へたどれる。人は、言ったことが拾われたかをトークで確かめる
-- 画面に並ぶものは全部パネル（トーク・いまの要点・いま・状況・残量・dyve 設定も組み込みのパネル）
+- いまの要点と「いま」の枠はなくした（決まったこと・問いは行に、いまどこまでは話題の note にある）。前の版が置いた summary は、ふつうのパネルとして畳んで並ぶ。新しく summary を置いて要点をまとめ直さない
+- 画面に並ぶものは全部パネル（トーク・状況・残量・dyve 設定も組み込みのパネル）
 - パネルは about を変えれば移せる（話題から話題へ、about を null で外へ）。いくつかを一枚にまとめるときは、親にする topic を置いて about を寄せる
 - トーク・いま・状況・残量・dyve 設定は浮いていて、ボードのどこを見ていても画面に出ている。ボードの拡大縮小は掛からない。浮かせ方は前面（front。既定。画面に留めて重ねる）・並べる（off。ます目に並べる）
 
@@ -193,7 +192,7 @@ const BUILTIN_VIEWS = [
   { name: "json", about: "どんな JSON でも（そのまま見せる）" },
   { name: "task", about: "{ text, from?, to?, team?, write? }（仕事）" },
   { name: "topic", about: "{ title, note? }（話題）" },
-  { name: "summary", about: "{ points, decided, open }（いまの要点）" },
+  { name: "summary", about: "{ points, decided, open }（要点の三つの欄。前の版のボードに残っているもの）" },
   { name: "say", about: "文字列（人の発言）" },
 ];
 

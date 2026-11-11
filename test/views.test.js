@@ -88,6 +88,24 @@ test("並び：AI は作れず、ピン留めを変えられず、ピン留め�
   assert.deepEqual([v2.v, Object.keys(v2.pos).sort()], [3, ["g", "talk", topic].sort()]);
 });
 
+test("並び：なくした組み込みのパネル（いまの要点・いま）の名前は、古い並びに残っていても読み飛ばす", () => {
+  const b = new Board();
+  const p = { x: 1, y: 1, w: 4, h: 4 };
+  const data = { v: 3, pos: { talk: p, tools: { x: 9, y: 1, w: 4, h: 4 }, summary: p, now: p }, zoom: { summary: 1.2 }, fold: { summary: false, now: true, talk: false }, out: [], pinned: ["now", "talk"],
+    float: { mode: "front", pos: { now: { right: 14, top: 14, w: 260 }, talk: { left: 14, bottom: 14, w: 300 } }, zoom: { now: 1.5 } }, inner: { tpos: {}, sizes: {} } };
+  const id = human(b, "add", { view: "layout", data }).op.panel.id;
+  const d = layoutOf(b.get(id).data, b.panels);
+  assert.deepEqual([Object.keys(d.pos), d.zoom, d.fold, d.pinned], [["talk", "tools"], {}, { talk: false }, ["talk"]]);
+  assert.deepEqual([Object.keys(d.float.pos), d.float.zoom, d.float.mode], [["talk"], {}, "front"]);
+  assert.deepEqual(legend(b).top.map((t) => t.key), ["talk", "tools"], "絵の対応表にも出ない");
+  // 残っていないボードは、そのまま返す
+  const clean = { v: 3, pos: { talk: p }, fold: {}, out: [], pinned: [] };
+  assert.equal(layoutOf(clean), clean);
+  // AI が動かそうとしても、もうないパネルとして断る（ほかは動かす）
+  const r = changeLayout(storeOf(b), "manager", { moves: { now: { x: 2, y: 2 }, tools: { x: 9, y: 6 } } }, "並べ直す");
+  assert.deepEqual([r.ok, r.changed, r.refused.map((x) => x.key)], [true, ["tools"], ["now"]]);
+});
+
 test("board_layout：ピン留めは断り、残りは動かし、重なりを知らせる", () => {
   const b = new Board();
   for (let i = 0; i < 8; i++) human(b, "add", { view: "say", data: String(i) });

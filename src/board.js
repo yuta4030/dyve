@@ -104,18 +104,29 @@ export const sendApproved = (board, id) => approved(board, id, "send");
 // { v: 3, density, metric, pos: { key: {x,y,w,h} }, zoom: { key }, fold: { key: true|false }, out: [取り出したパネルの id], pinned: [ピン留めした key], inner: { tpos, sizes } }
 // pos は置き場所を決めたもの（組み込みのパネルと、人か AI が動かしたもの）だけ。ほかは画面が並べるたびに、順番と中身から置き直す（自動の並び）
 // pinned に入るのは、ボードのパネルでピン留めできないもの（組み込みのパネルと、発言から出たまとまり）だけ。ほかはパネルの pinned を使う
-export const BUILTIN = ["talk", "summary", "status", "quota", "tools", "now"];
-// now は「いま」（いる場所・やりかけ・人の番の行）。
+export const BUILTIN = ["talk", "status", "quota", "tools"];
 // 浮かせる組み込みのパネルと浮かせ方（先頭の front が既定）。front：画面に留めて重ねる、off：ます目に並べる
-export const FLOATS = ["talk", "now", "status", "quota", "tools"];
+export const FLOATS = ["talk", "status", "quota", "tools"];
 export const FLOAT_MODES = ["front", "off"];
+// 前の版にあった組み込みのパネル（summary：いまの要点、now：いま）。なくしたので、古い並びに残った名前は読み飛ばす
+const GONE = ["summary", "now"];
+function dropGone(d) {
+  const hit = (o) => !!o && GONE.some((k) => k in o);
+  if (![d.pos, d.zoom, d.fold, d.float?.pos, d.float?.zoom].some(hit) && !(d.pinned || []).some((k) => GONE.includes(k))) return d;
+  const cut = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !GONE.includes(k)));
+  const out = { ...d };
+  for (const f of ["pos", "zoom", "fold"]) if (d[f]) out[f] = cut(d[f]);
+  if (d.pinned) out.pinned = d.pinned.filter((k) => !GONE.includes(k));
+  if (d.float) out.float = { ...d.float, ...(d.float.pos ? { pos: cut(d.float.pos) } : {}), ...(d.float.zoom ? { zoom: cut(d.float.zoom) } : {}) };
+  return out;
+}
 export function layoutOf(data, panels = null) {
   const d = data || {};
-  if (d.v === 3) return d;
+  if (d.v === 3) return dropGone(d);
   // v 2 はまとまりの置き場所を全部覚えていた。組み込みのパネルとピン留めしたものだけ残し、ほかは自動の並びにする
   if (d.v === 2) {
     const keep = (k) => BUILTIN.includes(k) || (d.pinned || []).includes(k) || (panels && fixedPanel(panels, d, k));
-    return { ...d, v: 3, pos: Object.fromEntries(Object.entries(d.pos || {}).filter(([k]) => keep(k))) };
+    return dropGone({ ...d, v: 3, pos: Object.fromEntries(Object.entries(d.pos || {}).filter(([k]) => keep(k))) });
   }
   // もっと古い形は読み替えない。組み込みのパネルの置き場所と拡大率、話題の中の置き場所だけ引き継ぐ
   const own = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => BUILTIN.includes(k)));

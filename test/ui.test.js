@@ -90,13 +90,26 @@ test("いまの話題：いちばん新しい人の発言から出たものが�
 const fnOf = (name, ...args) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`);
 const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
 
-test("浮かせる：五枚は同じ扱いで、ボードの外の層に出す（ボードの拡大縮小が掛からない）", () => {
-  assert.match(html, /const FLOATS = \["talk", "now", "status", "quota", "tools"\]/);
+test("浮かせる：四枚は同じ扱いで、ボードの外の層に出す（ボードの拡大縮小が掛からない）", () => {
+  assert.match(html, /const FLOATS = \["talk", "status", "quota", "tools"\]/);
   assert.match(html, /<\/main>\s*<div id="floats"><\/div>/, "層は #grid の外");
   const home = html.match(/const FLOAT_HOME = (\{[\s\S]*?\n\});/)[1];
-  for (const k of ["talk", "now", "status", "quota", "tools"]) assert.match(home, new RegExp(`\\b${k}: \\{`));
-  assert.doesNotMatch(home, /summary/, "いまの要点はボードに残す");
+  for (const k of ["talk", "status", "quota", "tools"]) assert.match(home, new RegExp(`\\b${k}: \\{`));
   assert.match(html, /grid\.addEventListener\("click", onClick\);\s*floats\.addEventListener\("click", onClick\);/, "浮かせても押せる");
+});
+
+test("いまの要点と「いま」の枠はない。前の版が置いた要点（summary）は、ふつうのパネルとして畳んで並ぶ", () => {
+  assert.match(html, /const BUILTIN = \["talk", "status", "quota", "tools"\]/);
+  for (const k of ["summary", "now"]) assert.doesNotMatch(html, new RegExp(`data-tile="${k}"`), `${k} の枠はない`);
+  assert.doesNotMatch(html, /renderNow|id="summary"|id="now"/);
+  // 描き方（dv-summary）は残す。古いボードの要点が読める
+  assert.match(html, /customElements\.define\("dv-summary", SummaryView\)/);
+  // 要点のパネルは、人が開かないかぎり畳む。開いたら（並びの fold が false）開いたまま
+  const isFolded = (fold, p) => new Function("SHOT", "LAYOUT", "BENCH_FOLD", "panelById", "isDone", "descOf", "S", "markOf", `${html.match(/^function isFolded\([\s\S]*?^}$/m)[0]}; return isFolded;`)(
+    false, { fold }, new Set(), () => p, () => false, () => [], {}, () => null)(p.id);
+  assert.equal(isFolded({}, { id: "p5", view: "summary" }), true);
+  assert.equal(isFolded({ p5: false }, { id: "p5", view: "summary" }), false);
+  assert.equal(isFolded({}, { id: "p6", view: "list" }), false);
 });
 
 test("浮かせる置き場所：端からの距離で持ち、窓が狭くなっても画面の中に収める", () => {
