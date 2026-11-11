@@ -2,11 +2,11 @@
 // 同じ仕事を同時に二つ走らせない。清書係は一度に一人。マネージャは、前の整理が済むのを待たずに次の発言を読めるよう、
 // 読む発言を分けて二本（lanes）まで並べる。同じ発言を二本で読むことはない
 import path from "node:path";
-import { isPerson, hasAiAnswer, STAFF, turnOf, layoutOf } from "./board.js";
+import { isPerson, hasAiAnswer, STAFF, turnOf, layoutOf, fixedTile } from "./board.js";
 import { changeLayout, layoutPanel } from "./view.js";
 import { NAMES } from "./crew.js";
 import { wordLine } from "./words.js";
-import { Focus } from "./focus.js";
+import { Focus, GONE } from "./focus.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
 // 毎回起こし直すと前置きの一部（約 7 千トークン）が毎回キャッシュに書き直しになるので、清書係もマネージャも会話を続ける。
@@ -52,9 +52,12 @@ export class Waker {
     this.timer = null;
     this.running = new Map(); // taskId -> { name, startedAt, handle }
     this.tried = new Map(); // taskId -> 起こしたときの rev（同じ形の仕事で二度起こさない）
+    // taskId -> { name, role, session, cwd, upto }：その行を前に受け持ったセッション。頼み直しで引き継ぐ。
+    // 操作ログには持たない（dyve を立て直したら忘れ、まっさらで起こす）
+    this.sessions = new Map();
     this.direct = new Map(); // 名前 -> { says: [発言の id], timer }（人がアイコンで宛てた発言。間があくか、相手の仕事が終わったら渡す）
     this.listeners = new Set();
-    this.turns = new Map(); // 行の id -> 前に見た番（決まった面を閉じるため）
+    this.foldTimer = null; // 人がいる面を畳むのを待っているあいだ、画面の便りが途絶えたときに見直す
     const last = (by) => store.board.log.filter((op) => op.by === by).at(-1)?.seq ?? 0;
     this.cutoff = last("manager");
     this.scribeCutoff = Math.max(last("scribe"), this.cutoff);
@@ -64,7 +67,7 @@ export class Waker {
     this.off = this.store.onOp((op) => this._onOp(op));
     if (this.session && this._says(this.scribeCutoff).length) this._scheduleScribe();
     if (this._unreadSays()) this._schedule();
-    for (const p of this.store.board.list()) if (p.view === "task") this.turns.set(p.id, turnOf(this.store.board, p));
+    this.offFocus = this.focus.onChange(() => this._closeDecided());
     this._fill();
     this._waits();
     return this;
@@ -72,6 +75,8 @@ export class Waker {
 
   stop() {
     this.off?.();
+    this.offFocus?.();
+    clearTimeout(this.foldTimer);
     clearTimeout(this.timer);
     clearTimeout(this.scribeTimer);
     clearTimeout(this.waitTimer);
@@ -130,6 +135,7 @@ export class Waker {
       this._schedule();
       if (this.names.includes(op.panel.to)) this._queueDirect(op.panel.to, op.panel.id);
     }
+    if (op.type === "add" && op.panel.view === "text" && op.panel.about) this._relay(op.panel.about);
     const r = this.running.get(op.panel.id);
     if (r && op.by !== r.name && (op.type === "drop" || (op.type === "edit" && "state" in op.panel && op.panel.state !== "task"))) {
       r.handle.kill(); // 人かマネージャが仕事を取り下げた
@@ -141,18 +147,30 @@ export class Waker {
     }
   }
 
-  // 決まった行・待ちになった行の面は、行に畳む（閉じた面は行からいつでも開き直せる）
+  // 決まった行・待ちになった行の面は、行に畳む（閉じた面は行からいつでも開き直せる）。
+  // 畳むのは、面を開いたあとに行が動いて決まった・待ちになったものだけ（決まった行を開き直したものは畳まない）。
+  // 人がいまその行にいるあいだは待ち、離れたら（人のいま・次の発言・次の操作のどれかで）畳む。待っているものはデータに持たず、毎回導く
   _closeDecided() {
-    const board = this.store.board, lp = layoutPanel(board);
-    const open = new Set(lp ? layoutOf(lp.data, board.panels).out || [] : []);
-    const close = [];
-    for (const p of board.list()) {
-      if (p.view !== "task") continue;
-      const was = this.turns.get(p.id), now = turnOf(board, p);
-      this.turns.set(p.id, now);
-      if (was !== now && (now === "ok" || now === "wait") && open.has(p.id)) close.push(p.id);
+    try {
+      const board = this.store.board, lp = layoutPanel(board);
+      if (!lp) return;
+      const data = layoutOf(lp.data, board.panels);
+      const opened = openedAt(board, lp.id), close = [];
+      let held = false;
+      for (const id of data.out || []) {
+        const p = board.get(id);
+        if (p?.view !== "task" || !["ok", "wait"].includes(turnOf(board, p)) || fixedTile(board.panels, data, id)) continue;
+        const kin = subtree(board, id);
+        if (Math.max(...[...kin].map((k) => board.get(k).rev)) <= (opened.get(id) ?? 0)) continue;
+        if (hereAt(board, this.focus, id, kin)) held = true;
+        else close.push(id);
+      }
+      clearTimeout(this.foldTimer);
+      this.foldTimer = held ? setTimeout(() => this._closeDecided(), GONE + 1000) : null;
+      if (close.length) changeLayout(this.store, "board", { out: Object.fromEntries(close.map((id) => [id, false])) }, "決まった行の面を、人が離れたので行に畳む");
+    } catch (e) {
+      console.error(`面を畳めませんでした：${e.message}`);
     }
-    if (close.length) changeLayout(this.store, "board", { out: Object.fromEntries(close.map((id) => [id, false])) }, "決まった行の面を、行に畳む");
   }
 
   // 条件つきの待ち：日時が来たか、先に済ませる行が済んだら、人の番で帰す
@@ -327,18 +345,28 @@ export class Waker {
       if (this.running.size >= this.slots) break;
       if (t.state !== "task" || this.running.has(t.id)) continue;
       if (this.tried.get(t.id) === t.rev || hasAiAnswer(board, t.id)) continue;
-      const name = this._pickName(t.data?.to, t.data?.team);
-      if (!name) continue;
-      this.tried.set(t.id, t.rev);
       // data.write が付いた仕事：true は開発（仕事ごとの worktree の中で）、"panels" はパネルの仕事（利用者のパネル置き場で）
       // data.accepted が付いた仕事は、人が受け入れた提案（部屋で、提案の範囲なら外に届くこともする）
       const role = t.data?.accepted ? "act" : t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
-      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) });
+      // 頼み直し：前に同じ役でこの行を受け持った人が空いていれば、その人に（引き継げる）
+      const prev = this.sessions.get(t.id);
+      const name = this._pickName(t.data?.to, t.data?.team, prev?.role === role ? prev.name : null);
+      if (!name) continue;
+      this.tried.set(t.id, t.rev);
+      // 引き継ぐのは、同じ人・同じ役で、前の回のセッション id がわかっているとき（起きる場所が同じかはスポーナーが確かめる）
+      const again = prev && prev.session && prev.name === name && prev.role === role ? prev : null;
+      const job = { role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) };
+      if (again) job.resume = { session: again.session, cwd: again.cwd, prompt: reaskPrompt(board, t, name, this.call(name), this.focus, again.upto) };
+      const upto = board.seq;
+      const handle = this.spawn(job);
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
       handle.done.then((res) => {
         this._count(res);
         this.running.delete(t.id);
+        // セッション id が取れた回だけ覚える（取れなければ、次はまっさらで起こす）
+        if (res?.session) this.sessions.set(t.id, { name, role, session: res.session, cwd: res.cwd ?? null, upto });
+        else this.sessions.delete(t.id);
         if (this.direct.get(name)?.says.length) this._flushDirect(name);
         const cur = this.store.board.get(t.id);
         // 途中経過を置いたあとで落ちた仕事も、待っているように見えたままにしない
@@ -349,6 +377,7 @@ export class Waker {
           const back = this.store.apply({ by: "board", type: "edit", panel: { id: t.id, state: "done", line: text.slice(0, 200) }, reason: "仕事が落ちたままにならないように、止まったことを行に帰す" });
           if (!back.ok) this.store.apply({ by: "board", type: "add", panel: { view: "text", about: t.id, data: text }, reason: "仕事が落ちたままにならないように" });
         }
+        this._relay(t.id); // 帰したあと、終わるまでのあいだに置かれた伝言
         this._fill();
         this._changed();
       });
@@ -370,6 +399,24 @@ export class Waker {
       type: "add",
       panel: { view: "task", state: "task", about: id, data: { title: titleOf(p.data), text: plainOf(p.data), accepted: id, ...(name ? { to: name } : {}), ...(task ? { after: task.id } : {}), ...(from ? { from } : {}) } },
       reason: `人が提案 ${id} を受け入れたので、${name ? this.call(name) : "控室"}に提案のとおり進めてもらう`,
+    });
+  }
+
+  // 終わった仕事に置かれた伝言（data.to 付きの text）：行を AI の番に戻して、宛てた人を起こし直す。答えは同じ行に帰る。
+  // 動いている仕事は相手が途中で拾うので戻さない（終わったときにもう一度見る）。提案は人が決めるので戻さない
+  _relay(id) {
+    const board = this.store.board, t = board.get(id);
+    if (!t || t.view !== "task" || t.state === "task" || t.state === "proposal" || this.running.has(id)) return;
+    const since = board.history(id).filter((o) => "state" in o.panel).at(-1)?.seq ?? 0;
+    const m = relaysOf(board, id, since).at(-1);
+    if (!m) return;
+    const name = this.resolve(m.data.to);
+    const own = t.data && typeof t.data === "object" && !Array.isArray(t.data) ? t.data : { text: textOf(t.data) };
+    this.store.apply({
+      by: "board",
+      type: "edit",
+      panel: { id, state: "task", ...(name && own.to !== name ? { data: { ...own, to: name } } : {}) },
+      reason: `${name ? this.call(name) : m.data.to}への伝言（${m.id}）が終わった仕事に置かれたので、行を AI の番に戻して渡す`,
     });
   }
 
@@ -416,13 +463,16 @@ export class Waker {
   }
 
   // team：data.team。そのチームの空いている人に渡す（そのチームの人がいなければ、誰でも）
-  _pickName(wanted, team = null) {
+  // prefer：頼み直しで、前にその行を受け持った人。名前を呼ばれていなければ、決まりの中で空いているならその人に
+  _pickName(wanted, team = null, prefer = null) {
     const busy = new Set([...this.running.values()].map((r) => r.name));
     // 名前を呼ばれた相手が働いているなら、空くまで待つ
     const who = this.resolve(wanted);
     if (who) return busy.has(who) ? null : who;
     const mates = team ? this.names.filter((n) => this.teams[n] === team) : [];
-    return (mates.length ? mates : this.names).find((n) => !busy.has(n));
+    const pool = mates.length ? mates : this.names;
+    if (prefer && pool.includes(prefer) && !busy.has(prefer)) return prefer;
+    return pool.find((n) => !busy.has(n));
   }
 }
 
@@ -450,15 +500,22 @@ function label(board, id) {
   const name = p?.key ? `${p.key}（${id}）` : id;
   return line ? `${name}「${clip(line, 30)}」` : p ? `${name}（${p.view}）` : `${id}（もうない）`;
 }
-// 人がその発言をしたときに指していたパネル（合流した発言のぶんも）。押して選んだものは決定、ほかは手がかり
-const HOW = { pick: "を押して選んだ", hover: "を指して", view: "を見ながら" };
+// 人がその発言をしたときに指していたパネル（合流した発言のぶんも）。押して選んだものは決定なので言い切り、
+// マウスの下（hover）と見ていたまん中（view）は手がかりなので、人の意図ではなく画面のありさまとして言う
+const PICKED = "を押して選んだ";
+const HOW = { pick: (l) => `${l}${PICKED}`, hover: (l) => `マウスは ${l}の上`, view: (l) => `画面のまん中は ${l}` };
 function pointNotes(board, says) {
   const out = [];
   for (const p of says) {
-    const note = p?.point && HOW[p.point.how] ? `${label(board, p.point.id)}${HOW[p.point.how]}` : "";
+    const note = p?.point && Object.hasOwn(HOW, p.point.how) ? HOW[p.point.how](label(board, p.point.id)) : "";
     if (note && !out.includes(note)) out.push(note);
   }
   return out;
+}
+
+// 仕事に about して置かれた、控室の人への伝言（data.to 付きの text。清書係・ボード・人の置いたものは数えない）。since より後のもの
+function relaysOf(board, id, since = 0) {
+  return board.list().filter((p) => p.about === id && p.view === "text" && p.seq > since && typeof p.data?.to === "string" && p.data.to && !isPerson(p.by) && p.by !== "scribe" && p.by !== "board");
 }
 
 // その人がいちばん最近受け持った仕事：宛てられた仕事か、結果を置いた仕事
@@ -522,7 +579,7 @@ export function scribePrompt(fresh, before = [], words = [], { screen = [], boar
 }
 
 // マネージャへの指示。読むものをはじめから渡して、board_read の往復を減らす
-const TURN_WORD = { ai: "AI の番", you: "人の番", ok: "決まった", wait: "待ち" };
+const TURN_WORD = { ai: "AI の番", you: "人の番", back: "帰った（読むだけ）", ok: "決まった", wait: "待ち" };
 // 行を一行で：記号・番・頼んだこと → 帰った一行（決まったこと・待ち）
 export function rowLine(board, t, busy = new Set()) {
   const turn = turnOf(board, t);
@@ -540,6 +597,44 @@ export function arrivals(board, n = 4) {
     if (p && !out.some((x) => x.p.id === p.id)) out.push({ p, seq: op.seq, at: op.at });
   }
   return out;
+}
+
+// 面が開いた seq：並びの書き換えを順にたどり、いま開いている面ごとに、開いたときの seq
+function openedAt(board, layoutId) {
+  const at = new Map();
+  for (const op of board.history(layoutId)) {
+    if (!("data" in op.panel)) continue;
+    const out = new Set(Array.isArray(op.panel.data?.out) ? op.panel.data.out : []);
+    for (const id of [...at.keys()]) if (!out.has(id)) at.delete(id);
+    for (const id of out) if (!at.has(id)) at.set(id, op.seq);
+  }
+  return at;
+}
+
+// 行と、その中のもの（about をたどって行に着くもの。面に出るもの）
+function subtree(board, id) {
+  const kin = new Set([id]);
+  for (let more = true; more; ) {
+    more = false;
+    for (const p of board.list()) if (p.about && kin.has(p.about) && !kin.has(p.id)) { kin.add(p.id); more = true; }
+  }
+  return kin;
+}
+
+// 人がいまその行にいるか：画面がつながっていて、人がいて、いちばん新しい人の発言がその行か面の中を指している
+// （point か、その発言から出た行の中の仕事）。画面に面も表も見えていなければ、離れた
+function hereAt(board, focus, id, kin) {
+  const c = focus?.current();
+  if (!c || c.data.presence !== "here") return false;
+  const say = board.list().filter((p) => p.view === "say" && isPerson(p.by) && !p.into).at(-1);
+  if (!say) return false;
+  const about = (say.point?.id && kin.has(say.point.id)) || [...kin].some((k) => { const p = board.get(k); return Array.isArray(p.data?.from) && p.data.from.includes(say.id); });
+  if (!about) return false;
+  const shown = [...c.data.viewing, ...c.data.inside];
+  if (!shown.length) return true;
+  const up = new Set(kin);
+  for (let p = board.get(id); p?.about && !up.has(p.about); p = board.get(p.about)) up.add(p.about);
+  return shown.some((k) => up.has(k));
 }
 
 export function managerPrompt(since, board = null, running = [], focus = null, others = []) {
@@ -610,6 +705,9 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
   const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
   // この行について控室の人が前に置いた結果（面の中身）。同じ仕事の結果は書き換えて、古いものと新しいものを並べない
   const mine = board.list().filter((p) => p.about === task.id && p.view !== "task" && !isPerson(p.by) && !STAFF.has(p.by) && p.state !== "proposal").slice(-5);
+  // 行がいちど帰ったあとに置かれた伝言（ボードが行を戻して起こし直したとき）
+  const returned = board.history(task.id).filter((o) => "state" in o.panel && o.panel.state !== "task").at(-1)?.seq ?? 0;
+  const relays = relaysOf(board, task.id, returned);
   return [
     call === name
       ? `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`
@@ -621,13 +719,32 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     ...prevOut.map((p) => `- そのときあなたが置いたもの（${p.id}）：${clip(textOf(p.data), 300)}`),
     topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
-    ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
+    ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => (n.endsWith(PICKED) ? `人はそのとき ${n}` : `発言のとき、${n}（手がかり。話が合わなければ無視する）`)),
+    ...(relays.length ? [`${returned ? `この行はいちど帰したあと、伝言が届いたので戻ってきました。` : ""}この仕事への伝言です。応えて、答えをこの行に帰します：`, ...relays.map((p) => `- ${p.id}（${p.by}${p.data.to === name || p.data.to === call ? "" : `、${p.data.to} 宛て`}）：${clip(textOf(p.data), 500)}`)] : []),
     task.key ? `この仕事は表の行 ${task.key} です。${parent?.view === "task" ? `行 ${parent.key || parent.id} の面の中から呼ばれました。` : ""}` : "",
     `結果は行に帰します：終わったら panel_edit で仕事 ${task.id} に line（答えの一行。60 字くらいまで）と state done を一度に渡してください。一行に収まるなら、それだけです。新しいパネルは足しません。`,
     `一行に収まらないとき（比べる案がある、人が先に決めることがある、出典を並べる）だけ、詳しいものを about: "${task.id}" で置き、line はその結論の一行にします。行から開ける面になります。人に決めてもらう問いも、そこに短く置きます。`,
     `時間がかかるときは、途中で line を「いまどこまで来たか」の一行に書き換えます（state は task のまま）。`,
     `面に置くものは数行まで（表なら列は 3〜4、セルは短く）。依頼に返す形が書いてあっても、読む人が一瞥で読める量に絞ります。`,
     ...(mine.length ? [`この行にはあなたたちが前に置いたものがあります。同じことの新しい結果なら、足さずに panel_edit でそれを書き換えます（view も変えてよい）。並べて残しません：`, ...mine.map((p) => `- ${p.id}（${p.view}、${p.by}、rev ${p.rev}）：${clip(textOf(p.data).split("\n")[0], 60)}`)] : []),
+    ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
+  ].filter(Boolean).join("\n");
+}
+
+// 頼み直し（前の回のセッションを引き継いだ相手）への短い文。前の回の調べは会話に残っているので、何が足されたかと、同じ行に帰すことだけ
+// upto：前の回を起こしたときの seq。これより後に人が言ったこと・置いたものを「足されたこと」として渡す
+export function reaskPrompt(board, task, name, call = name, focus = null, upto = 0) {
+  const text = typeof task.data === "string" ? task.data : task.data?.text ?? JSON.stringify(task.data);
+  const from = Array.isArray(task.data?.from) ? task.data.from.map((id) => board.get(id)).filter(Boolean) : [];
+  const near = board.list().filter((p) => p.about === task.id && isPerson(p.by) && p.view !== "task");
+  const added = [...new Map([...from, ...near].filter((p) => p.seq > upto).map((p) => [p.id, p])).values()].sort((a, b) => a.seq - b.seq);
+  return [
+    `${call === name ? "" : `（ボードの上の名前は ${name}）`}同じ仕事 ${task.id}${task.key ? `（表の行 ${task.key}）` : ""}を頼み直されました。前の回の続きです。前に読んだこと・調べたことはこの会話に残っているので、読み直さずに続きから進めてください。`,
+    `いまの頼み：${text}`,
+    added.length ? "前の回のあとに人が足したこと：" : "前の回のあとに人が足した発言はありません。いまの頼みと、ボードの行（board_read）を見て続けてください。",
+    ...added.map((p) => `- ${p.id}：${textOf(p.data)}`),
+    ...pointNotes(board, added.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => (n.endsWith(PICKED) ? `人はそのとき ${n}` : `発言のとき、${n}（手がかり。話が合わなければ無視する）`)),
+    `結果は同じ行に帰します：終わったら panel_edit で仕事 ${task.id} に line と state done を一度に渡します。新しいパネルは足しません。前の回に置いたものを直すなら、足さずに panel_edit で書き換えます。`,
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
   ].filter(Boolean).join("\n");
 }

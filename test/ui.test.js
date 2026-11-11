@@ -90,13 +90,26 @@ test("いまの話題：いちばん新しい人の発言から出たものが�
 const fnOf = (name, ...args) => new Function(...args, `${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`);
 const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
 
-test("浮かせる：五枚は同じ扱いで、ボードの外の層に出す（ボードの拡大縮小が掛からない）", () => {
-  assert.match(html, /const FLOATS = \["talk", "now", "status", "quota", "tools"\]/);
+test("浮かせる：四枚は同じ扱いで、ボードの外の層に出す（ボードの拡大縮小が掛からない）", () => {
+  assert.match(html, /const FLOATS = \["talk", "status", "quota", "tools"\]/);
   assert.match(html, /<\/main>\s*<div id="floats"><\/div>/, "層は #grid の外");
   const home = html.match(/const FLOAT_HOME = (\{[\s\S]*?\n\});/)[1];
-  for (const k of ["talk", "now", "status", "quota", "tools"]) assert.match(home, new RegExp(`\\b${k}: \\{`));
-  assert.doesNotMatch(home, /summary/, "いまの要点はボードに残す");
+  for (const k of ["talk", "status", "quota", "tools"]) assert.match(home, new RegExp(`\\b${k}: \\{`));
   assert.match(html, /grid\.addEventListener\("click", onClick\);\s*floats\.addEventListener\("click", onClick\);/, "浮かせても押せる");
+});
+
+test("いまの要点と「いま」の枠はない。前の版が置いた要点（summary）は、ふつうのパネルとして畳んで並ぶ", () => {
+  assert.match(html, /const BUILTIN = \["talk", "status", "quota", "tools"\]/);
+  for (const k of ["summary", "now"]) assert.doesNotMatch(html, new RegExp(`data-tile="${k}"`), `${k} の枠はない`);
+  assert.doesNotMatch(html, /renderNow|id="summary"|id="now"/);
+  // 描き方（dv-summary）は残す。古いボードの要点が読める
+  assert.match(html, /customElements\.define\("dv-summary", SummaryView\)/);
+  // 要点のパネルは、人が開かないかぎり畳む。開いたら（並びの fold が false）開いたまま
+  const isFolded = (fold, p) => new Function("SHOT", "LAYOUT", "BENCH_FOLD", "panelById", "isDone", "descOf", "S", "markOf", `${html.match(/^function isFolded\([\s\S]*?^}$/m)[0]}; return isFolded;`)(
+    false, { fold }, new Set(), () => p, () => false, () => [], {}, () => null)(p.id);
+  assert.equal(isFolded({}, { id: "p5", view: "summary" }), true);
+  assert.equal(isFolded({ p5: false }, { id: "p5", view: "summary" }), false);
+  assert.equal(isFolded({}, { id: "p6", view: "list" }), false);
 });
 
 test("浮かせる置き場所：端からの距離で持ち、窓が狭くなっても画面の中に収める", () => {
@@ -213,6 +226,26 @@ test("面を畳む：行は人が決めたときだけ。AI が返しただけ�
   assert.equal(isDone({ ...row, decided: "今日やる", decidedSeq: 6 }), true, "決まった");
   assert.equal(isDone({ view: "task", state: "done" }), true, "行でない仕事は state done");
   assert.equal(isDone({ view: "topic", state: "done" }), true);
+});
+
+test("画面の番：ボードの turnOf と同じに、帰った行（back）を人の番と分ける。言葉もそろえる", () => {
+  const pick = (re) => html.match(re)[0];
+  const src = [pick(/^const isRow = .*$/m), pick(/^function turnOf\([\s\S]*?^}$/m)].join("\n");
+  const S = { panels: [] };
+  const turnOf = new Function("S", `${src}; return turnOf;`)(S);
+  const back = { id: "a", view: "task", key: "A", state: "done", line: "返った", lineSeq: 5, taskSeq: 2, lineBy: "アリス" };
+  assert.equal(turnOf(back), "back", "投げた仕事が帰った");
+  assert.equal(turnOf({ ...back, taskSeq: undefined, lineBy: "manager" }), "you", "問いの行");
+  assert.equal(turnOf({ ...back, lineBy: "board" }), "you", "止まった・待ちが明けた");
+  assert.equal(turnOf({ ...back, decided: "見た", decidedSeq: 6 }), "ok");
+  S.panels.push({ id: "p", view: "text", about: "a", state: "proposal" });
+  assert.equal(turnOf(back), "you", "行に提案");
+  S.panels.splice(0, 1, { id: "a1", view: "task", key: "A1", about: "a", state: "done", line: "どうする", lineSeq: 7, lineBy: "manager" });
+  assert.equal(turnOf(back), "you", "下に問いの行");
+  S.panels[0].taskSeq = 3; S.panels[0].lineBy = "ボブ";
+  assert.equal(turnOf(back), "back", "下も帰っただけ");
+  for (const k of ["turnSym", "turn", "turnWord", "lane"]) assert.match(html, new RegExp(`${k}: \\{[^}]*back: "`), k);
+  assert.match(html, /laneCell\("lanes", \["ai", "back", "wait", "ok"\]\)/);
 });
 
 test("行の 2 段目：行の下のどの深さの提案と、AI の番の仕事も拾う。済んだものは拾わない", () => {

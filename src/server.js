@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { handleRpc, boardView } from "./mcp.js";
 import { toMarkdown } from "./export.js";
 import { samplesOf, fitsSample } from "./desk.js";
-import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog } from "./panels.js";
+import { listViews, readView, readSettings, offViews, setView, trashView, restoreView, catalog, describeViews, SAMPLES, sampleData, sampleSource } from "./panels.js";
 import { Focus } from "./focus.js";
 import { Tune } from "./tune.js";
 import { asStdin } from "./feeds.js";
@@ -155,6 +155,9 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
             if (v && fitsSample(f.data)) samples[v] = f.data;
           }
           for (const from of [samplesOf(cur.store.board), ...boards.map((b) => b.samples)]) for (const [v, d] of Object.entries(from)) samples[v] ??= d;
+          // まだ使っていない見本の view は、配った見本のデータで描く（書き換えていても、頭の一行が同じなら同じ形とみなす）
+          const shipped = sampleData();
+          for (const n of SAMPLES) if (samples[n] == null && shipped[n] != null && readView(panels, n)?.split("\n")[0] === sampleSource(n).split("\n")[0]) samples[n] = shipped[n];
           for (const b of boards) for (const [v, n] of Object.entries(b.views)) all[v] = (all[v] || 0) + n;
           return json(200, catalog(panels, { here, all, samples }));
         }
@@ -210,7 +213,9 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
         }
         const as = url.searchParams.get("as") || "guest";
         const body = await readJson(req);
-        const rpc = { offView, words, shoot, focus: cur.focus };
+        // 使える利用者の view と、その頭のコメント（データの形）。「使わない」にしたものは出さない
+        const views = panels ? () => describeViews(panels).filter((v) => !offView(v.name)) : null;
+        const rpc = { offView, words, shoot, focus: cur.focus, views };
         const out = Array.isArray(body)
           ? (await Promise.all(body.map((m) => handleRpc(cur.store, cur.waker, as, m, rpc)))).filter(Boolean)
           : await handleRpc(cur.store, cur.waker, as, body, rpc);

@@ -1,0 +1,25 @@
+{
+  "bars": [{ "label": "src", "value": 42 }, { "label": "test", "value": 27 }, { "label": "docs", "value": 9 }],
+  "cards": [
+    { "title": "あなたの番", "tone": "warn", "cards": [{ "title": "変更を取り込む", "text": "今やるか、あとか", "tone": "warn" }] },
+    { "title": "これから", "cards": [{ "title": "朝会を試す", "tone": "accent" }] },
+    { "title": "済んだ", "tone": "ok", "cards": [{ "title": "古い作業場所を消す", "text": "8 本", "tone": "ok", "done": true }] }
+  ],
+  "change": {
+    "id": "#16", "title": "行と面", "from": "rows-and-faces", "to": "main", "state": { "text": "✓ 取り込める", "tone": "ok" },
+    "files": [{ "path": "src/ui.html", "add": 200, "del": 35 }, { "path": "test/rows.test.js", "add": 231, "new": true }, { "path": "src/board.js", "add": 80, "del": 18 }],
+    "checks": [{ "name": "Linux・Node 20", "ok": true }, { "name": "Linux・Node 22", "ok": true }],
+    "steps": ["取り込む", "タグ", "公開"],
+    "notes": ["通しの確認はまだ"]
+  },
+  "tree": {
+    "残っている": [{ "path": "~/work/app", "state": "使用中", "tone": "ok" }, { "path": "p4d", "state": "未取り込みあり", "tone": "warn" }],
+    "消した": [{ "path": "~/work/p2p-20261103", "gone": true }, { "path": "~/work/p30-20261103", "gone": true }]
+  },
+  "days": [
+    { "date": "今日", "items": [{ "text": "変更を取り込む", "tone": "warn" }] },
+    { "date": "明日", "items": ["朝会を試す"] },
+    { "date": "木", "items": [] },
+    { "date": "金", "items": ["0.8.1"] }
+  ]
+}

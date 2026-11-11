@@ -49,12 +49,12 @@ test("行の記号はボードが振る：話題の中は A, B, …、行の中�
   assert.deepEqual(again.list().map((p) => p.key ?? null), b.list().map((p) => p.key ?? null));
 });
 
-test("誰の番か：投げて返っていない（ai）→ 一行が帰る（you）→ 決める（ok）→ 実行に移すとまた ai。同じ行で何往復もする", () => {
+test("誰の番か：投げて返っていない（ai）→ 一行が帰る（back）→ 決める（ok）→ 実行に移すとまた ai。同じ行で何往復もする", () => {
   const { b, row } = morning();
   const a = row("ログイン");
   assert.equal(turnOf(b, b.get(a)), "ai");
   assert.equal(b.apply({ by: "アリス", type: "edit", panel: { id: a, line: "原因はセッションの期限", state: "done" }, reason: "結果" }).ok, true);
-  assert.equal(turnOf(b, b.get(a)), "you");
+  assert.equal(turnOf(b, b.get(a)), "back", "投げた仕事が帰った行は読むだけ");
   assert.equal(hasAiAnswer(b, a), true);
   b.apply({ by: "manager", type: "edit", panel: { id: a, decided: "今日やる" }, reason: "人が今日やると言った" });
   assert.equal(turnOf(b, b.get(a)), "ok");
@@ -63,7 +63,7 @@ test("誰の番か：投げて返っていない（ai）→ 一行が帰る（yo
   assert.equal(turnOf(b, b.get(a)), "ai");
   assert.equal(hasAiAnswer(b, a), false);
   b.apply({ by: "アリス", type: "edit", panel: { id: a, line: "取り込んだ", state: "done" }, reason: "結果" });
-  assert.equal(turnOf(b, b.get(a)), "you", "決めたあとに帰った一行は、また人の番");
+  assert.equal(turnOf(b, b.get(a)), "back", "決めたあとに実行に移して帰った一行は、また帰った");
   // 提案が付いた行は、受け入れるまで人の番
   const c = row("返信");
   b.apply({ by: "ボブ", type: "add", panel: { view: "text", about: c, state: "proposal", data: "下書きを送る" }, reason: "提案" });
@@ -72,6 +72,53 @@ test("誰の番か：投げて返っていない（ai）→ 一行が帰る（yo
   // 一行の形
   assert.equal(b.apply({ by: "アリス", type: "edit", panel: { id: a, line: "x".repeat(201) }, reason: "x" }).code, "invalid");
   assert.equal(b.apply({ by: "アリス", type: "edit", panel: { id: a, line: "" }, reason: "x" }).code, "invalid");
+});
+
+test("帰った（back）と人の番（you）：仕事が帰った行は読むだけ。問いの行・提案・下の問い・ボードが帰した行は人の番", () => {
+  const { b, row, ap, topic } = morning();
+  // 帰った：投げた仕事に一行が帰った
+  const a = row("ログイン");
+  b.apply({ by: "アリス", type: "edit", panel: { id: a, state: "done", line: "原因はセッションの期限" }, reason: "結果" });
+  assert.equal(turnOf(b, b.get(a)), "back");
+  // 問いの行：マネージャがはじめから done と line で置いたもの（一度も仕事になっていない）は人の番
+  const q = ap({ by: "manager", type: "add", panel: { view: "task", state: "done", about: topic, line: "今日リリースするか", data: { title: "リリース" } }, reason: "問い" });
+  assert.equal(turnOf(b, b.get(q)), "you");
+  // 帰った行でも、行に提案が置かれれば人の番。受け入れれば帰った
+  const pr = ap({ by: "アリス", type: "add", panel: { view: "text", about: a, state: "proposal", data: "期限を延ばす" }, reason: "提案" });
+  assert.equal(turnOf(b, b.get(a)), "you");
+  const yes = ap({ by: "human", type: "add", panel: { view: "say", data: "それでいい" } });
+  b.apply({ by: "manager", type: "edit", panel: { id: pr, state: "done" }, from: [yes], reason: "声で受け入れた" });
+  assert.equal(turnOf(b, b.get(a)), "back");
+  // 下（行の中の行）に問いがあれば人の番。行の中の行が帰っただけなら帰った
+  const sub = ap({ by: "manager", type: "add", panel: { view: "task", state: "task", about: a, data: { text: "影響の範囲" } }, reason: "面の中の呼び出し" });
+  assert.equal(turnOf(b, b.get(a)), "back");
+  b.apply({ by: "ボブ", type: "edit", panel: { id: sub, state: "done", line: "ログイン画面だけ" }, reason: "結果" });
+  assert.equal(turnOf(b, b.get(sub)), "back");
+  assert.equal(turnOf(b, b.get(a)), "back");
+  const ask = ap({ by: "manager", type: "add", panel: { view: "task", state: "done", about: a, line: "期限は何日にするか", data: { text: "期限" } }, reason: "問い" });
+  assert.equal(b.get(ask).key, "A2");
+  assert.equal(turnOf(b, b.get(a)), "you", "下に問いの行があれば人の番");
+  // 下の問いを決めれば、帰ったに戻る。人が行を決めれば決まった
+  b.apply({ by: "manager", type: "edit", panel: { id: ask, decided: "7 日" }, reason: "決めた" });
+  assert.equal(turnOf(b, b.get(a)), "back");
+  b.apply({ by: "manager", type: "edit", panel: { id: a, decided: "今日やる" }, reason: "決めた" });
+  assert.equal(turnOf(b, b.get(a)), "ok");
+  // 仕事に戻して、また帰れば帰った
+  b.apply({ by: "manager", type: "edit", panel: { id: a, state: "task" }, reason: "実行に移す" });
+  assert.equal(turnOf(b, b.get(a)), "ai");
+  b.apply({ by: "アリス", type: "edit", panel: { id: a, state: "done", line: "直した" }, reason: "結果" });
+  assert.equal(turnOf(b, b.get(a)), "back");
+  // 問いの行を決めて仕事にすれば、帰ったあとは帰った
+  b.apply({ by: "manager", type: "edit", panel: { id: q, decided: "する", state: "task" }, reason: "実行に移す" });
+  b.apply({ by: "アリス", type: "edit", panel: { id: q, state: "done", line: "出した" }, reason: "結果" });
+  assert.equal(turnOf(b, b.get(q)), "back");
+  // データには持たず導く：当て直しても同じ
+  const again = new Board(b.log);
+  assert.deepEqual(again.list().map((p) => turnOf(again, p)), b.list().map((p) => turnOf(b, p)));
+  assert.ok(b.log.every((op) => !("taskSeq" in op.panel) && !("lineBy" in op.panel)), "ログの形は変えない");
+  // 外から導いた項目を書くことはできない（知らない項目は捨てる）
+  b.apply({ by: "アリス", type: "edit", panel: { id: q, taskSeq: 0, lineBy: "board" }, reason: "x" });
+  assert.equal(turnOf(b, b.get(q)), "back");
 });
 
 test("待ち：wait { text, until?, after? }。待っているあいだは誰の番でもない", () => {
@@ -158,7 +205,7 @@ test("起こし係：決まった行の面は、ボードが行に畳む。返�
   store.apply({ by: "アリス", type: "edit", panel: { id: f, state: "done", line: "案が三つ" }, reason: "結果" });
   assert.deepEqual(layoutOf(store.board.get(lp).data).out, [f], "人の番になっても開いたまま");
   store.apply({ by: "manager", type: "edit", panel: { id: f, decided: "案 1" }, reason: "決まった" });
-  assert.deepEqual(layoutOf(store.board.get(lp).data).out, [], "決まったら閉じる");
+  assert.deepEqual(layoutOf(store.board.get(lp).data).out, [], "決まったら閉じる（画面がつながっていないので、人が離れるのを待たない）");
   assert.equal(store.board.history(lp).at(-1).by, "board");
   w.stop();
 });
@@ -185,7 +232,7 @@ test("マネージャへの文：表（記号・番・帰った一行）、届�
   ap({ by: "human", type: "add", panel: { view: "layout", data: { v: 3, pos: {}, out: [bb] } } });
   ap({ by: "human", type: "add", panel: { view: "say", data: "それは今日やる" } });
   const m = managerPrompt(since, b);
-  assert.match(m, new RegExp(`A（${a}）［人の番］ログイン を見る|A（${a}）［人の番］ログインを見る`));
+  assert.match(m, new RegExp(`A（${a}）［帰った（読むだけ）］ログイン ?を見る`));
   assert.match(m, /→ 原因はセッションの期限/);
   assert.match(m, /## 届いたばかり[^\n]*\n- B（[^)]+）［前に起きてから］：半分まで\n- A/);
   assert.match(m, new RegExp(`## 開いている面\\n- B（${bb}）`));
@@ -207,7 +254,7 @@ test("MCP：line・decided・wait と、panel_edit の from。board_read は行�
   const call = (as, name, args) => JSON.parse(handleRpc(store, null, as, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }).result.content[0].text);
   assert.equal(call("アリス", "panel_edit", { id: a, line: "返った", state: "done", reason: "結果" }).ok, true);
   const read = call("アリス", "board_read", {});
-  assert.equal(read.turns[a], "you");
+  assert.equal(read.turns[a], "back");
   const yes = store.apply({ by: "human", type: "add", panel: { view: "say", data: "今日やる" } }).op.panel.id;
   assert.equal(call("manager", "panel_edit", { id: a, decided: "今日やる", from: [yes], reason: "決めた" }).ok, true);
   assert.deepEqual(store.board.log.at(-1).from, [yes]);

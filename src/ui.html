@@ -298,8 +298,6 @@ dv-panel.pinned { box-shadow: inset 0 0 0 1px var(--ink); }
 #timeline dv-panel { padding: 4px 10px 6px; cursor: pointer; }
 #timeline dv-panel .meta { min-height: 18px; }
 #timeline dv-panel .meta .who { display: none; }
-#summary dv-panel { border: none; background: none; padding: 0; }
-#summary dv-panel > .meta .who { display: none; }
 dv-summary .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 4px 16px; }
 dv-summary h3 { margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--mute); }
 dv-summary ul { margin: 0; padding-left: 1.1em; }
@@ -324,7 +322,7 @@ dv-panel.seen-now { animation: seen-now 1.4s ease-out; }
 /* 比べる組：選んだものと、選ばなかったもの */
 dv-panel.picked { border-color: var(--ok); }
 dv-panel.unpicked { opacity: .6; }
-/* いまの要点の行：元の発言があれば、押すとそこへ */
+/* 要点（summary）の行：元の発言があれば、押すとそこへ */
 dv-summary li[data-from] { cursor: pointer; }
 dv-summary li[data-from]:hover { text-decoration: underline dotted; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -362,7 +360,7 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .s-ok .s { color: var(--ok); }
 .s-ai .s { color: var(--accent); animation: turn-wait 1.6s ease-in-out infinite; }
 .s-ai .t, .s-wait .t, .s-ok .t, .s-none .t { color: var(--mute); }
-.s-wait .s { color: var(--mute); }
+.s-wait .s, .s-back .s { color: var(--mute); }
 @keyframes turn-wait { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .s-ai .s { animation: none; } }
 .rowline { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 6px; margin: 2px 0 6px; font-weight: 600; }
@@ -371,16 +369,57 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .tile.face { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .tile.face.here { border-color: var(--accent); }
 .tile.face:not(.here) { opacity: .75; }
-#now dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 13px; }
-#now dt { color: var(--mute); white-space: nowrap; }
-#now dd { margin: 0; min-width: 0; display: grid; gap: 2px; }
-#now .path { font-weight: 600; display: block; }
-#now .path i { font-style: normal; color: var(--mute); margin: 0 4px; }
-#now .none { color: var(--mute); }
-#now .nowrow { display: flex; gap: 6px; min-height: 22px; padding: 0 4px; border-color: transparent; background: none; text-align: left; font-size: 13px; }
-#now .nowrow:hover { border-color: var(--line); }
-#now .nowrow b { color: var(--warn); font-weight: 600; }
-#now .nowrow span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* 面：役割で並べる。頭＝番の一語と結論の一行、左＝やること（番ごとの札）、まん中＝主役、右＝残り */
+.tile.face .tile-head h2 { font-size: 14px; color: var(--ink); }
+.turnchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; border: 1px solid var(--line); border-radius: 999px; padding: 0 10px; }
+.turnchip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.turnchip.t-you { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.turnchip.t-ai { color: var(--accent); border-color: var(--accent); }
+.turnchip.t-ok { color: var(--ok); border-color: var(--ok); }
+.turnchip.t-wait, .turnchip.t-back { color: var(--mute); }
+dv-panel.face-root > dv-task .rowline { grid-template-columns: minmax(0, 1fr); margin: 4px 0 6px; font-size: 18px; line-height: 1.45; }
+dv-panel.face-root > dv-task .rowline .s { display: none; }
+dv-panel.face-root > dv-task .rowline .t { color: var(--ink); }
+dv-panel.face-root > .kids.bench { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.kids.bench > .cell > dv-panel { background: var(--card); }
+.kids.bench > .cell.main > dv-panel { border-color: var(--accent); }
+.kids.bench > .cell[data-ref] > dv-panel > .meta { cursor: default; }
+dv-panel .meta .kind { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: var(--ink); }
+dv-panel .meta .kind svg { width: 14px; height: 14px; flex: none; }
+dv-panel .meta .ref, .card .ck:not(:empty) { display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink); font-size: 11px; font-weight: 700; }
+dv-panel .meta .by { display: inline-flex; }
+.todo { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.todo > header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 700; }
+.todo > header svg { width: 14px; height: 14px; }
+.lane { padding: 6px 8px 8px; }
+.lane + .lane { border-top: 1px solid var(--line); }
+.lane h3 { margin: 0 0 5px; display: flex; gap: 6px; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--mute); }
+.lane h3 b { font-weight: 600; background: var(--line); color: var(--ink); border-radius: 999px; padding: 0 6px; }
+.lane.you h3 { color: var(--warn); }
+.card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 1px 8px; align-items: baseline; padding: 6px 8px; border: 1px solid var(--line); border-left-width: 3px;
+        border-radius: 8px; background: var(--bg); font-size: 13px; }
+.card + .card { margin-top: 5px; }
+.card .ck { color: var(--mute); }
+.card .ck:empty { display: none; }
+.card .cn { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.card .ck:empty + .cn { grid-column: 1 / 3; }
+.card .ct, .card .cx, .card .ca { grid-column: 2 / -1; }
+.card .ck:empty ~ .ct, .card .ck:empty ~ .cx, .card .ck:empty ~ .ca { grid-column: 1 / -1; }
+.card .ct { color: var(--mute); font-size: 12px; overflow-wrap: anywhere; }
+.card .cx { font-size: 12px; overflow-wrap: anywhere; }
+.card .cx i { font-style: normal; color: var(--mute); }
+.card .ca { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.card button { min-height: 22px; padding: 0 8px; font-size: 12px; }
+.card .cs { display: inline-flex; align-items: center; gap: 4px; }
+.card .cs button { min-height: 20px; padding: 0 4px; }
+.card [data-act="accept-row"] { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); font-weight: 700; }
+.card.s-you { border-left-color: var(--warn); }
+.card.s-ai, .card.s-none { border-left-color: var(--accent); }
+.card.s-wait, .card.s-back { border-left-color: var(--mute); }
+.card.s-ok { border-left-color: var(--ok); opacity: .75; }
+.card.chg { background: var(--accent-soft); }
+.card.open { box-shadow: inset 0 0 0 1px var(--accent); }
 @media (max-width: 760px) {
   .rows .row { grid-template-columns: 2.2em minmax(0, 1fr) 1.4em auto; }
   .rows .row .t { grid-row: 2; grid-column: 2 / -1; }
@@ -407,10 +446,8 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
       </div>
     </div>
   </section>
-  <section class="tile" data-tile="summary"><div class="tile-body" id="summary"></div></section>
   <section class="tile" data-tile="status"><div class="tile-body"><div id="status" aria-live="polite"></div></div></section>
   <section class="tile" data-tile="quota"><div class="tile-body" id="quota"></div></section>
-  <section class="tile" data-tile="now"><div class="tile-body" id="now"></div></section>
   <section class="tile" data-tile="tools">
     <div class="tile-body">
       <div id="tools">
@@ -441,14 +478,20 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 // 画面の言葉はここにまとめる
 const L = {
   you: "あなた", manager: "マネージャ", scribe: "清書係", board: "ボード",
-  builtin: { talk: "トーク", summary: "いまの要点", status: "状況", quota: "残量", tools: "dyve 設定", now: "いま" },
+  builtin: { talk: "トーク", status: "状況", quota: "残量", tools: "dyve 設定" },
+  sumName: "いまの要点",
   // 行の番：記号と言葉。色だけに頼らず記号でも見分ける
-  turnSym: { ai: "…", you: "●", ok: "✓", wait: "⏸\uFE0E" },
-  turn: { ai: "AI の番（まだ返っていない）", you: "人の番", ok: "決まった", wait: "待ち（条件つき）" },
+  turnSym: { ai: "…", you: "●", back: "↩\uFE0E", ok: "✓", wait: "⏸\uFE0E" },
+  turn: { ai: "AI の番（まだ返っていない）", you: "人の番", back: "帰った（読むだけ）", ok: "決まった", wait: "待ち（条件つき）" },
   rowWorking: "動いています", rowNotYet: "まだ", rowWait: (t) => `待ち：${t}`, subMore: (n) => `ほかに ${n} 件（面の中）`, rowAsk: "受け入れ待ち",
   face: "面を開く（この行について置かれたもの）", faceClose: "面を閉じて行に戻す",
   faceHere: "ここにいる", faceLeft: "やりかけ",
-  nowAt: "いる場所", nowLeft: "やりかけ", nowYou: "人の番", nowNone: "なし", nowFold: (path, n) => n ? `${path}・人の番 ${n}` : path,
+  // 面の頭の番（一語）と、左の帯の段。パネルの見出しは中身の種類で呼ぶ（利用者の view で名前のないものは、view の名前のまま）
+  turnWord: { ai: "AI の番", you: "あなたの番", back: "帰った", ok: "決まった", wait: "待ち" }, turnCount: (w, n) => `${w}　${n} 件`,
+  todo: "やること", lane: { you: "あなたの番", ai: "AI の番", back: "帰った", wait: "待ち", ok: "決まった" },
+  kind: { text: "文", list: "箇条", table: "表", json: "データ", say: "発言", task: "仕事", topic: "話題", summary: "要点", proposal: "提案",
+    bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", md: "文書", diff: "差分" },
+  refTitle: (k) => `${k} の結果`,
   move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
   pinnedNow: "ピン留め中", pinOn: "ピン留め", pinOff: "ピン留めを外す",
@@ -467,7 +510,6 @@ const L = {
   send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
-  emptySummary: "話しはじめると、マネージャがここに要点をまとめます。",
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
   newBoard: "新しいボード（いまのボードは残ります）", newBoardAsk: "いまのボードは残して、新しいボードにしますか",
   boards: "ボードの管理（切り替え・呼び名・しまう）", boardsNow: (n) => `ボードの管理（いま：${n}）`, panels: "パネルの管理（使う・使わない・既定の大きさ・消す）", offView: "この種類のパネルは「使わない」にしています（パネルの管理で戻せます）", density: "ます目の細かさ", densities: { 12: "粗い", 24: "ふつう", 48: "細かい" },
@@ -525,20 +567,21 @@ const L = {
 // しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
 const STREAM_PAUSE = 2500;
 // 組み込みのパネル（ボードの操作ログには持たず、画面が描く）。並びの key はこの名前か、パネルの id
-const BUILTIN = ["talk", "summary", "status", "quota", "tools", "now"];
-// 浮かせる組み込みのパネル（いまの要点はボードに残す）。どれも同じ扱い
-const FLOATS = ["talk", "now", "status", "quota", "tools"];
+// 前の版にあった「いまの要点」と「いま」の枠はなくした（表と行が同じことを持つ）。前の版が置いた要点（summary）は、ふつうのパネルとして並ぶ
+const BUILTIN = ["talk", "status", "quota", "tools"];
+// 浮かせる組み込みのパネル。どれも同じ扱い
+const FLOATS = ["talk", "status", "quota", "tools"];
 const FLOAT_MODES = ["front", "off"]; // 先頭が既定
 // 置き場所はピクセルで、近い端からの距離で持つ（窓の大きさが変わっても端に付いたまま）。h がなければ中身の高さ。stack は右上から順に積む
 const FLOAT_HOME = {
-  talk: { left: 14, bottom: 14, w: 300, h: 260 }, now: { right: 14, stack: true, w: 260 }, status: { right: 14, stack: true, w: 224 },
+  talk: { left: 14, bottom: 14, w: 300, h: 260 }, status: { right: 14, stack: true, w: 224 },
   quota: { right: 14, stack: true, w: 224 }, tools: { right: 14, stack: true, w: 224 },
 };
 const FLOAT_MIN = { w: 140, h: 60, margin: 8 };
 // x・y は左上のます目（1 から）、w・h は列と行の数
 const HOME = {
-  talk: { x: 1, y: 1, w: 3, h: 15 }, summary: { x: 4, y: 1, w: 6, h: 6 }, status: { x: 10, y: 1, w: 3, h: 3 },
-  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 }, now: { x: 10, y: 12, w: 3, h: 5 },
+  talk: { x: 1, y: 1, w: 3, h: 15 }, status: { x: 10, y: 1, w: 3, h: 3 },
+  quota: { x: 10, y: 4, w: 3, h: 3 }, tools: { x: 10, y: 7, w: 3, h: 5 },
 };
 // HOME は「ふつう」（24 列）のます目で書く。細かさを変えたら置き場所も同じ割合で直す
 const DENSITY = { 12: { row: 44, gap: 10 }, 24: { row: 18, gap: 8 }, 48: { row: 7, gap: 5 } };
@@ -566,6 +609,23 @@ const ICON = {
   info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
   grid: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
 };
+// 面の中のパネルの見出しに付ける、中身の種類の小さな絵（ない種類は any）
+const KIND_ICON = (() => {
+  const svg = (d) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const doc = svg('<path d="M4 1.8h5.5L12.5 5v9.2H4z"/><path d="M9.5 1.8V5h3M6 8h4.5M6 10.5h4.5"/>');
+  return {
+    any: svg('<rect x="2.5" y="2.5" width="11" height="11" rx="2"/>'), text: doc, md: doc,
+    list: svg('<path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.8" cy="4" r=".6"/><circle cx="2.8" cy="8" r=".6"/><circle cx="2.8" cy="12" r=".6"/>'),
+    table: svg('<rect x="2" y="2.5" width="12" height="11" rx="1"/><path d="M2 6.5h12M2 10h12M6.5 2.5v11"/>'),
+    proposal: svg('<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>'),
+    cards: svg('<rect x="2" y="2" width="5" height="12" rx="1"/><rect x="9" y="2" width="5" height="7" rx="1"/>'),
+    change: svg('<circle cx="4" cy="3.5" r="1.7"/><circle cx="4" cy="12.5" r="1.7"/><circle cx="12" cy="8" r="1.7"/><path d="M4 5.2v5.6M5.7 3.5H9a3 3 0 0 1 3 2.8"/>'),
+    tree: svg('<path d="M2 4.5h4l1.5 1.5H14v7H2z"/>'),
+    days: svg('<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>'),
+    bars: svg('<path d="M2 13.5h12M4 11V7M8 11V3.5M12 11V8.5"/>'),
+    diff: svg('<path d="M5 2.5v6M2 5.5h6M2 12.5h6M11 3v10"/>'),
+  };
+})();
 // 画面の調整（dyve 設定の「調整」）。サーバーから来るまでは既定
 const TUNE_DEF = { pointHoldMs: 250, pointKeepSec: 45, readPerCharMs: 25, readMinMs: 1200, readMaxMs: 6000, readZoomPct: 50 };
 const tu = (k) => S.tune?.values?.[k] ?? TUNE_DEF[k];
@@ -637,10 +697,12 @@ function turnOf(p) {
   if (p.view !== "task") return p.state === "proposal" ? "you" : null;
   if (p.state === "task") return "ai";
   if (p.wait) return "wait";
-  if (p.state === "proposal" || S.panels.some((q) => q.about === p.id && q.state === "proposal")) return "you";
+  const below = S.panels.filter((q) => q.about === p.id);
+  if (p.state === "proposal" || below.some((q) => q.state === "proposal")) return "you";
   const back = p.line ? p.lineSeq || 0 : 0;
   if (p.decided && (p.decidedSeq || 0) >= back) return "ok";
-  if (p.state === "done" && p.line) return "you";
+  // 仕事が帰った行は読むだけ（back）。問いの行・ボードが帰した行（止まった・待ちが明けた）・下に人の番があるものは人の番
+  if (p.state === "done" && p.line) return p.taskSeq && p.lineBy !== "board" && !below.some((q) => turnOf(q) === "you") ? "back" : "you";
   return p.state === "done" || p.decided ? "ok" : null;
 }
 // 行の名前（短く）と、行に出す一行
@@ -716,6 +778,151 @@ function rowEl(t) {
   return d;
 }
 
+// ── 面を役割で並べる：左＝やること（行の中の行と、行に置かれた提案・仕事を番ごとの札に）、まん中＝主役、右＝残り ──
+// 面の中で置き場所を決めたもの（人が動かした・board_layout の moves）はその場所が勝つ。ここで決めるのは、まだ置き場所のないものの既定の並び。
+// 行の中の行（F1, F2）の結果も、その行の記号を付けて出す（一段だけ。その下は、その行の面で見る）
+// row：面の行。panels：ボードの全部。kids(id)：画面の上の子。turn(p)：番。placed(id)：置き場所を決めたか。marked(id)：印があるか
+const REST_OPEN = 3; // 右の帯で開いておく数。古いものは一行に畳む（消さない。押すと開く）
+function benchPlan(row, panels, kids, turn, { placed = () => false, marked = () => false, person = (by) => by === "human" } = {}) {
+  const keyed = (p) => p?.view === "task" && !!p.key;
+  const byId = new Map(panels.map((p) => [p.id, p]));
+  const subs = kids(row.id).filter(keyed);
+  // 行に直接（記号のない仕事を挟んでもよい）置かれた提案と、記号のない仕事。行の中の行の下のものは、その札に出る
+  const nearRow = (p) => {
+    const seen = new Set();
+    for (let u = byId.get(p.about); u && !seen.has(u.id); u = byId.get(u.about)) {
+      seen.add(u.id);
+      if (u.id === row.id) return true;
+      if (keyed(u)) return false;
+    }
+    return false;
+  };
+  const loose = panels.filter((p) => !keyed(p) && p.id !== row.id && (p.state === "proposal" || p.view === "task") && nearRow(p));
+  const lanes = { you: [], ai: [], back: [], wait: [], ok: [] };
+  for (const p of [...subs, ...loose].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
+    const t = turn(p);
+    lanes[t === "you" || t === "back" || t === "wait" || t === "ok" ? t : "ai"].push(p);
+  }
+  // パネル：行について置かれたものと、行の中の行について置かれたもの（仕事は札にしたので除く）
+  const isCell = (p) => !keyed(p) && p.view !== "task";
+  const all = [...kids(row.id).filter(isCell).map((p) => ({ p, ref: null })), ...subs.flatMap((s) => kids(s.id).filter(isCell).map((p) => ({ p, ref: s.key })))];
+  const age = (x) => x.p.aiSeq || x.p.seq || 0;
+  // 行の中の行の結果の置き場所は、その行の面のもの。ここではいつも帯に置く
+  const own = (x) => !x.ref && placed(x.p.id);
+  const free = all.filter((x) => !own(x)).sort((a, b) => age(b) - age(a));
+  // 主役：AI が置いたいちばん新しい結果（提案より結果を先に）。なければいちばん新しいもの
+  const ai = (x) => !person(x.p.by) && x.p.by !== "board";
+  const main = free.find((x) => ai(x) && x.p.state !== "proposal") || free.find(ai) || free[0] || null;
+  const rest = free.filter((x) => x !== main);
+  const fold = new Set(rest.slice(REST_OPEN).filter((x) => !marked(x.p.id)).map((x) => x.p.id));
+  return { lanes, main, rest, placed: all.filter(own), fold };
+}
+// 帯の置き場所（面の中のます目の列。x は 1 から）。三つが入らなければ二つ、一つにまとめる。one：一列（上から あなたの番 → 主役 → 残り → ほかの番）
+// alt：残りを置いてもよいもう一つの帯。残りは、置いたときに下の端が上になる方へ（片方の帯だけが縦に伸びないように）
+const BENCH_PX = { lanes: 290, main: 440, rest: 340 };
+function benchBands(px, cols, has) {
+  const n = (w) => Math.max(2, Math.round((w / Math.max(1, px)) * cols));
+  const all = { x: 1, w: cols }, { lanes: L, main: M, rest: R } = BENCH_PX;
+  // 余った幅は、まん中と右で分ける（右だけ細いと、残りが縦に長く伸びる）
+  if (has.main && has.lanes && has.rest && px >= L + M + R) {
+    const l = n(L), r = n(R + (px - L - M - R) * 0.4);
+    const main = { x: l + 1, w: cols - l - r };
+    return { lanes: { x: 1, w: l }, main, rest: { x: cols - r + 1, w: r }, alt: main, one: false };
+  }
+  // 二つ：左にやること、右に主役。残りは主役の下（広い方で読む）か、やることの下
+  if (has.main && has.lanes && px >= L + M) {
+    const l = n(L), main = { x: l + 1, w: cols - l };
+    return { lanes: { x: 1, w: l }, main, rest: main, alt: { x: 1, w: l }, one: false };
+  }
+  if (has.main && !has.lanes && has.rest && px >= M + R) {
+    const r = n(R + (px - M - R) * 0.4), main = { x: 1, w: cols - r };
+    return { lanes: all, main, rest: { x: cols - r + 1, w: r }, alt: main, one: false };
+  }
+  return { lanes: all, main: all, rest: all, alt: null, one: true };
+}
+// 帯の中の順（同じ順なら並べた順）
+const benchRank = (role, one) => (one ? { you: 0, main: 1, rest: 2, lanes: 3 } : { you: 0, lanes: 1, main: 2, rest: 3 })[role] ?? 4;
+// 面の中で既定で畳むもの（右の帯の古いもの）。見る人が畳む・開くを決めたら、そちらが勝つ
+const BENCH_FOLD = new Set();
+// 残りをどちらの帯に置いたか：面の id -> { sig, side: { id: もう一つの帯か } }。中身が届いて高さが変わるたびに行き来しないよう、
+// 同じ顔ぶれ・同じ幅のあいだは覚えておく（利用者の view の高さは、囲いの中が知らせてくるまでわからないので、それまでは覚えない）
+const BENCH_SIDE = new Map();
+function benchSide(box, bench) {
+  const sig = `${box.clientWidth}:${cellsIn(box).map((c) => c.dataset.id).join(",")}:${bench.alt ? bench.alt.x : ""}`;
+  let m = BENCH_SIDE.get(box.dataset.face);
+  if (!m || m.sig !== sig) BENCH_SIDE.set(box.dataset.face, (m = { sig, side: {} }));
+  return m.side;
+}
+// 左の帯の札：行の中の行は記号・名前・帰った一行と 2 段目、行に置かれた提案は受け入れる口、記号のない仕事はいまどこまで来たか
+function cardHtml(q) {
+  const turn = turnOf(q), mark = markOf(q), working = isWorking(q.id);
+  let key = "", name, text, acts = "", subs = "", more = "";
+  if (isRow(q)) {
+    key = q.key;
+    name = rowName(q);
+    text = rowText(q);
+    if (q.state === "proposal") acts += `<button data-act="accept-row" data-id="${esc(q.id)}" data-rev="${q.rev}">${esc(L.accept)}</button>`;
+    if (openable(q) || faceOpen(q.id)) more = `<button class="icon more" data-face="${esc(q.id)}" aria-expanded="${faceOpen(q.id)}" title="${esc(faceOpen(q.id) ? L.faceClose : L.face)}">${faceOpen(q.id) ? "◂" : "▸"}</button>`;
+    const all = subOf(q);
+    subs = all.slice(0, SUB_MAX).map((s) => {
+      const work = s.state === "task", tail = work ? (s.line || (isWorking(s.id) ? L.rowWorking : L.rowNotYet)) : "";
+      return `<div class="cx">・${linkify(subText(s))}${tail ? ` <i>${esc(tail)}</i>` : ""}${work ? "" : ` <button data-act="accept-row" data-id="${esc(s.id)}" data-rev="${s.rev}">${esc(L.accept)}</button>`}</div>`;
+    }).join("") + (all.length > SUB_MAX ? `<div class="cx"><i>${esc(L.subMore(all.length - SUB_MAX))}</i></div>` : "");
+  } else if (q.state === "proposal") {
+    name = clipText(lineOf(dataOf(q)), 80);
+    text = who(q.by);
+    acts = `<button data-act="accept-row" data-id="${esc(q.id)}" data-rev="${q.rev}">${esc(L.accept)}</button>`;
+  } else {
+    name = subText(q);
+    text = q.line || (q.state === "task" ? (working ? L.rowWorking : L.rowNotYet) : resultLine(q));
+  }
+  return `<div class="card row s-${turn || "none"}${mark === "notice" ? " chg" : ""}${faceOpen(q.id) ? " open" : ""}" data-row="${esc(q.id)}">` +
+    `<span class="ck">${esc(key)}</span><b class="cn" title="${esc(textOf(q.data))}">${linkify(name)}</b><span class="cs">${working ? '<span class="spin" aria-hidden="true"></span>' : ""}${more}</span>` +
+    `${text ? `<div class="ct">${linkify(text)}</div>` : ""}${subs}${acts ? `<div class="ca">${acts}</div>` : ""}</div>`;
+}
+// 面のパネルの並び（話題の中と同じます目。帯は freePos が当てる）
+function benchBox(t, kids, plan) {
+  for (const x of [plan.main, ...plan.rest, ...plan.placed].filter(Boolean)) {
+    if (plan.fold.has(x.p.id)) BENCH_FOLD.add(x.p.id); else BENCH_FOLD.delete(x.p.id);
+  }
+  const box = document.createElement("div");
+  box.className = "kids free bench";
+  box.dataset.face = t.id;
+  box._has = { lanes: Object.values(plan.lanes).some((a) => a.length), main: !!plan.main, rest: plan.rest.length > 0 };
+  const laneCell = (role, keys) => {
+    const shown = keys.filter((k) => plan.lanes[k].length);
+    if (!shown.length) return null;
+    const c = document.createElement("div");
+    c.className = "cell lanes";
+    c.dataset.id = `${role}:${t.id}`;
+    c.dataset.role = role;
+    const head = role === "you" || !plan.lanes.you.length ? `<header>${KIND_ICON.cards}${esc(L.todo)}</header>` : "";
+    c.innerHTML = `<section class="todo">${head}${shown.map((k) => `<div class="lane ${k}"><h3>${esc(L.lane[k])} <b>${plan.lanes[k].length}</b></h3>${plan.lanes[k].map(cardHtml).join("")}</div>`).join("")}</section>`;
+    return c;
+  };
+  const panelCell = (x, role) => {
+    const el = panelEl(x.p, kids, { cell: true, ref: x.ref });
+    const c = document.createElement("div");
+    c.className = `cell${role === "main" ? " main" : ""}`;
+    c.dataset.id = x.p.id;
+    c.dataset.view = x.p.view;
+    c.dataset.role = role;
+    c.append(el);
+    // 行の中の行の結果は、その行の面のもの。ここでは動かさない（置き場所はその行の面で決める）
+    if (x.ref) c.dataset.ref = x.ref;
+    else { const s = document.createElement("div"); s.className = "sizer"; s.title = L.size; c.append(s); }
+    FREE.observe(el);
+    return c;
+  };
+  // 並べた順が一列のときの順になる：あなたの番 → 主役 → 残り → ほかの番
+  const cells = [laneCell("you", ["you"]), plan.main && panelCell(plan.main, "main"), ...plan.rest.map((x) => panelCell(x, "rest")), ...plan.placed.map((x) => panelCell(x, "rest")), laneCell("lanes", ["ai", "back", "wait", "ok"])];
+  for (const c of cells.filter(Boolean)) {
+    box.append(c);
+    if (c.matches(".lanes")) FREE.observe(c);
+  }
+  return box;
+}
+
 // ── まだ見ていない変更：人が最後に見たときの中身との差。印と同じで、データに持たず操作ログから導く ──
 // 前に見たときの中身（old）になかった行を返す。summary は欄ごと、list は項目、table は行（列が同じときだけ）
 function freshOf(view, now, old) {
@@ -779,7 +986,7 @@ class TaskView extends View {
     $("details", this).addEventListener("toggle", (e) => { if (e.target.open) ASK_OPEN.add(id); else ASK_OPEN.delete(id); });
   }
 }
-// いまの要点：{ points, decided, open } を三つの欄に並べる。項目は文字列か { text, from: [元の発言の id] }。from があれば、押すと元の発言へ
+// 要点（summary）：{ points, decided, open } を三つの欄に並べる。項目は文字列か { text, from: [元の発言の id] }。from があれば、押すと元の発言へ
 class SummaryView extends View {
   render(v) {
     if (!v || typeof v !== "object" || Array.isArray(v)) return super.render(v);
@@ -824,7 +1031,8 @@ const RUNTIME = `window.dyve = (() => {
   };
   const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch (e) { root.textContent = init.err + e.message; } };
   addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
-  addEventListener("error", (e) => { root.textContent = init.err + e.message; });
+  // 大きさが続けて変わったときの知らせ（ResizeObserver loop …）は描けなかったのではないので、描いたものを消さない
+  addEventListener("error", (e) => { if (/ResizeObserver loop/.test(e.message)) return; root.textContent = init.err + e.message; });
   addEventListener("wheel", (e) => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); parent.postMessage({ dyve: "zoom", dy: e.deltaY, mode: e.deltaMode, x: e.clientX, y: e.clientY }, "*"); }, { passive: false });
   new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
   return { view: (f) => { fn = f; draw(); } };
@@ -944,23 +1152,31 @@ function markOf(p) {
 
 const MOVABLE = (p) => !["say", "summary", "layout"].includes(p.view);
 // root：画面に並ぶパネルそのもの。畳むのは並んでいる枠の方なので、中では畳まない
-function panelEl(p, kids, { root = false } = {}) {
+// face：行の面（役割で並べる）。cell：面の中の一枚（見出しは中身の種類、置いた人は小さな丸。ref は行の中の行の記号）
+function panelEl(p, kids, { root = false, face = false, cell = false, ref = null } = {}) {
   const el = document.createElement("dv-panel");
   const mark = markOf(p);
   const foldable = !root && p.view !== "say" && p.view !== "summary";
   const folded = foldable && isFolded(p.id);
+  face = face && isRow(p);
+  const plan = face ? benchPlan(p, S.panels, kids, turnOf, { placed: (id) => !!TPOS[id], marked: (id) => !!markOf(panelById(id) || {}) }) : null;
   // 比べる組：選んだものに印、選ばなかったものは薄く
   const cmp = S.cmp?.[p.id], picked = cmp?.picked === p.id;
   el.className = [isPerson(p.by) && "human", p.pinned && "pinned", mark, folded && "folded", picked && "picked", cmp?.picked && !picked && "unpicked",
-    !mark && Date.now() - (JUST.get(p.id) || 0) < 1500 && "seen-now"].filter(Boolean).join(" ");
+    !mark && Date.now() - (JUST.get(p.id) || 0) < 1500 && "seen-now", face && "face-root"].filter(Boolean).join(" ");
   el.dataset.id = p.id;
   if (folded) el.title = L.unfoldHint;
   const tags = [];
   if (isWorking(p.id)) tags.push(`<span class="spin" role="img" aria-label="${esc(L.working)}"></span>`);
-  if (mark) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
+  // 面の頭の状態は番の一語だけ（済み・知らせの印と並べると、どちらが本当かわからなくなる）
+  if (face) {
+    const tn = turnOf(p), n = plan.lanes.you.length;
+    if (tn) tags.push(`<span class="turnchip t-${tn}" title="${esc(L.turn[tn])}">${esc(tn === "you" && n ? L.turnCount(L.turnWord[tn], n) : L.turnWord[tn])}</span>`);
+  }
+  if (mark && !face) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
   if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(callOf(p.to))}</span>`);
-  if (p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
-  else if (p.state && !mark) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
+  if (!face && p.state === "done") tags.push(`<span class="mark done">${L.state.done}</span>`);
+  else if (!face && p.state && !mark && !(cell && p.state === "proposal")) tags.push(`<span class="mark">${L.state[p.state]}</span>`);
   if (picked) tags.push(`<span class="mark done">${esc(L.picked)}</span>`);
   const edited = p.rev !== p.seq && p.view === "say";
   // 畳んだら、開かなくても中身がわかる一行を見出しに出す
@@ -970,7 +1186,10 @@ function panelEl(p, kids, { root = false } = {}) {
   const feed = S.feeds[p.id];
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
-  const head = isRow(p)
+  const kind = p.state === "proposal" ? "proposal" : p.view;
+  const head = cell
+    ? `<span class="kind">${KIND_ICON[kind] || KIND_ICON.any}${esc(L.kind[kind] ?? p.view)}</span>${ref ? `<span class="ref" title="${esc(L.refTitle(ref))}">${esc(ref)}</span>` : ""}`
+    : isRow(p)
     ? `<span class="topic-title">${esc(p.key)}　${esc(rowName(p))}</span>`
     : p.view === "topic"
     ? `<span class="topic-title" title="${esc(`${topicTitle(p)}（${who(p.by)}）`)}">${esc(topicTitle(p))}</span>`
@@ -984,14 +1203,14 @@ function panelEl(p, kids, { root = false } = {}) {
       ${p.point && p.point.how !== "pick" && isPerson(p.by) ? `<button class="icon" data-act="unpoint" title="${esc(L.unpointTitle)}">${esc(L.unpoint)}</button>` : ""}
       ${p.view === "say" && S.panels.some((x) => x.into === p.id) ? `<button class="icon" data-act="split" title="${esc(L.splitTitle)}">${L.split}</button>` : ""}
       ${SIZES[p.id] ? `<button class="icon" data-act="unsize">${L.resetSize}</button>` : ""}
-      ${p.view === "topic" && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
+      ${(p.view === "topic" || face) && kids(p.id).some((k) => TPOS[k.id]) ? `<button class="icon" data-act="unpos">${L.resetPos}</button>` : ""}
       ${p.source && feed?.approved ? `<button class="icon" data-act="runnow">${L.runNow}</button>` : ""}
       ${p.view === "topic" && p.data?.bundled ? `<button class="icon" data-act="unbundle" title="${esc(L.unbundleTitle)}">${L.unbundle}</button>` : ""}
       ${MOVABLE(p) ? `<button class="icon" data-act="move" title="${esc(L.moveTitle)}">${L.moveTo}</button>` : ""}
       ${foldable ? `<button class="icon" data-act="fold" aria-pressed="${folded}" title="${folded ? L.unfold : L.fold}" aria-label="${folded ? L.unfold : L.fold}">${folded ? ICON.restore : ICON.min}</button>` : ""}
       <button class="icon" data-act="pin" aria-pressed="${!!p.pinned}" title="${p.pinned ? L.unpin : L.pin}" aria-label="${p.pinned ? L.unpin : L.pin}">${ICON.pin}</button>
       <button class="icon" data-act="drop" title="${L.drop}" aria-label="${L.drop}">${ICON.drop}</button>
-    </span></div>`;
+    </span>${cell ? `<span class="by" title="${esc(who(p.by))}">${ini(isPerson(p.by) ? L.you : p.by, "sm")}</span>` : ""}</div>`;
   // 流し込むコマンドは、何を走らせるかが見えるように出しておく
   if (p.source) {
     const line = document.createElement("div");
@@ -1012,6 +1231,7 @@ function panelEl(p, kids, { root = false } = {}) {
   }
   // 読んでから送るので、送り出しは中身の下に置く
   if (p.send) el.append(sendRow(p));
+  if (face) { el.append(benchBox(p, kids, plan)); return el; }
   const table = p.view === "topic" || isRow(p);
   const rows = table ? kids(p.id).filter(isRow) : [];
   if (rows.length) {
@@ -1110,20 +1330,35 @@ function freePos(box, g, rel = relOf(box)) {
   const toCols = (px) => clamp(Math.round((px + g.gap) / (colW + g.gap)), 2, g.cols);
   const toRows = (px) => Math.max(2, Math.round((px + g.gap) / (g.rowH + g.gap)));
   const pos = {};
+  // 面：まだ置き場所のないものは、役割の帯へ（帯の幅は面の幅から）
+  const bench = box.classList.contains("bench") ? benchBands(box.clientWidth, g.cols, box._has || {}) : null;
   for (const c of cellsIn(box)) {
     const id = c.dataset.id, t = TPOS[id], d = sizeOf(c.dataset.view), p = panelById(id), r = rel[id];
+    const role = c.dataset.role, band = bench && role && (!t || c.dataset.ref || !p) ? bench[role === "you" ? "lanes" : role] : null;
     const share = r && g.cols >= r.ids.length * 2 ? Math.floor(g.cols / r.ids.length) : 0;
-    const w = clamp(t?.w || share || toCols(p ? prefPx(p) : d.w || 360), 1, g.cols);
+    const w = band ? band.w : clamp(t?.w || share || toCols(p ? prefPx(p) : d.w || 360), 1, g.cols);
     c.dataset.rel = r ? r.kind : "";
     if (r?.kind === "sequence") c.dataset.step = String(r.i + 1); else delete c.dataset.step;
-    const h = t?.h || (d.h ? toRows(d.h) : 0);
-    pos[id] = { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: h || 1, auto: !h || isFolded(id), placed: !!t, ...(r && share && !t ? { row: r } : {}) };
+    const h = (band ? 0 : t?.h) || (d.h ? toRows(d.h) : 0);
+    pos[id] = band
+      ? { x: band.x, y: 1, w, h: h || 1, auto: !h || isFolded(id), placed: false, band: true, rank: benchRank(role, bench.one),
+          ...(role === "rest" && bench.alt ? { alt: { ...bench.alt, h: h || 1, side: benchSide(box, bench), settled: !isUserView(c.dataset.view) || FRAME_H.has(id) } } : {}) }
+      : { x: t ? clamp(t.x, 1, g.cols + 1 - w) : 1, y: t?.y || 1, w, h: h || 1, auto: !h || isFolded(id), placed: !!t, ...(r && share && !t ? { row: r } : {}) };
     c.classList.toggle("auto", pos[id].auto);
     c.style.gridColumn = `${pos[id].x} / span ${w}`;
   }
+  const rowsOf = (c) => Math.max(1, Math.ceil((c.offsetHeight + g.gap) / (g.rowH + g.gap)));
   for (const c of cellsIn(box)) {
     const p = pos[c.dataset.id];
-    if (p.auto) p.h = Math.max(1, Math.ceil((c.offsetHeight + g.gap) / (g.rowH + g.gap)));
+    if (p.auto) p.h = rowsOf(c);
+  }
+  // 面の残り：もう一つの帯の幅でも測っておく（どちらに置くかは arrange が決める）
+  for (const c of cellsIn(box)) {
+    const p = pos[c.dataset.id];
+    if (!p.alt || !p.auto) continue;
+    c.style.gridColumn = `${p.alt.x} / span ${p.alt.w}`;
+    p.alt.h = rowsOf(c);
+    c.style.gridColumn = `${p.x} / span ${p.w}`;
   }
   return pos;
 }
@@ -1135,6 +1370,18 @@ function arrange(pos, cols, moved = null) {
   const y0 = Math.max(1, ...set.map((k) => pos[k].y + pos[k].h));
   const done = [...set];
   const free = (q) => !done.some((o) => overlap(q, pos[o]));
+  // 面の帯：それぞれの帯の上から、空いたところへ（帯の中は役割の順、同じ役割は並べた順）。置き場所を決めたものは避ける
+  for (const k of keys.filter((k) => !set.includes(k) && pos[k].band).sort((a, b) => pos[a].rank - pos[b].rank)) {
+    const p = pos[k], top = (q) => { for (let y = 1; ; y++) if (free({ ...q, y })) return y; };
+    p.y = top(p);
+    if (p.alt) {
+      const y = top(p.alt), was = p.alt.side[k];
+      const alt = was ?? y + p.alt.h < p.y + p.h;
+      if (was == null && p.alt.settled) p.alt.side[k] = alt;
+      if (alt) Object.assign(p, { x: p.alt.x, w: p.alt.w, h: p.alt.h, y });
+    }
+    done.push(k);
+  }
   for (const k of keys.filter((k) => !set.includes(k))) {
     if (done.includes(k)) continue;
     const p = pos[k];
@@ -1219,7 +1466,7 @@ function tree() {
   return (id) => by.get(id) || [];
 }
 
-// 人の発言はトークに、要点は要点に、それ以外は話題の欄に。どこに出すかはデータに持たず導く
+// 人の発言はトークに、それ以外は話題の欄に。どこに出すかはデータに持たず導く
 // 読んでいる場所：作り直すと中のスクロールは 0 に戻るので、前に覚えて後で戻す。トークはいちばん下なら追いかける方に任せる
 function scrollMarks() {
   const marks = [];
@@ -1330,18 +1577,10 @@ function render() {
   }
   if (follow) tl.scrollTop = tl.scrollHeight;
 
-  // いまの要点（いちばん新しいもの）
-  const sum = top.filter((p) => p.view === "summary").at(-1);
-  const sb = $("#summary");
-  sb.innerHTML = "";
-  if (sum) sb.append(panelEl(sum, kids));
-  else sb.innerHTML = `<p class="empty">${esc(L.emptySummary)}</p>`;
-
   // 話題ごと（なければ発言ごと）にまとめて、それぞれ画面に一枚で並べる（key は根のパネルの id）。
   // 新しいまとまりは、ほかを押しのけずに空いているところへ出る（最近動いたものから上に）
   const groups = [];
   for (const p of top) {
-    if (p === sum || p.view === "summary") continue;
     if (!isSay(p)) groups.push({ key: p.id, src: null, items: [p] });
     else if (kids(p.id).length) groups.push({ key: p.id, src: p, items: kids(p.id) });
   }
@@ -1368,7 +1607,7 @@ function render() {
     const t = tileOf(g.key), solo = !g.src && g.items.length === 1, root = g.items[0];
     // 発言から出たまとまりは、見出しがその発言。押すとトークの発言へ
     const h2 = $(".tile-head h2", t);
-    h2.textContent = g.src ? `← ${textOf(g.src.data)}` : root.view === "topic" ? topicTitle(root) : `${who(root.by)}・${root.view}`;
+    h2.textContent = g.src ? `← ${textOf(g.src.data)}` : root.view === "topic" ? topicTitle(root) : root.view === "summary" ? L.sumName : `${who(root.by)}・${root.view}`;
     h2.title = h2.textContent;
     if (g.src) h2.dataset.goto = g.src.id; else delete h2.dataset.goto;
     const box = document.createElement("div");
@@ -1410,9 +1649,8 @@ function render() {
     const body = $(".tile-body", t);
     body.innerHTML = "";
     if (p && !shownPanels(S.panels, S.marks, offSet()).includes(p)) body.innerHTML = `<p class="empty">${esc(L.offView)}</p>`;
-    else if (p) body.append(panelEl(p, kids, { root: true })); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
+    else if (p) body.append(panelEl(p, kids, { root: true, face: true })); else body.innerHTML = `<p class="empty">${esc(L.gone)}</p>`;
   }
-  renderNow();
   // 中身が変わると高さも変わるので、毎回並べ直す（読んでいるパネルは画面の同じ位置に残る）。人が動かしている最中は待つ
   if (!$(".editing")) applyLayout();
   // 中のます目を並べてから戻す（並ぶ前は高さが足りず、0 に押し戻される）。次のコマで伸びることがあるので、もう一度
@@ -1428,23 +1666,6 @@ function render() {
 const faces = () => (LAYOUT.out || []).filter((id) => isRow(panelById(id)));
 const hereFace = () => faces().at(-1) ?? null;
 const topOfId = (id) => { let p = panelById(id); const seen = new Set(); while (p?.about && !seen.has(p.id) && panelById(p.about)) { seen.add(p.id); p = panelById(p.about); } return p; };
-// 「いま」：いる場所（話題 › 面）・やりかけ（ほかに開いている面）・人の番の行を、一行ずつ
-function renderNow() {
-  const el = $("#now");
-  if (!el) return;
-  const here = hereFace(), topic = here ? topOfId(here) : panelById(S.talking?.[0]);
-  const path = [topic && topic.view === "topic" ? topicTitle(topic) : "", here ? panelById(here).key : ""].filter(Boolean);
-  const left = faces().filter((id) => id !== here).map(panelById);
-  const you = S.panels.filter((p) => isRow(p) && turnOf(p) === "you").sort((a, b) => Math.max(b.lineSeq || 0, b.rev) - Math.max(a.lineSeq || 0, a.rev));
-  const go = (p, text) => `<button class="nowrow" data-goto="${esc(p.id)}"><b>${esc(p.key)}</b><span>${esc(clipText(text, 40))}</span></button>`;
-  el.innerHTML = `<dl>
-    <dt>${esc(L.nowAt)}</dt><dd class="path">${path.length ? path.map(esc).join("<i>›</i>") : `<span class="none">${esc(L.nowNone)}</span>`}</dd>
-    <dt>${esc(L.nowLeft)}</dt><dd>${left.length ? left.map((p) => go(p, rowName(p))).join("") : `<span class="none">${esc(L.nowNone)}</span>`}</dd>
-    <dt>${esc(L.nowYou)}</dt><dd>${you.length ? you.slice(0, 8).map((p) => go(p, rowText(p))).join("") : `<span class="none">${esc(L.nowNone)}</span>`}</dd></dl>`;
-  const gs = $('.tile[data-tile="now"] .tile-head .gist');
-  if (gs) { gs.textContent = L.nowFold(path.join(" › ") || L.nowNone, you.length); gs.title = gs.textContent; }
-}
-
 // いまの話題：いちばん新しい人の発言から出たものが入っている枠（話題か、発言から出たまとまり）。新しい順に三つまで
 function talkingKeys(keys) {
   const byId = new Map(S.panels.map((p) => [p.id, p]));
@@ -1525,14 +1746,14 @@ const panelById = (id) => S.panels.find((p) => p.id === id);
 const isDone = (p) => (isRow(p) ? turnOf(p) === "ok" : (p?.view === "task" || p?.view === "topic") && p.state === "done");
 const descOf = (id, kids) => kids(id).flatMap((k) => [k, ...descOf(k.id, kids)]);
 // 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）。
-// いまの要点と「いま」は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
-const FOLD_FIRST = ["summary", "now"];
+// 前の版が置いた要点（summary）は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
 function isFolded(k) {
   if (SHOT) return false;
   const f = LAYOUT.fold?.[k];
   if (f != null) return f;
-  if (FOLD_FIRST.includes(k)) return true;
+  if (BENCH_FOLD.has(k)) return true;
   const p = panelById(k);
+  if (p?.view === "summary") return true;
   return isDone(p) && !descOf(k, S.kids || (() => [])).some((x) => markOf(x));
 }
 const setFold = (k, on) => { LAYOUT.fold = { ...LAYOUT.fold, [k]: on }; saveLayout(); render(); applyLayout(); };
@@ -1563,6 +1784,8 @@ const isGroupTile = (k) => !BUILTIN.includes(k) && !isOut(k);
 // 順番は導く：いまの話題 → 印のあるもの → 新しいもの → 済み（畳んだもの）。幅は中身の形から、高さは中身を測って決める。
 // 一画面の幅の中で、上から空いているところへ順に詰める。覚えないので、中身が増えれば枠も伸びる
 const AUTO = {}; // key -> { x, y, w, h }
+// 面がどの側に置かれたか（left | right | below）。閉じたら忘れる
+const FACE_SIDE = {};
 const isAuto = (k) => !BUILTIN.includes(k) && !LAYOUT.pos?.[k];
 const FRAC = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 1];
 // パネル一枚の幅の好み（ピクセル）。パネルの管理で既定の幅を決めていればそれ
@@ -1579,6 +1802,12 @@ function groupPx(k) {
   const root = panelById(k);
   if (!root) return 360;
   const kids = S.kids ? S.kids(k) : [];
+  // 面は三つの帯（やること・主役・残り）が並ぶ幅。脇に入らなければ、表の下に出る
+  if (isRow(root) && isOut(k) && S.kids) {
+    const plan = benchPlan(root, S.panels, S.kids, turnOf, { placed: (id) => !!TPOS[id] });
+    const lanes = Object.values(plan.lanes).some((a) => a.length);
+    if (plan.main) return (lanes ? BENCH_PX.lanes : 0) + Math.max(BENCH_PX.main, prefPx(plan.main.p)) + (plan.rest.length ? BENCH_PX.rest : 0) + 60;
+  }
   const own = root.view === "topic" || root.view === "say" ? 0 : prefPx(root);
   const rows = relRows(kids).map((r) => r.reduce((a, p) => a + prefPx(p) + 8, 0));
   return Math.max(own, 0, ...rows) + 40;
@@ -1637,7 +1866,22 @@ function autoLayout(pos) {
   // 行と面：面はその表の隣に開く（右、左の順。入らなければ下）。表は面より先に、いまの表はまん中に置く。表は動かさず、動くのは面のほう
   const faceOf = (k) => (isRow(panelById(k)) && isOut(k) ? topOfId(k)?.id : null);
   const lead = order.filter((k) => !faceOf(k));
-  const seq = lead.flatMap((k) => [k, ...order.filter((f) => faceOf(f) === k)]).concat(order.filter((f) => faceOf(f) && !lead.includes(faceOf(f))));
+  // 面どうしは開いた順に（印や新しさで順が変わると、左右と上下が入れ替わる）
+  const opened = LAYOUT.out || [], byOpen = (a, b) => opened.indexOf(a) - opened.indexOf(b);
+  const facesOf = (k) => order.filter((f) => faceOf(f) === k).sort(byOpen);
+  const seq = lead.flatMap((k) => [k, ...facesOf(k)]).concat(order.filter((f) => faceOf(f) && !lead.includes(faceOf(f))));
+  for (const k of Object.keys(FACE_SIDE)) if (!faceOf(k) || !keys.includes(k)) delete FACE_SIDE[k];
+  // 幅 cw で置いたときの高さ（ます目の行の数）。測るために枠の幅を当て、話題の中も並べ直す
+  let measured = null;
+  const rowsAt = (k, cw) => {
+    if (isFolded(k)) return minRows();
+    if (measured?.k === k && measured.cw === cw) return measured.h;
+    const t = tileOf(k);
+    t.style.gridColumn = `1 / span ${cw}`;
+    for (const b of $$(".kids.free", t)) layoutFree(b);
+    measured = { k, cw, h: Math.max(needRows(t, m), 3) };
+    return measured.h;
+  };
   const table = S.talking?.[0] && panelById(S.talking[0])?.view === "topic" && S.panels.some((p) => p.about === S.talking[0] && isRow(p)) ? S.talking[0] : null;
   const free = (q) => q.x >= 1 && q.x + q.w <= dens() + 1 && !taken.some((o) => overlap(q, o));
   // 面は浮いているパネル（トーク・いま など）の下に出さない。いま見ているところで、浮いたものが覆うます目を避ける
@@ -1663,18 +1907,35 @@ function autoLayout(pos) {
       const need = Math.min(w[k], Math.max(2, Math.ceil((groupPx(k) + m.gap) / m.sx)));
       const wr = dens() + 1 - n.right, wl = n.left - 1;
       const rw = clamp(Math.min(w[k], wr), need, w[k]), lw = clamp(Math.min(w[k], wl), need, w[k]);
-      const r = { x: n.right, y: n.yr, w: rw, h: h[k] }, l = { x: n.left - lw, y: n.yl, w: lw, h: h[k] };
-      // 左と右に交互に（右上には浮いたパネルが積まれるので左から）。同じ側に二つめは、前の面の下へ
-      const tryR = clear(r), tryL = clear(l);
-      if (tryL && (!tryR || (n.nl || 0) <= (n.nr || 0))) { q = l; n.yl += h[k]; n.nl = (n.nl || 0) + 1; }
-      else if (tryR) { q = r; n.yr += h[k]; n.nr = (n.nr || 0) + 1; }
+      // 高さは置く幅で測る（脇は狭いので折り返しが増える）
+      const at = (x, y, cw) => ({ x, y, w: cw, h: rowsAt(k, cw) });
+      const r = at(n.right, n.yr, rw), l = at(n.left - lw, n.yl, lw);
+      const put = (s, b) => {
+        q = b;
+        FACE_SIDE[k] = s;
+        if (s === "left") { n.yl += b.h; n.nl = (n.nl || 0) + 1; }
+        if (s === "right") { n.yr += b.h; n.nr = (n.nr || 0) + 1; }
+      };
+      // 一度置いた面は、入るあいだ同じ側に置く。浮いたものを避けるのは開いたときだけ（見ている位置で選び直すと左右を行き来する）
+      const was = FACE_SIDE[k];
+      if (was === "left" && free(l)) put("left", l);
+      else if (was === "right" && free(r)) put("right", r);
+      else if (was !== "below") {
+        // 左と右に交互に（右上には浮いたパネルが積まれるので左から）。同じ側に二つめは、前の面の下へ
+        const tryR = clear(r), tryL = clear(l);
+        if (tryL && (!tryR || (n.nl || 0) <= (n.nr || 0))) put("left", l);
+        else if (tryR) put("right", r);
+      }
       // どちらの脇にも入らなければ、表のすぐ下に（表の左端から右へずらして、中身の幅で）
+      const hb = q ? 0 : rowsAt(k, w[k]);
       for (let y = tp.y + tp.h; !q && y < tp.y + tp.h + 400; y++) {
         for (let x = clamp(tp.x, 1, dens() + 1 - w[k]); !q && x <= Math.max(tp.x, dens() + 1 - w[k]); x++) {
-          const b = { x, y, w: w[k], h: h[k] };
-          if (clear(b)) q = b;
+          const b = { x, y, w: w[k], h: hb };
+          if ((was === "below" ? free : clear)(b)) put("below", b);
         }
       }
+      // 話題の中のます目を、置いた幅で並べ直しておく
+      if (q) rowsAt(k, q.w);
     }
     if (!q) q = fit(taken, w[k], h[k], past(k) ? floor : 1);
     if (!past(k)) floor = Math.max(floor, q.y + q.h);
@@ -1898,12 +2159,6 @@ function applyLayout(appear = null) {
   const live = !narrow() && CANVAS.homed;
   const snap = live ? { anchor: anchorOf(), before: REDUCE ? null : rectsOf() } : null;
   const pos = Object.fromEntries(gridTiles().filter((k) => !isAuto(k)).map((k) => [k, posOf(k)]));
-  // いまの要点は、中身があふれるときだけ下へ伸ばす（半画面まで。覚えた大きさは変えない）
-  const st = tileOf("summary");
-  if (st && !narrow() && !isFolded("summary")) {
-    const m = metrics(), half = Math.floor(stage.clientHeight / m.sy / 2);
-    pos.summary = { ...pos.summary, h: Math.max(pos.summary.h, Math.min(half, needRows(st, m))) };
-  }
   place(autoLayout(settle(pos, null, appear)), false, snap);
   wiresSoon();
   $("#density").value = String(dens());
@@ -2433,6 +2688,8 @@ grid.addEventListener("pointerdown", (e) => {
   if ((!head && !sizer) || e.button !== 0) return;
   if (head && e.target.closest("button, a, input, select, summary")) return;
   const handle = head || sizer, cell = handle.closest(".cell"), box = cell.parentElement, k = cell.dataset.id;
+  // 面の中の、行の中の行の結果は動かさない（置き場所はその行の面のもの）
+  if (cell.dataset.ref) return;
   const g = freeGrid(box);
   if (g.cols < 2 || !box._pos?.[k]) return;
   dragCells(e, {
@@ -2452,7 +2709,9 @@ grid.addEventListener("pointerdown", (e) => {
       if (!moved) return;
       dragged = true;
       // 動かしたら、話題の中の全部の置き場所を覚える（大きさを決めたものだけ高さも）
-      for (const [id, p] of Object.entries(last)) TPOS[id] = { x: p.x, y: p.y, w: p.w, ...(p.auto ? {} : { h: p.h }) };
+      // 面の左の帯（札）と、行の中の行の結果は覚えない（いつも帯に置く）
+      const keepOut = new Set(cellsIn(box).filter((c) => c.dataset.ref || !panelById(c.dataset.id)).map((c) => c.dataset.id));
+      for (const [id, p] of Object.entries(last)) if (!keepOut.has(id)) TPOS[id] = { x: p.x, y: p.y, w: p.w, ...(p.auto ? {} : { h: p.h }) };
       pushLayout();
       layoutFree(box);
     },
@@ -2512,7 +2771,7 @@ function renderShot() {
   st.setProperty("--row", `${d.row}px`);
   st.setProperty("--gap", `${d.gap}px`);
   const p = S.panels.find((x) => x.id === SHOT);
-  if (p) document.body.append(panelEl(p, tree()));
+  if (p) document.body.append(panelEl(p, tree(), isRow(p) ? { root: true, face: true } : {}));
   relayoutFree();
 }
 
@@ -2606,7 +2865,7 @@ const onClick = async (e) => {
     if (S.to && ta.dataset.task) reveal(panelOf(ta.dataset.task));
     return;
   }
-  // いまの要点の行：元の発言へ（押したので、要点は見たことにする）
+  // 要点（summary）の行：元の発言へ（押したので、要点は見たことにする）
   const li = e.target.closest("li[data-from]");
   if (li && !e.target.closest("a")) {
     const from = li.dataset.from.split(" "), sp = panelById(li.closest("dv-panel")?.dataset.id);
@@ -2635,7 +2894,7 @@ const onClick = async (e) => {
   // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ、発言の印は指したパネル・拾われた要点の行へ
   if (go) {
     reveal(panelOf(go) || $(`.row[data-row="${CSS.escape(go)}"]`));
-    if (gb.dataset.item) for (const x of $$(`#summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
+    if (gb.dataset.item) for (const x of $$(`dv-summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
     return;
   }
   const el = e.target.closest("dv-panel");
@@ -2863,7 +3122,7 @@ setInterval(() => sendFocus(), 60e3);
 
 // ── 指して喋る：発言を置くとき、そのとき指していたパネルを付ける。「これ」「それ」が何かを、マネージャが取り違えないように ──
 // 指しているもの：さっきまでマウスを乗せていたパネル（hover）。表の行の上なら、その行（話題ではなく）。なければ、さっき動かして画面のまん中に持ってきたパネル（view）。
-// どちらも「覚えておく時間」より前のものは使わない。いまの要点は、マネージャがいつも読むので指したことにしない
+// どちらも「覚えておく時間」より前のものは使わない。要点（summary）は指したことにしない
 // 時間はどれも dyve 設定の「調整」で変えられる（tu()。サーバーの ui-settings.json に持ち、立て直さずに効く）
 const PT = { over: null, last: null, looked: 0, cur: undefined };
 // 指した先の要素：表の行（.row[data-row]）が先、なければパネル
