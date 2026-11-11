@@ -102,6 +102,87 @@ test("名前を呼ばれた仕事はその相手に。働いていれば空く�
   w.stop();
 });
 
+test("終わった仕事に置かれた伝言（to 付きの text）：行を AI の番に戻して、宛てた人を起こし直す。答えは同じ行に帰る", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const topic = store.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "画面" } }, reason: "x" }).op.panel.id;
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: topic, data: { title: "ポインター", text: "マウスのポインターを入れる" } }, reason: "取り次ぎ" }).op.panel.id;
+  const jobs = () => f.jobs.filter((j) => j.taskId === t);
+  assert.equal(jobs()[0].name, "アリス");
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "入れた" }, reason: "結果" });
+  jobs()[0].finish();
+  await tick();
+  // to のない補いは誰も起こさない
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { text: "補い" } }, reason: "補う" });
+  assert.equal(store.board.get(t).state, "done");
+  assert.equal(jobs().length, 1);
+  // ほかの人が空いていても、宛てた人を起こす
+  const m = store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "どう動くかも具体的に書いて" } }, reason: "人の確認を A 担当に伝える" }).op.panel.id;
+  const back = store.board.history(t).at(-1);
+  assert.equal(back.by, "board");
+  assert.ok(back.reason);
+  assert.equal(store.board.get(t).state, "task");
+  assert.equal(store.board.get(t).data.to, "アリス");
+  assert.equal(store.board.get(t).data.text, "マウスのポインターを入れる", "頼んだことはそのまま");
+  assert.equal(jobs().length, 2);
+  assert.equal(jobs()[1].name, "アリス");
+  assert.match(jobs()[1].prompt, new RegExp(`${m}.*どう動くかも具体的に書いて`));
+  assert.doesNotMatch(jobs()[1].prompt, /補い/);
+  // 答えは同じ行に。帰ったあとは、同じ伝言で起こし直さない
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "動きを書いた" }, reason: "結果" });
+  jobs()[1].finish();
+  await tick();
+  assert.equal(store.board.get(t).line, "動きを書いた");
+  assert.equal(jobs().length, 2);
+  assert.equal(store.board.list().filter((p) => p.view === "task").length, 1, "新しい行を足さない");
+  w.stop();
+});
+
+test("伝言：動いている仕事なら起こさない（相手が途中で拾う）。帰したあと終わるまでのあいだに置かれたら、終わってから起こし直す", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる" } }, reason: "x" }).op.panel.id;
+  const jobs = () => f.jobs.filter((j) => j.taskId === t);
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "途中の言葉" } }, reason: "伝える" });
+  assert.equal(jobs().length, 1, "二重に走らせない");
+  // 行を帰したが、まだ終わっていない（1 秒の行き違い）
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "済んだ" }, reason: "結果" });
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "もう一つ" } }, reason: "伝える" });
+  assert.equal(store.board.get(t).state, "done");
+  assert.equal(jobs().length, 1);
+  jobs()[0].finish();
+  await tick();
+  assert.equal(store.board.get(t).state, "task");
+  assert.equal(jobs().length, 2);
+  assert.match(jobs()[1].prompt, /もう一つ/);
+  assert.doesNotMatch(jobs()[1].prompt, /途中の言葉/, "前に拾った言葉は渡し直さない");
+  w.stop();
+});
+
+test("伝言：宛てた人が別の仕事で働いていたら、行を戻して空くまで待たせる", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const add = (data) => store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data }, reason: "x" }).op.panel.id;
+  const a = add({ text: "一つ目", to: "アリス" });
+  store.apply({ by: "アリス", type: "edit", panel: { id: a, state: "done", line: "済んだ" }, reason: "結果" });
+  f.jobs[0].finish();
+  await tick();
+  const b = add({ text: "二つ目", to: "アリス" });
+  assert.equal(f.jobs.at(-1).taskId, b);
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: a, data: { to: "アリス", text: "一つ目の続き" } }, reason: "伝える" });
+  assert.equal(store.board.get(a).state, "task", "行は AI の番に戻る");
+  assert.equal(f.jobs.filter((j) => j.taskId === a).length, 1, "アリスが空くまで待つ（ほかの人に回さない）");
+  f.jobs.at(-1).finish();
+  await tick();
+  const again = f.jobs.filter((j) => j.taskId === a);
+  assert.equal(again.length, 2);
+  assert.equal(again[1].name, "アリス");
+  w.stop();
+});
+
 test("取り下げられたら止め、結果を置かずに終わったらそれとわかるように残す", async () => {
   const store = new Store();
   const f = fakeSpawn();

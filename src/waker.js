@@ -130,6 +130,7 @@ export class Waker {
       this._schedule();
       if (this.names.includes(op.panel.to)) this._queueDirect(op.panel.to, op.panel.id);
     }
+    if (op.type === "add" && op.panel.view === "text" && op.panel.about) this._relay(op.panel.about);
     const r = this.running.get(op.panel.id);
     if (r && op.by !== r.name && (op.type === "drop" || (op.type === "edit" && "state" in op.panel && op.panel.state !== "task"))) {
       r.handle.kill(); // 人かマネージャが仕事を取り下げた
@@ -349,6 +350,7 @@ export class Waker {
           const back = this.store.apply({ by: "board", type: "edit", panel: { id: t.id, state: "done", line: text.slice(0, 200) }, reason: "仕事が落ちたままにならないように、止まったことを行に帰す" });
           if (!back.ok) this.store.apply({ by: "board", type: "add", panel: { view: "text", about: t.id, data: text }, reason: "仕事が落ちたままにならないように" });
         }
+        this._relay(t.id); // 帰したあと、終わるまでのあいだに置かれた伝言
         this._fill();
         this._changed();
       });
@@ -370,6 +372,24 @@ export class Waker {
       type: "add",
       panel: { view: "task", state: "task", about: id, data: { title: titleOf(p.data), text: plainOf(p.data), accepted: id, ...(name ? { to: name } : {}), ...(task ? { after: task.id } : {}), ...(from ? { from } : {}) } },
       reason: `人が提案 ${id} を受け入れたので、${name ? this.call(name) : "控室"}に提案のとおり進めてもらう`,
+    });
+  }
+
+  // 終わった仕事に置かれた伝言（data.to 付きの text）：行を AI の番に戻して、宛てた人を起こし直す。答えは同じ行に帰る。
+  // 動いている仕事は相手が途中で拾うので戻さない（終わったときにもう一度見る）。提案は人が決めるので戻さない
+  _relay(id) {
+    const board = this.store.board, t = board.get(id);
+    if (!t || t.view !== "task" || t.state === "task" || t.state === "proposal" || this.running.has(id)) return;
+    const since = board.history(id).filter((o) => "state" in o.panel).at(-1)?.seq ?? 0;
+    const m = relaysOf(board, id, since).at(-1);
+    if (!m) return;
+    const name = this.resolve(m.data.to);
+    const own = t.data && typeof t.data === "object" && !Array.isArray(t.data) ? t.data : { text: textOf(t.data) };
+    this.store.apply({
+      by: "board",
+      type: "edit",
+      panel: { id, state: "task", ...(name && own.to !== name ? { data: { ...own, to: name } } : {}) },
+      reason: `${name ? this.call(name) : m.data.to}への伝言（${m.id}）が終わった仕事に置かれたので、行を AI の番に戻して渡す`,
     });
   }
 
@@ -459,6 +479,11 @@ function pointNotes(board, says) {
     if (note && !out.includes(note)) out.push(note);
   }
   return out;
+}
+
+// 仕事に about して置かれた、控室の人への伝言（data.to 付きの text。清書係・ボード・人の置いたものは数えない）。since より後のもの
+function relaysOf(board, id, since = 0) {
+  return board.list().filter((p) => p.about === id && p.view === "text" && p.seq > since && typeof p.data?.to === "string" && p.data.to && !isPerson(p.by) && p.by !== "scribe" && p.by !== "board");
 }
 
 // その人がいちばん最近受け持った仕事：宛てられた仕事か、結果を置いた仕事
@@ -610,6 +635,9 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
   const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
   // この行について控室の人が前に置いた結果（面の中身）。同じ仕事の結果は書き換えて、古いものと新しいものを並べない
   const mine = board.list().filter((p) => p.about === task.id && p.view !== "task" && !isPerson(p.by) && !STAFF.has(p.by) && p.state !== "proposal").slice(-5);
+  // 行がいちど帰ったあとに置かれた伝言（ボードが行を戻して起こし直したとき）
+  const returned = board.history(task.id).filter((o) => "state" in o.panel && o.panel.state !== "task").at(-1)?.seq ?? 0;
+  const relays = relaysOf(board, task.id, returned);
   return [
     call === name
       ? `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`
@@ -622,6 +650,7 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     topic ? `話題（${topic.id}）：${typeof topic.data === "string" ? topic.data : topic.data?.title ?? textOf(topic.data)}` : "",
     ...(task.data?.direct ? [] : srcs.map((p) => `元の発言（${p.id}）：${textOf(p.data)}`)),
     ...pointNotes(board, srcs.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
+    ...(relays.length ? [`${returned ? `この行はいちど帰したあと、伝言が届いたので戻ってきました。` : ""}この仕事への伝言です。応えて、答えをこの行に帰します：`, ...relays.map((p) => `- ${p.id}（${p.by}${p.data.to === name || p.data.to === call ? "" : `、${p.data.to} 宛て`}）：${clip(textOf(p.data), 500)}`)] : []),
     task.key ? `この仕事は表の行 ${task.key} です。${parent?.view === "task" ? `行 ${parent.key || parent.id} の面の中から呼ばれました。` : ""}` : "",
     `結果は行に帰します：終わったら panel_edit で仕事 ${task.id} に line（答えの一行。60 字くらいまで）と state done を一度に渡してください。一行に収まるなら、それだけです。新しいパネルは足しません。`,
     `一行に収まらないとき（比べる案がある、人が先に決めることがある、出典を並べる）だけ、詳しいものを about: "${task.id}" で置き、line はその結論の一行にします。行から開ける面になります。人に決めてもらう問いも、そこに短く置きます。`,
