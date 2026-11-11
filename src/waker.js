@@ -2,11 +2,11 @@
 // 同じ仕事を同時に二つ走らせない。清書係は一度に一人。マネージャは、前の整理が済むのを待たずに次の発言を読めるよう、
 // 読む発言を分けて二本（lanes）まで並べる。同じ発言を二本で読むことはない
 import path from "node:path";
-import { isPerson, hasAiAnswer, STAFF, turnOf, layoutOf } from "./board.js";
+import { isPerson, hasAiAnswer, STAFF, turnOf, layoutOf, fixedTile } from "./board.js";
 import { changeLayout, layoutPanel } from "./view.js";
 import { NAMES } from "./crew.js";
 import { wordLine } from "./words.js";
-import { Focus } from "./focus.js";
+import { Focus, GONE } from "./focus.js";
 
 // 起こしっぱなしの会話を起こし直す目安：流し込んだ数と、あいた時間（キャッシュの持ちは 1 時間）。
 // 毎回起こし直すと前置きの一部（約 7 千トークン）が毎回キャッシュに書き直しになるので、清書係もマネージャも会話を続ける。
@@ -54,7 +54,7 @@ export class Waker {
     this.tried = new Map(); // taskId -> 起こしたときの rev（同じ形の仕事で二度起こさない）
     this.direct = new Map(); // 名前 -> { says: [発言の id], timer }（人がアイコンで宛てた発言。間があくか、相手の仕事が終わったら渡す）
     this.listeners = new Set();
-    this.turns = new Map(); // 行の id -> 前に見た番（決まった面を閉じるため）
+    this.foldTimer = null; // 人がいる面を畳むのを待っているあいだ、画面の便りが途絶えたときに見直す
     const last = (by) => store.board.log.filter((op) => op.by === by).at(-1)?.seq ?? 0;
     this.cutoff = last("manager");
     this.scribeCutoff = Math.max(last("scribe"), this.cutoff);
@@ -64,7 +64,7 @@ export class Waker {
     this.off = this.store.onOp((op) => this._onOp(op));
     if (this.session && this._says(this.scribeCutoff).length) this._scheduleScribe();
     if (this._unreadSays()) this._schedule();
-    for (const p of this.store.board.list()) if (p.view === "task") this.turns.set(p.id, turnOf(this.store.board, p));
+    this.offFocus = this.focus.onChange(() => this._closeDecided());
     this._fill();
     this._waits();
     return this;
@@ -72,6 +72,8 @@ export class Waker {
 
   stop() {
     this.off?.();
+    this.offFocus?.();
+    clearTimeout(this.foldTimer);
     clearTimeout(this.timer);
     clearTimeout(this.scribeTimer);
     clearTimeout(this.waitTimer);
@@ -142,18 +144,30 @@ export class Waker {
     }
   }
 
-  // 決まった行・待ちになった行の面は、行に畳む（閉じた面は行からいつでも開き直せる）
+  // 決まった行・待ちになった行の面は、行に畳む（閉じた面は行からいつでも開き直せる）。
+  // 畳むのは、面を開いたあとに行が動いて決まった・待ちになったものだけ（決まった行を開き直したものは畳まない）。
+  // 人がいまその行にいるあいだは待ち、離れたら（人のいま・次の発言・次の操作のどれかで）畳む。待っているものはデータに持たず、毎回導く
   _closeDecided() {
-    const board = this.store.board, lp = layoutPanel(board);
-    const open = new Set(lp ? layoutOf(lp.data, board.panels).out || [] : []);
-    const close = [];
-    for (const p of board.list()) {
-      if (p.view !== "task") continue;
-      const was = this.turns.get(p.id), now = turnOf(board, p);
-      this.turns.set(p.id, now);
-      if (was !== now && (now === "ok" || now === "wait") && open.has(p.id)) close.push(p.id);
+    try {
+      const board = this.store.board, lp = layoutPanel(board);
+      if (!lp) return;
+      const data = layoutOf(lp.data, board.panels);
+      const opened = openedAt(board, lp.id), close = [];
+      let held = false;
+      for (const id of data.out || []) {
+        const p = board.get(id);
+        if (p?.view !== "task" || !["ok", "wait"].includes(turnOf(board, p)) || fixedTile(board.panels, data, id)) continue;
+        const kin = subtree(board, id);
+        if (Math.max(...[...kin].map((k) => board.get(k).rev)) <= (opened.get(id) ?? 0)) continue;
+        if (hereAt(board, this.focus, id, kin)) held = true;
+        else close.push(id);
+      }
+      clearTimeout(this.foldTimer);
+      this.foldTimer = held ? setTimeout(() => this._closeDecided(), GONE + 1000) : null;
+      if (close.length) changeLayout(this.store, "board", { out: Object.fromEntries(close.map((id) => [id, false])) }, "決まった行の面を、人が離れたので行に畳む");
+    } catch (e) {
+      console.error(`面を畳めませんでした：${e.message}`);
     }
-    if (close.length) changeLayout(this.store, "board", { out: Object.fromEntries(close.map((id) => [id, false])) }, "決まった行の面を、行に畳む");
   }
 
   // 条件つきの待ち：日時が来たか、先に済ませる行が済んだら、人の番で帰す
@@ -565,6 +579,44 @@ export function arrivals(board, n = 4) {
     if (p && !out.some((x) => x.p.id === p.id)) out.push({ p, seq: op.seq, at: op.at });
   }
   return out;
+}
+
+// 面が開いた seq：並びの書き換えを順にたどり、いま開いている面ごとに、開いたときの seq
+function openedAt(board, layoutId) {
+  const at = new Map();
+  for (const op of board.history(layoutId)) {
+    if (!("data" in op.panel)) continue;
+    const out = new Set(Array.isArray(op.panel.data?.out) ? op.panel.data.out : []);
+    for (const id of [...at.keys()]) if (!out.has(id)) at.delete(id);
+    for (const id of out) if (!at.has(id)) at.set(id, op.seq);
+  }
+  return at;
+}
+
+// 行と、その中のもの（about をたどって行に着くもの。面に出るもの）
+function subtree(board, id) {
+  const kin = new Set([id]);
+  for (let more = true; more; ) {
+    more = false;
+    for (const p of board.list()) if (p.about && kin.has(p.about) && !kin.has(p.id)) { kin.add(p.id); more = true; }
+  }
+  return kin;
+}
+
+// 人がいまその行にいるか：画面がつながっていて、人がいて、いちばん新しい人の発言がその行か面の中を指している
+// （point か、その発言から出た行の中の仕事）。画面に面も表も見えていなければ、離れた
+function hereAt(board, focus, id, kin) {
+  const c = focus?.current();
+  if (!c || c.data.presence !== "here") return false;
+  const say = board.list().filter((p) => p.view === "say" && isPerson(p.by) && !p.into).at(-1);
+  if (!say) return false;
+  const about = (say.point?.id && kin.has(say.point.id)) || [...kin].some((k) => { const p = board.get(k); return Array.isArray(p.data?.from) && p.data.from.includes(say.id); });
+  if (!about) return false;
+  const shown = [...c.data.viewing, ...c.data.inside];
+  if (!shown.length) return true;
+  const up = new Set(kin);
+  for (let p = board.get(id); p?.about && !up.has(p.about); p = board.get(p.about)) up.add(p.about);
+  return shown.some((k) => up.has(k));
 }
 
 export function managerPrompt(since, board = null, running = [], focus = null, others = []) {

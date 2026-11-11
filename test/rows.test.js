@@ -205,7 +205,7 @@ test("起こし係：決まった行の面は、ボードが行に畳む。返�
   store.apply({ by: "アリス", type: "edit", panel: { id: f, state: "done", line: "案が三つ" }, reason: "結果" });
   assert.deepEqual(layoutOf(store.board.get(lp).data).out, [f], "人の番になっても開いたまま");
   store.apply({ by: "manager", type: "edit", panel: { id: f, decided: "案 1" }, reason: "決まった" });
-  assert.deepEqual(layoutOf(store.board.get(lp).data).out, [], "決まったら閉じる");
+  assert.deepEqual(layoutOf(store.board.get(lp).data).out, [], "決まったら閉じる（画面がつながっていないので、人が離れるのを待たない）");
   assert.equal(store.board.history(lp).at(-1).by, "board");
   w.stop();
 });

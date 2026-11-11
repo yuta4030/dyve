@@ -454,3 +454,79 @@ test("清書係に画面を見せる：表の行・開いている面の見出�
   assert.doesNotMatch(g.sessions[0].sent[2], /画面の言葉/, "変わっていなければ送らない");
   w.stop();
 });
+
+// 決まった行の面：人がその行にいるあいだは畳まず、離れたら畳む
+function faceBoard() {
+  const store = new Store();
+  const w = new Waker({ store, spawn: fakeSpawn().spawn, pause: 1e6, slots: 0 }).start();
+  const ap = (o) => { const r = store.apply(o); assert.ok(r.ok, JSON.stringify(r)); return r.op.panel.id; };
+  const topic = ap({ by: "manager", type: "add", panel: { view: "topic", data: { title: "朝会" } }, reason: "r" });
+  const row = (text) => ap({ by: "manager", type: "add", panel: { view: "task", state: "done", about: topic, line: "案が二つ", data: { text } }, reason: "r" });
+  const a = row("point を直す"), b = row("料金を見る");
+  const inner = ap({ by: "アリス", type: "add", panel: { view: "list", about: a, data: ["案 1", "案 2"] }, reason: "r" });
+  const lp = ap({ by: "human", type: "add", panel: { view: "layout", data: { v: 3, pos: {}, zoom: {}, fold: {}, out: [], pinned: [], inner: { tpos: {}, sizes: {} } } } });
+  const open = (id) => ap({ by: "manager", type: "edit", panel: { id: lp, data: { ...store.board.get(lp).data, out: [...store.board.get(lp).data.out, id] } }, reason: "人がその行の話を始めた" });
+  const out = () => store.board.get(lp).data.out;
+  const say = (text, point) => ap({ by: "human", type: "add", panel: { view: "say", data: text, ...(point ? { point: { id: point, how: "hover" } } : {}) } });
+  const decide = (id) => ap({ by: "manager", type: "edit", panel: { id, decided: "案 1" }, reason: "決まった" });
+  const look = (o = {}) => w.focus.set("tab", { presence: "here", viewing: [topic, a], inside: [inner], talking: [topic], ...o });
+  return { store, w, topic, a, b, inner, lp, open, out, say, decide, look };
+}
+
+test("決まった行の面：人がその面の中を指して話しているあいだは畳まない。別の行の話を始めたら畳む", () => {
+  const { store, w, a, b, inner, lp, open, out, say, decide, look } = faceBoard();
+  open(a);
+  look();
+  say("案 1 でいこう", inner);
+  decide(a);
+  assert.deepEqual(out(), [a], "その面の中にいるあいだは畳まない");
+  look({ talking: [] });
+  assert.deepEqual(out(), [a], "人のいまが変わっても、まだその行にいる");
+  say("料金の話", b);
+  assert.deepEqual(out(), [], "別の行の話を始めたら畳む");
+  assert.equal(store.board.history(lp).at(-1).by, "board");
+  assert.match(store.board.history(lp).at(-1).reason, /離れた/);
+  w.stop();
+});
+
+test("決まった行の面：面が画面から外れたら（人のいまが変わったら）畳む", () => {
+  const { w, a, b, inner, open, out, say, decide, look } = faceBoard();
+  open(a);
+  look();
+  say("案 1 でいこう", inner);
+  decide(a);
+  assert.deepEqual(out(), [a]);
+  look({ viewing: [b], inside: [] });
+  assert.deepEqual(out(), [], "面も表も見えなくなったら畳む");
+  w.stop();
+});
+
+test("決まった行の面：人が離れている（away）ならすぐ畳む", () => {
+  const { w, a, inner, open, out, say, decide, look } = faceBoard();
+  open(a);
+  look({ presence: "away" });
+  say("案 1 でいこう", inner);
+  decide(a);
+  assert.deepEqual(out(), [], "離れているので待たない");
+  w.stop();
+});
+
+test("決まった行の面：人のいまがわからない（画面がつながっていない）ときは、今までどおりすぐ畳む", () => {
+  const { w, a, inner, open, out, say, decide } = faceBoard();
+  open(a);
+  say("案 1 でいこう", inner);
+  decide(a);
+  assert.deepEqual(out(), []);
+  w.stop();
+});
+
+test("決まった行の面：決まったあとに開き直した面は畳まない。人の番の行の面も畳まない", () => {
+  const { w, a, b, open, out, say, decide, look } = faceBoard();
+  decide(a);
+  open(b);
+  open(a);
+  look({ viewing: [], inside: [] });
+  say("ほかの話");
+  assert.deepEqual(out(), [b, a], "開き直したものと、まだ人の番のもの");
+  w.stop();
+});
