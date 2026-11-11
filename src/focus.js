@@ -1,9 +1,10 @@
 // 人のいま：画面が知らせてくる、人がいまどこを見ているか・何の話をしているか・何を見たか。
 // 操作ログには積まない（ボードを変える操作ではない）。最新だけをメモリに持ち、これで誰かを起こすことはしない。
-// 読むのは、別の理由で起きたエージェントだけ（マネージャを起こす文・控室の最初の文・board_read）
+// 読むのは、別の理由で起きたエージェントだけ（マネージャを起こす文・控室の最初の文・board_read）。
+// ボードは、決まった行の面を人が離れてから畳むために、変わったことを聞く（onChange）
 import { isPerson } from "./board.js";
 
-const GONE = 2 * 60 * 1000; // 画面からこれだけ便りがなければ、人はいない
+export const GONE = 2 * 60 * 1000; // 画面からこれだけ便りがなければ、人はいない
 const ids = (v, n) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.length <= 40).slice(0, n) : []);
 const int = (v) => (Number.isInteger(v) ? v : null);
 
@@ -23,6 +24,12 @@ export class Focus {
     this.now = now;
     this.clients = new Map(); // 画面（タブ）ごと：id -> { at, data }
     this.seen = {}; // パネルの id -> 人が見たときの aiSeq（端末をまたいで一つにまとめる）
+    this.listeners = new Set();
+  }
+
+  onChange(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
   }
 
   // 画面から来たものを確かめて持つ。返すのはまとめた seen（ほかの端末で見たものも含む）
@@ -41,6 +48,7 @@ export class Focus {
     if (body.seen && typeof body.seen === "object") {
       for (const [id, n] of Object.entries(body.seen).slice(0, 5000)) if (Number.isInteger(n) && n > (this.seen[id] || 0)) this.seen[id] = n;
     }
+    for (const fn of this.listeners) fn(data);
     return this.seen;
   }
 
