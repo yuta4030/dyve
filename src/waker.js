@@ -52,6 +52,9 @@ export class Waker {
     this.timer = null;
     this.running = new Map(); // taskId -> { name, startedAt, handle }
     this.tried = new Map(); // taskId -> 起こしたときの rev（同じ形の仕事で二度起こさない）
+    // taskId -> { name, role, session, cwd, upto }：その行を前に受け持ったセッション。頼み直しで引き継ぐ。
+    // 操作ログには持たない（dyve を立て直したら忘れ、まっさらで起こす）
+    this.sessions = new Map();
     this.direct = new Map(); // 名前 -> { says: [発言の id], timer }（人がアイコンで宛てた発言。間があくか、相手の仕事が終わったら渡す）
     this.listeners = new Set();
     this.foldTimer = null; // 人がいる面を畳むのを待っているあいだ、画面の便りが途絶えたときに見直す
@@ -342,18 +345,28 @@ export class Waker {
       if (this.running.size >= this.slots) break;
       if (t.state !== "task" || this.running.has(t.id)) continue;
       if (this.tried.get(t.id) === t.rev || hasAiAnswer(board, t.id)) continue;
-      const name = this._pickName(t.data?.to, t.data?.team);
-      if (!name) continue;
-      this.tried.set(t.id, t.rev);
       // data.write が付いた仕事：true は開発（仕事ごとの worktree の中で）、"panels" はパネルの仕事（利用者のパネル置き場で）
       // data.accepted が付いた仕事は、人が受け入れた提案（部屋で、提案の範囲なら外に届くこともする）
       const role = t.data?.accepted ? "act" : t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
-      const handle = this.spawn({ role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) });
+      // 頼み直し：前に同じ役でこの行を受け持った人が空いていれば、その人に（引き継げる）
+      const prev = this.sessions.get(t.id);
+      const name = this._pickName(t.data?.to, t.data?.team, prev?.role === role ? prev.name : null);
+      if (!name) continue;
+      this.tried.set(t.id, t.rev);
+      // 引き継ぐのは、同じ人・同じ役で、前の回のセッション id がわかっているとき（起きる場所が同じかはスポーナーが確かめる）
+      const again = prev && prev.session && prev.name === name && prev.role === role ? prev : null;
+      const job = { role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) };
+      if (again) job.resume = { session: again.session, cwd: again.cwd, prompt: reaskPrompt(board, t, name, this.call(name), this.focus, again.upto) };
+      const upto = board.seq;
+      const handle = this.spawn(job);
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
       handle.done.then((res) => {
         this._count(res);
         this.running.delete(t.id);
+        // セッション id が取れた回だけ覚える（取れなければ、次はまっさらで起こす）
+        if (res?.session) this.sessions.set(t.id, { name, role, session: res.session, cwd: res.cwd ?? null, upto });
+        else this.sessions.delete(t.id);
         if (this.direct.get(name)?.says.length) this._flushDirect(name);
         const cur = this.store.board.get(t.id);
         // 途中経過を置いたあとで落ちた仕事も、待っているように見えたままにしない
@@ -450,13 +463,16 @@ export class Waker {
   }
 
   // team：data.team。そのチームの空いている人に渡す（そのチームの人がいなければ、誰でも）
-  _pickName(wanted, team = null) {
+  // prefer：頼み直しで、前にその行を受け持った人。名前を呼ばれていなければ、決まりの中で空いているならその人に
+  _pickName(wanted, team = null, prefer = null) {
     const busy = new Set([...this.running.values()].map((r) => r.name));
     // 名前を呼ばれた相手が働いているなら、空くまで待つ
     const who = this.resolve(wanted);
     if (who) return busy.has(who) ? null : who;
     const mates = team ? this.names.filter((n) => this.teams[n] === team) : [];
-    return (mates.length ? mates : this.names).find((n) => !busy.has(n));
+    const pool = mates.length ? mates : this.names;
+    if (prefer && pool.includes(prefer) && !busy.has(prefer)) return prefer;
+    return pool.find((n) => !busy.has(n));
   }
 }
 
@@ -709,6 +725,24 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     `時間がかかるときは、途中で line を「いまどこまで来たか」の一行に書き換えます（state は task のまま）。`,
     `面に置くものは数行まで（表なら列は 3〜4、セルは短く）。依頼に返す形が書いてあっても、読む人が一瞥で読める量に絞ります。`,
     ...(mine.length ? [`この行にはあなたたちが前に置いたものがあります。同じことの新しい結果なら、足さずに panel_edit でそれを書き換えます（view も変えてよい）。並べて残しません：`, ...mine.map((p) => `- ${p.id}（${p.view}、${p.by}、rev ${p.rev}）：${clip(textOf(p.data).split("\n")[0], 60)}`)] : []),
+    ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
+  ].filter(Boolean).join("\n");
+}
+
+// 頼み直し（前の回のセッションを引き継いだ相手）への短い文。前の回の調べは会話に残っているので、何が足されたかと、同じ行に帰すことだけ
+// upto：前の回を起こしたときの seq。これより後に人が言ったこと・置いたものを「足されたこと」として渡す
+export function reaskPrompt(board, task, name, call = name, focus = null, upto = 0) {
+  const text = typeof task.data === "string" ? task.data : task.data?.text ?? JSON.stringify(task.data);
+  const from = Array.isArray(task.data?.from) ? task.data.from.map((id) => board.get(id)).filter(Boolean) : [];
+  const near = board.list().filter((p) => p.about === task.id && isPerson(p.by) && p.view !== "task");
+  const added = [...new Map([...from, ...near].filter((p) => p.seq > upto).map((p) => [p.id, p])).values()].sort((a, b) => a.seq - b.seq);
+  return [
+    `${call === name ? "" : `（ボードの上の名前は ${name}）`}同じ仕事 ${task.id}${task.key ? `（表の行 ${task.key}）` : ""}を頼み直されました。前の回の続きです。前に読んだこと・調べたことはこの会話に残っているので、読み直さずに続きから進めてください。`,
+    `いまの頼み：${text}`,
+    added.length ? "前の回のあとに人が足したこと：" : "前の回のあとに人が足した発言はありません。いまの頼みと、ボードの行（board_read）を見て続けてください。",
+    ...added.map((p) => `- ${p.id}：${textOf(p.data)}`),
+    ...pointNotes(board, added.flatMap((p) => [p, ...board.list().filter((q) => q.into === p.id)])).map((n) => `人はそのとき ${n}${n.endsWith(HOW.pick) ? "" : "（手がかり。話が合わなければ無視する）"}`),
+    `結果は同じ行に帰します：終わったら panel_edit で仕事 ${task.id} に line と state done を一度に渡します。新しいパネルは足しません。前の回に置いたものを直すなら、足さずに panel_edit で書き換えます。`,
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
   ].filter(Boolean).join("\n");
 }
