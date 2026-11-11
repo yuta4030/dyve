@@ -204,6 +204,17 @@ test("要点に拾われた発言：項目の from から、合流した発言�
   assert.equal(landedOf(null, head).size, 0);
 });
 
+test("面を畳む：行は人が決めたときだけ。AI が返しただけ（人の番）では畳まない", () => {
+  const pick = (re) => html.match(re)[0];
+  const src = [pick(/^const isRow = .*$/m), pick(/^function turnOf\([\s\S]*?^}$/m), pick(/^const isDone = .*$/m)].join("\n");
+  const isDone = new Function("S", `${src}; return isDone;`)({ panels: [] });
+  const row = { view: "task", key: "C", state: "done", line: "返った", lineSeq: 5 };
+  assert.equal(isDone(row), false, "返ってきただけ");
+  assert.equal(isDone({ ...row, decided: "今日やる", decidedSeq: 6 }), true, "決まった");
+  assert.equal(isDone({ view: "task", state: "done" }), true, "行でない仕事は state done");
+  assert.equal(isDone({ view: "topic", state: "done" }), true);
+});
+
 test("行の 2 段目：行の下のどの深さの提案と、AI の番の仕事も拾う。済んだものは拾わない", () => {
   const src = html.match(/^function subOf\([\s\S]*?^}$/m)[0];
   const panels = [

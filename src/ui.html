@@ -330,7 +330,8 @@ dv-summary li[data-from]:hover { text-decoration: underline dotted; }
 .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .body ul { margin: 0; padding-left: 1.2em; white-space: normal; }
 .body table { border-collapse: collapse; font-size: 13px; width: 100%; white-space: normal; display: block; overflow-x: auto; }
-.body th, .body td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+.body th, .body td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; min-width: 4em; }
+.body th:first-child, .body td:first-child { min-width: 6em; max-width: 16em; }
 .body pre { margin: 0; font-size: 12px; overflow-x: auto; }
 .orig { margin-top: 6px; font-size: 13px; color: var(--mute); border-left: 2px solid var(--line); padding-left: 8px; white-space: pre-wrap; }
 .task-to { color: var(--mute); font-size: 13px; }
@@ -1520,7 +1521,8 @@ const tileOf = (k) => $(`.tile[data-tile="${CSS.escape(k)}"]`);
 // 置き場所：覚えたもの（baseOf）。畳んだものは見出しの高さだけを占める（posOf）。覚えるのはいつも元の大きさ
 const baseOf = (k) => ({ ...(HOME[k] || AUTO[k] || { x: 1, y: 1, w: 8, h: 8 }), ...LAYOUT.pos?.[k] });
 const panelById = (id) => S.panels.find((p) => p.id === id);
-const isDone = (p) => (p?.view === "task" || p?.view === "topic") && p.state === "done";
+// 済み：話題と、行でない仕事は state done。行は人が決めたとき（turn ok）。AI が返しただけ（人の番）の行は、読んでいる途中なので済みにしない
+const isDone = (p) => (isRow(p) ? turnOf(p) === "ok" : (p?.view === "task" || p?.view === "topic") && p.state === "done");
 const descOf = (id, kids) => kids(id).flatMap((k) => [k, ...descOf(k.id, kids)]);
 // 畳む：見る人が決めたものはそのまま。決めていなければ、済みの仕事と話題を畳む（中に印があれば畳まない）。
 // いまの要点と「いま」は既定で畳む（表と行が同じことを持つ。なくさないので、開けばいつでも読める）
@@ -1638,6 +1640,9 @@ function autoLayout(pos) {
   const seq = lead.flatMap((k) => [k, ...order.filter((f) => faceOf(f) === k)]).concat(order.filter((f) => faceOf(f) && !lead.includes(faceOf(f))));
   const table = S.talking?.[0] && panelById(S.talking[0])?.view === "topic" && S.panels.some((p) => p.about === S.talking[0] && isRow(p)) ? S.talking[0] : null;
   const free = (q) => q.x >= 1 && q.x + q.w <= dens() + 1 && !taken.some((o) => overlap(q, o));
+  // 面は浮いているパネル（トーク・いま など）の下に出さない。いま見ているところで、浮いたものが覆うます目を避ける
+  const floats = floatCells(m);
+  const clear = (q) => free(q) && !floats.some((o) => overlap(q, o));
   const side = {};
   // いまの表とその面を先頭に
   if (table && seq.includes(table)) {
@@ -1654,14 +1659,22 @@ function autoLayout(pos) {
     if (!q && tp) {
       const n = side[faceOf(k)] || { right: tp.x + tp.w, left: tp.x, yr: tp.y, yl: tp.y };
       side[faceOf(k)] = n;
-      // 面の幅は、表の脇に入る幅まで縮める（一画面の 1/4 より狭くはしない）
-      const wr = dens() + 1 - n.right, wl = n.left - 1, min = Math.round(dens() / 4);
-      const r = { x: n.right, y: n.yr, w: wr >= min ? Math.min(w[k], wr) : w[k], h: h[k] };
-      const lw = wl >= min ? Math.min(w[k], wl) : w[k], l = { x: n.left - lw, y: n.yl, w: lw, h: h[k] };
+      // 面の幅は中身から決める（表の列・箇条書きが読める幅）。脇がそれより狭ければ、脇には置かない
+      const need = Math.min(w[k], Math.max(2, Math.ceil((groupPx(k) + m.gap) / m.sx)));
+      const wr = dens() + 1 - n.right, wl = n.left - 1;
+      const rw = clamp(Math.min(w[k], wr), need, w[k]), lw = clamp(Math.min(w[k], wl), need, w[k]);
+      const r = { x: n.right, y: n.yr, w: rw, h: h[k] }, l = { x: n.left - lw, y: n.yl, w: lw, h: h[k] };
       // 左と右に交互に（右上には浮いたパネルが積まれるので左から）。同じ側に二つめは、前の面の下へ
-      const tryR = free(r), tryL = free(l);
+      const tryR = clear(r), tryL = clear(l);
       if (tryL && (!tryR || (n.nl || 0) <= (n.nr || 0))) { q = l; n.yl += h[k]; n.nl = (n.nl || 0) + 1; }
       else if (tryR) { q = r; n.yr += h[k]; n.nr = (n.nr || 0) + 1; }
+      // どちらの脇にも入らなければ、表のすぐ下に（表の左端から右へずらして、中身の幅で）
+      for (let y = tp.y + tp.h; !q && y < tp.y + tp.h + 400; y++) {
+        for (let x = clamp(tp.x, 1, dens() + 1 - w[k]); !q && x <= Math.max(tp.x, dens() + 1 - w[k]); x++) {
+          const b = { x, y, w: w[k], h: h[k] };
+          if (clear(b)) q = b;
+        }
+      }
     }
     if (!q) q = fit(taken, w[k], h[k], past(k) ? floor : 1);
     if (!past(k)) floor = Math.max(floor, q.y + q.h);
@@ -1670,6 +1683,17 @@ function autoLayout(pos) {
     taken.push(q);
   }
   return pos;
+}
+// 浮いているパネルがいま覆っているます目（並びの座標で）。まだ一度も並べていないとき・狭い画面では空
+function floatCells(m) {
+  if (!CANVAS.homed || narrow()) return [];
+  const st = stage.getBoundingClientRect(), z = CANVAS.z || 1;
+  const vx = stage.scrollLeft / (m.sx * z) + CANVAS.ox, vy = stage.scrollTop / (m.sy * z) + CANVAS.oy;
+  return FLOATS.filter((k) => isFloat(k) && tileOf(k)?.getClientRects().length).map((k) => {
+    const r = tileOf(k).getBoundingClientRect();
+    const x = Math.floor(vx + (r.left - st.left) / (m.sx * z)), y = Math.floor(vy + (r.top - st.top) / (m.sy * z));
+    return { x, y, w: Math.max(1, Math.ceil(vx + (r.right - st.left) / (m.sx * z)) - x), h: Math.max(1, Math.ceil(vy + (r.bottom - st.top) / (m.sy * z)) - y) };
+  });
 }
 const dens = () => (DENSITY[LAYOUT.density] ? LAYOUT.density : 24);
 // 中身の拡大率。浮かせたときの分は別に持つ（ボードで小さくしていても、浮かせると読める大きさに戻る）

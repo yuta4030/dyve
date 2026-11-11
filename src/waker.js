@@ -600,6 +600,8 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
   const prev = task.data?.after ? board.get(task.data.after) : null;
   const parent = above?.view === "task" ? above : null;
   const prevOut = prev ? board.list().filter((p) => p.about === prev.id && p.by === name).slice(-5) : [];
+  // この行について控室の人が前に置いた結果（面の中身）。同じ仕事の結果は書き換えて、古いものと新しいものを並べない
+  const mine = board.list().filter((p) => p.about === task.id && p.view !== "task" && !isPerson(p.by) && !STAFF.has(p.by) && p.state !== "proposal").slice(-5);
   return [
     call === name
       ? `あなたは控室のタスクエージェント「${name}」です。ボードの仕事 ${task.id} を受け持ちました。`
@@ -616,6 +618,8 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     `結果は行に帰します：終わったら panel_edit で仕事 ${task.id} に line（答えの一行。60 字くらいまで）と state done を一度に渡してください。一行に収まるなら、それだけです。新しいパネルは足しません。`,
     `一行に収まらないとき（比べる案がある、人が先に決めることがある、出典を並べる）だけ、詳しいものを about: "${task.id}" で置き、line はその結論の一行にします。行から開ける面になります。人に決めてもらう問いも、そこに短く置きます。`,
     `時間がかかるときは、途中で line を「いまどこまで来たか」の一行に書き換えます（state は task のまま）。`,
+    `面に置くものは数行まで（表なら列は 3〜4、セルは短く）。依頼に返す形が書いてあっても、読む人が一瞥で読める量に絞ります。`,
+    ...(mine.length ? [`この行にはあなたたちが前に置いたものがあります。同じことの新しい結果なら、足さずに panel_edit でそれを書き換えます（view も変えてよい）。並べて残しません：`, ...mine.map((p) => `- ${p.id}（${p.view}、${p.by}、rev ${p.rev}）：${clip(textOf(p.data).split("\n")[0], 60)}`)] : []),
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
   ].filter(Boolean).join("\n");
 }
