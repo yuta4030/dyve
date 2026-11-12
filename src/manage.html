@@ -286,10 +286,13 @@ function thumb(v) {
   return `<div class="thumb">${inner}<button class="hit" data-zoom="${esc(v.name)}" aria-label="${esc(L.zoom(v.name))}" title="${esc(L.zoom(v.name))}"></button></div>`;
 }
 const THEME = ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--accent-soft", "--warn", "--warn-soft", "--ok"];
+// 囲いの中から外へは出さない：読めるのは中に書いたスクリプトと style、data: の絵だけ。外のサーバーへの通信（fetch・絵・フォント・スクリプト）は通さない
+// （view はボードの全部を読めるので、外へ送れると持ち出しになる）。囲いごと別のページへ移ることは、ページの側の frame-src（サーバーが付ける）で止める
+const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
 const RUNTIME = `window.dyve = (() => {
   let fn = null, n = 0;
   const wait = new Map(), root = document.getElementById("root"), init = JSON.parse(document.getElementById("init").textContent);
-  const ctx = { panel: init.panel, board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }), open: () => {} };
+  const ctx = { panel: init.panel, board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }), open: () => {}, send: () => {}, select: () => {}, selected: null };
   const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch {} };
   new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
   addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
@@ -309,7 +312,7 @@ async function fillFrame(f, v) {
   const vars = THEME.map((k) => `${k}:${cs.getPropertyValue(k)}`).join(";");
   const init = JSON.stringify({ data: v.sample, panel: { id: "preview", view: v.name, data: v.sample } }).replace(/</g, "\\u003c");
   const safe = String(src).replace(/<\/(script)/gi, "<\\/$1");
-  f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{${vars};color-scheme:dark}html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}</style>` +
+  f.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><style>:root{${vars};color-scheme:dark}html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}</style>` +
     `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe}<\/script></body>`;
 }
 // 大きく出す：見本のデータをそのままの大きさで。Esc・✕・外を押すと閉じる

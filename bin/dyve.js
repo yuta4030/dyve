@@ -12,7 +12,7 @@ import { ensurePanels, offViews } from "../src/panels.js";
 import { Waker } from "../src/waker.js";
 import { spawn as spawnChild } from "node:child_process";
 import { loadCrew, readConfig, ensureCrew, namesOf, initialsOf, callsOf, teamsOf, checkName } from "../src/crew.js";
-import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT, runningMeta, commitOf } from "../src/agents.js";
+import { claudeSpawner, claudeSession, updateApp, integrate, isAppOf, claudeMissing, ROOT, runningMeta, commitOf, agentOn } from "../src/agents.js";
 import { Words } from "../src/words.js";
 import { findBrowser, screenshot } from "../src/shot.js";
 import { createServer } from "../src/server.js";
@@ -204,6 +204,9 @@ if (cmd === "serve" && !process.env.DYVE_CHILD) {
   }
 } else if (cmd === "put" || cmd === "add") {
   // 画面と同じ口（/api/op）から、人として書く。手元のスクリプトや shell から何でも流し込める
+  // このボードが起こしたエージェントの中からは書かせない（人の操作として残ってしまう）。エージェントは MCP の道具で書く
+  const agent = agentOn(args.port);
+  if (agent) die(`${agent} として起きているので、dyve ${cmd} では書けない（人の操作として残るため）。ボードには MCP（board）の道具で書く`);
   const readStdin = () => (process.stdin.isTTY ? Promise.resolve(null) : new Promise((ok) => {
     let s = "";
     process.stdin.setEncoding("utf8");

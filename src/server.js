@@ -16,6 +16,8 @@ const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui.html");
 // 画面の版。立て直して変わっていたら、開いたままのタブは読み直す（古い画面が、知らない項目を消して書き戻さないように）
 const BUILD = crypto.createHash("sha1").update(fs.readFileSync(UI)).digest("hex").slice(0, 12);
 const MANAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), "manage.html");
+// 画面のページ。利用者の view の囲い（srcdoc の iframe）が、別のページへ移って外へ出ることを止める（囲いの中身そのものは srcdoc なので描ける）
+const PAGE = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "frame-src 'none'" };
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 // desk：ボードを切り替えるときに使う（なければ一枚だけ）。{ current(), list(), open(name), create() }
@@ -66,12 +68,12 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
 
     try {
       if (req.method === "GET" && url.pathname === "/") {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.writeHead(200, PAGE);
         return res.end(fs.readFileSync(UI));
       }
       // 管理のページ：ボードの一覧とパネルの一覧
       if (req.method === "GET" && (url.pathname === "/boards" || url.pathname === "/panels")) {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.writeHead(200, PAGE);
         return res.end(fs.readFileSync(MANAGE));
       }
       // 人のいま：画面が知らせてくる（ログには積まず、誰も起こさない）。返すのは端末をまたいでまとめた「見た」印

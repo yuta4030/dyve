@@ -285,3 +285,23 @@ test("約束：操作ログ。0.7.0 が書いたログを当て直せて、話�
   assert.deepEqual(layoutOf(board.list().find((p) => p.view === "layout").data).out, [tasks[0].id]);
   assert.equal(board.apply({ by: "アリス", type: "edit", panel: { id: tasks[1].id, line: "続き" }, reason: "x" }).ok, true);
 });
+
+test("発言を元にした書き換え：どの発言に何と応えたか（heard）をボードが導く。あとで書き換わっても、そのときの言葉を持つ", () => {
+  const b = new Board();
+  const say = (t) => b.apply({ by: "human", type: "add", panel: { view: "say", data: t } }).op.panel.id;
+  const topic = b.apply({ by: "manager", type: "add", panel: { view: "topic", data: { title: "朝会", note: "はじめた" } }, reason: "x" }).op.panel.id;
+  const row = b.apply({ by: "manager", type: "add", panel: { view: "task", state: "done", about: topic, data: { text: "A" }, line: "どうする？" }, reason: "x" }).op.panel.id;
+  const s1 = say("A は今日やる"), s2 = say("今日はここまで");
+  const d = b.apply({ by: "manager", type: "edit", panel: { id: row, decided: "今日やる" }, from: [s1], reason: "決めた" });
+  assert.deepEqual(b.get(row).heard, { from: [s1], seq: d.op.seq, by: "manager", text: "今日やる" });
+  const n = b.apply({ by: "manager", type: "edit", panel: { id: topic, data: { title: "朝会", note: "A は今日。終わり" } }, from: [s2], reason: "締め" });
+  assert.deepEqual(b.get(topic).heard, { from: [s2], seq: n.op.seq, by: "manager", text: "A は今日。終わり" });
+  // from のない書き換えでは変わらない。言葉のない書き換え（state だけ）でも変わらない
+  b.apply({ by: "manager", type: "edit", panel: { id: topic, data: { title: "朝会", note: "あとで直した" } }, reason: "直す" });
+  b.apply({ by: "manager", type: "edit", panel: { id: row, wait: { text: "明日まで" } }, from: [s2], reason: "待ち" });
+  assert.equal(b.get(topic).heard.text, "A は今日。終わり");
+  assert.equal(b.get(row).heard.text, "今日やる");
+  // 当て直しても同じ。操作ログの形は変わらない（from は操作に付く）
+  assert.deepEqual(new Board(b.log).get(row).heard, b.get(row).heard);
+  assert.deepEqual(Object.keys(d.op).sort(), ["at", "by", "from", "panel", "reason", "seq", "type"]);
+});

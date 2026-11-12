@@ -22,9 +22,11 @@ const html = fs.readFileSync(here("../src/ui.html"), "utf8");
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "dyve-contract-"));
 
 // CLI を子プロセスで走らせる。設定は空の場所を指す（利用者の ~/.dyve を読まない）
-function dyve(args, { stdin = "", home = tmp() } = {}) {
+// 人の手元として走らせる（このテストがエージェントの中で走っていても、その環境変数は持ち込まない）。env で足せる
+function dyve(args, { stdin = "", home = tmp(), env = {} } = {}) {
   return new Promise((ok) => {
-    const p = spawn(process.execPath, [CLI, ...args], { env: { ...process.env, HOME: home, USERPROFILE: home } });
+    const { DYVE_AGENT, DYVE_BOARD, ...base } = process.env;
+    const p = spawn(process.execPath, [CLI, ...args], { env: { ...base, HOME: home, USERPROFILE: home, ...env } });
     let out = "", err = "";
     p.stdout.on("data", (c) => (out += c));
     p.stderr.on("data", (c) => (err += c));
@@ -145,6 +147,17 @@ test("約束：CLI。引数と終了コード（成功は 0、エラーは 1 と
     const bad = await dyve(["put", "nai", "--port", port], { stdin: "x" });
     assert.equal(bad.code, 1);
     assert.ok(bad.err.trim());
+    // このボードが起こしたエージェントの中からは、put・add で人として書けない（終了コード 1 と stderr。何も書かれない）
+    const seq = store.board.seq, inside = { DYVE_AGENT: "アリス", DYVE_BOARD: `http://127.0.0.1:${port}` };
+    for (const args of [["put", id, "--port", port], ["add", "--view", "text", "--port", port]]) {
+      const no = await dyve(args, { stdin: "中から", env: inside });
+      assert.deepEqual([no.code, no.out], [1, ""], args[0]);
+      assert.match(no.err, /アリス/);
+    }
+    assert.equal(store.board.seq, seq);
+    // 別のボードから起こされたエージェント（試しに立てたボードへ書くとき）は、今までどおり書ける
+    const other = await dyve(["put", id, "--port", port], { stdin: "外から", env: { ...inside, DYVE_BOARD: "http://127.0.0.1:1" } });
+    assert.deepEqual([other.code, store.board.get(id).data], [0, "外から"]);
   });
   const down = await dyve(["put", "p1", "--port", "1"], { stdin: "x" });
   assert.equal(down.code, 1);
@@ -201,11 +214,18 @@ test("約束：利用者の view の書き方（dyve.view、ctx、色、囲い�
   assert.match(runtime, /window\.dyve = /);
   assert.match(runtime, /return \{ view: /);
   assert.match(runtime, /fn\(root, init\.data, ctx\)/, "fn(el, data, ctx)");
-  for (const k of ["panel", "board", "open", "send"]) assert.match(runtime, new RegExp(`\\b${k}: `), `ctx.${k}`);
+  for (const k of ["panel", "board", "open", "send", "select", "selected"]) assert.match(runtime, new RegExp(`\\b${k}: `), `ctx.${k}`);
   const theme = html.match(/const THEME = (\[.*?\]);/)[1];
   for (const v of ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--accent-soft", "--warn", "--ok"]) assert.ok(theme.includes(`"${v}"`), v);
   // 囲いは allow-scripts だけ（ボードの API に触れない）
   assert.match(html, /f\.setAttribute\("sandbox", "allow-scripts"\);/);
+  // 囲いの中から外のサーバーへは通信できない（中に書いたスクリプトと style、data: の絵だけ）。管理のページの囲いも同じ
+  for (const page of [html, fs.readFileSync(here("../src/manage.html"), "utf8")]) {
+    const csp = page.match(/const FRAME_CSP = "([^"]+)";/)[1];
+    assert.match(csp, /^default-src 'none';/);
+    assert.doesNotMatch(csp, /https?:|\*|connect-src|'self'/);
+    assert.match(page, /f\.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="\$\{FRAME_CSP\}">/);
+  }
   // 置き場の決まり：views/<名前>.js
   const dir = path.join(tmp(), "panels");
   ensurePanels(dir);
