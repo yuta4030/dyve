@@ -219,6 +219,13 @@ test("約束：利用者の view の書き方（dyve.view、ctx、色、囲い�
   for (const v of ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--accent-soft", "--warn", "--ok"]) assert.ok(theme.includes(`"${v}"`), v);
   // 囲いは allow-scripts だけ（ボードの API に触れない）
   assert.match(html, /f\.setAttribute\("sandbox", "allow-scripts"\);/);
+  // 囲いの中から外のサーバーへは通信できない（中に書いたスクリプトと style、data: の絵だけ）。管理のページの囲いも同じ
+  for (const page of [html, fs.readFileSync(here("../src/manage.html"), "utf8")]) {
+    const csp = page.match(/const FRAME_CSP = "([^"]+)";/)[1];
+    assert.match(csp, /^default-src 'none';/);
+    assert.doesNotMatch(csp, /https?:|\*|connect-src|'self'/);
+    assert.match(page, /f\.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="\$\{FRAME_CSP\}">/);
+  }
   // 置き場の決まり：views/<名前>.js
   const dir = path.join(tmp(), "panels");
   ensurePanels(dir);

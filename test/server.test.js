@@ -36,6 +36,16 @@ test("画面から来る操作は人のもの", async () => {
   });
 });
 
+test("画面のページ：利用者の view の囲いが、別のページへ移って外へ出ることを止める", async () => {
+  await withServer(async ({ base }) => {
+    for (const page of ["/", "/panels", "/boards"]) {
+      const r = await fetch(`${base}${page}`);
+      assert.equal(r.status, 200, page);
+      assert.equal(r.headers.get("content-security-policy"), "frame-src 'none'", page);
+    }
+  });
+});
+
 test("別のサイトからの書き込みは断る", async () => {
   await withServer(async ({ base }) => {
     const r = await post(`${base}/api/op`, { type: "add", panel: { view: "say", data: "x" } }, { origin: "https://evil.example" });
