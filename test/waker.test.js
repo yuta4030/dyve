@@ -377,7 +377,74 @@ test("途中経過を置いたあとで落ちた仕事にも止まったこと�
   job(b).finish({ code: 0 });
   await tick();
   assert.match(store.board.get(a).line, /途中で止まりました（終了コード 1：You've hit your 5-hour limit）/);
-  assert.equal(store.board.history(b).some((o) => o.by === "board"), false);
+  // 結果を置いたあと、行を task のまま終えても宙づりにしない。止まった文は残さず、行は done に帰す
+  assert.equal(store.board.get(b).state, "done");
+  assert.equal(store.board.get(b).line, undefined);
+  assert.equal(store.board.history(b).at(-1).by, "board");
+  w.stop();
+});
+
+test("走り終えたあと task のまま（答えの一行だけ）の仕事は、done に帰す。あとから届いた伝言で、同じ行を起こし直す", async () => {
+  // 報告の形：行に「Y の答え待ち」と書いて task のまま終わる。Y の答えは、そのあとで中継される
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "実装する" } }, reason: "x" }).op.panel.id;
+  const jobs = () => f.jobs.filter((j) => j.taskId === t);
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, line: "B の答え待ち" }, reason: "待つ" });
+  jobs()[0].finish();
+  await tick();
+  assert.equal(store.board.get(t).state, "done", "宙づりにしない");
+  assert.equal(store.board.get(t).line, "B の答え待ち");
+  assert.equal(jobs().length, 1);
+  // 人の番ではなく、AI が帰した行として読めること（読むだけ）
+  // 中継が届いたら、同じ行をもう一度起こす
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "B の答えです" } }, reason: "中継" });
+  assert.equal(store.board.get(t).state, "task");
+  assert.equal(jobs().length, 2);
+  assert.match(jobs()[1].prompt, /B の答えです/);
+  w.stop();
+});
+
+test("走っているあいだに届いた伝言は、帰さずに続けて起こす（終わったあとの取りこぼしをしない）", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "実装する" } }, reason: "x" }).op.panel.id;
+  const jobs = () => f.jobs.filter((j) => j.taskId === t);
+  // 走っているあいだに、行に答えを一行帰して、伝言を置く
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, line: "途中" }, reason: "途中経過" });
+  store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "B の答えです" } }, reason: "中継" });
+  jobs()[0].finish();
+  await tick();
+  assert.equal(store.board.get(t).state, "task", "伝言が残っているので、帰さない");
+  assert.equal(jobs().length, 2, "続けて起こす");
+  assert.match(jobs()[1].prompt, /B の答えです/);
+  w.stop();
+});
+
+test("自分の伝言（同じ人が about に to 付きで置いたもの）では起こし続けない", async () => {
+  const store = new Store();
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる" } }, reason: "x" }).op.panel.id;
+  store.apply({ by: "アリス", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "自分への覚え" } }, reason: "覚える" });
+  f.jobs[0].finish();
+  await tick();
+  assert.equal(f.jobs.filter((j) => j.taskId === t).length, 1);
+  assert.equal(store.board.get(t).state, "done");
+  w.stop();
+});
+
+test("立て直したとき、答えがあるのに task のまま残った仕事は、行に帰す", async () => {
+  const store = new Store();
+  const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "実装する" } }, reason: "x" }).op.panel.id;
+  store.apply({ by: "アリス", type: "edit", panel: { id: t, line: "途中で落ちた" }, reason: "途中" });
+  const f = fakeSpawn();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  assert.equal(store.board.get(t).state, "done");
+  assert.equal(store.board.get(t).line, "途中で落ちた");
+  assert.equal(f.jobs.length, 0, "答えのある行は起こさない");
   w.stop();
 });
 

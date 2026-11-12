@@ -52,6 +52,8 @@ export class Waker {
     this.timer = null;
     this.running = new Map(); // taskId -> { name, startedAt, handle }
     this.tried = new Map(); // taskId -> 起こしたときの rev（同じ形の仕事で二度起こさない）
+    // taskId -> { upto, name }：最後に起こしたとき（その時点の seq と、起こした人）。そのあとに届いた伝言が、まだ渡していないもの
+    this.started = new Map();
     // taskId -> { name, role, session, cwd, upto }：その行を前に受け持ったセッション。頼み直しで引き継ぐ。
     // 操作ログには持たない（dyve を立て直したら忘れ、まっさらで起こす）
     this.sessions = new Map();
@@ -68,6 +70,7 @@ export class Waker {
     if (this.session && this._says(this.scribeCutoff).length) this._scheduleScribe();
     if (this._unreadSays()) this._schedule();
     this.offFocus = this.focus.onChange(() => this._closeDecided());
+    this._recover();
     this._fill();
     this._waits();
     return this;
@@ -338,13 +341,38 @@ export class Waker {
     });
   }
 
+  // 立て直し：dyve が止まったあいだに、答えはあるのに task のまま残った仕事は、宙づりにせず行に帰す（待っている伝言があれば、_fill が起こす）
+  _recover() {
+    const board = this.store.board;
+    for (const t of board.list()) {
+      if (t.view !== "task" || t.state !== "task" || this.running.has(t.id)) continue;
+      if (!hasAiAnswer(board, t.id) || this._relayPending(t.id)) continue;
+      this._settle(t.id, t.line ? null : "dyve を立て直したとき、途中で終わっていました", "dyve を立て直したとき、走り終えていた仕事を行に帰す");
+    }
+  }
+
+  // 走り終えた（または立て直した）仕事を、task のまま残さない。line を変えるときは text を行に、なければ行はそのまま
+  _settle(id, line, reason) {
+    const panel = { id, state: "done", ...(line ? { line: line.slice(0, 200) } : {}) };
+    return this.store.apply({ by: "board", type: "edit", panel, reason });
+  }
+
+  // 起こしたあとに届いた伝言（まだ渡していないもの）。起こした人の text は数えない（自分の伝言で起こし続けない）
+  _relayPending(id) {
+    const board = this.store.board;
+    const last = this.started.get(id);
+    const since = last?.upto ?? (board.history(id).filter((o) => "state" in o.panel).at(-1)?.seq ?? 0);
+    return relaysOf(board, id, since).some((p) => p.by !== last?.name);
+  }
+
   _fill() {
     const board = this.store.board;
     let changed = false;
     for (const t of board.list()) {
       if (this.running.size >= this.slots) break;
       if (t.state !== "task" || this.running.has(t.id)) continue;
-      if (this.tried.get(t.id) === t.rev || hasAiAnswer(board, t.id)) continue;
+      // 走り終えたあとに伝言が届いていれば、答えがあっても起こす（答えのある行を、伝言で拾い直せるように）
+      if (!this._relayPending(t.id) && (this.tried.get(t.id) === t.rev || hasAiAnswer(board, t.id))) continue;
       // data.write が付いた仕事：true は開発（仕事ごとの worktree の中で）、"panels" はパネルの仕事（利用者のパネル置き場で）
       // data.accepted が付いた仕事は、人が受け入れた提案（部屋で、提案の範囲なら外に届くこともする）
       const role = t.data?.accepted ? "act" : t.data?.write === true ? "dev" : t.data?.write === "panels" ? "panels" : "task";
@@ -358,6 +386,7 @@ export class Waker {
       const job = { role, name, taskId: t.id, board: this.board, prompt: taskPrompt(board, t, name, this.call(name), this.focus) };
       if (again) job.resume = { session: again.session, cwd: again.cwd, prompt: reaskPrompt(board, t, name, this.call(name), this.focus, again.upto) };
       const upto = board.seq;
+      this.started.set(t.id, { upto, name });
       const handle = this.spawn(job);
       this.running.set(t.id, { name, startedAt: new Date().toISOString(), handle });
       changed = true;
@@ -369,13 +398,14 @@ export class Waker {
         else this.sessions.delete(t.id);
         if (this.direct.get(name)?.says.length) this._flushDirect(name);
         const cur = this.store.board.get(t.id);
-        // 途中経過を置いたあとで落ちた仕事も、待っているように見えたままにしない
-        const answered = hasAiAnswer(this.store.board, t.id);
-        if (cur && cur.state === "task" && (res?.error || !answered)) {
-          // 止まったことは行に帰す（人の番：止まったのを知る）。行を書き換えられなければ、仕事について置く
+        // 走り終えて行がまだ task なら、宙づりにしない。走っているあいだに伝言が届いていれば、帰さずに _fill で続けて起こす
+        if (cur && cur.state === "task" && !this._relayPending(t.id)) {
+          // 途中経過を置いたあとで落ちた仕事も、待っているように見えたままにしない。止まったことは行に帰す（人の番：止まったのを知る）
+          const answered = hasAiAnswer(this.store.board, t.id);
+          const stopped = res?.error || !answered;
           const text = `${this.call(name)} は${answered ? "途中で止まりました" : "結果を置かずに終わりました"}${res?.error ? `（${res.error}）` : ""}`;
-          const back = this.store.apply({ by: "board", type: "edit", panel: { id: t.id, state: "done", line: text.slice(0, 200) }, reason: "仕事が落ちたままにならないように、止まったことを行に帰す" });
-          if (!back.ok) this.store.apply({ by: "board", type: "add", panel: { view: "text", about: t.id, data: text }, reason: "仕事が落ちたままにならないように" });
+          const back = this._settle(t.id, stopped ? text : null, stopped ? "仕事が落ちたままにならないように、止まったことを行に帰す" : "走り終えた仕事を task のまま残さないように、行を帰す");
+          if (!back.ok && stopped) this.store.apply({ by: "board", type: "add", panel: { view: "text", about: t.id, data: text }, reason: "仕事が落ちたままにならないように" });
         }
         this._relay(t.id); // 帰したあと、終わるまでのあいだに置かれた伝言
         this._fill();
@@ -725,6 +755,7 @@ export function taskPrompt(board, task, name, call = name, focus = null) {
     `結果は行に帰します：終わったら panel_edit で仕事 ${task.id} に line（答えの一行。60 字くらいまで）と state done を一度に渡してください。一行に収まるなら、それだけです。新しいパネルは足しません。`,
     `一行に収まらないとき（比べる案がある、人が先に決めることがある、出典を並べる）だけ、詳しいものを about: "${task.id}" で置き、line はその結論の一行にします。行から開ける面になります。人に決めてもらう問いも、そこに短く置きます。`,
     `時間がかかるときは、途中で line を「いまどこまで来たか」の一行に書き換えます（state は task のまま）。`,
+    `ほかの人や行の答えを待つことになったら、ここで止まらず、line に待っていることを書いて state done で終えます。答えが届くと、伝言で起こし直されます（task のまま終えると、誰も起こしません）。`,
     `面に置くものは数行まで（表なら列は 3〜4、セルは短く）。依頼に返す形が書いてあっても、読む人が一瞥で読める量に絞ります。`,
     ...(mine.length ? [`この行にはあなたたちが前に置いたものがあります。同じことの新しい結果なら、足さずに panel_edit でそれを書き換えます（view も変えてよい）。並べて残しません：`, ...mine.map((p) => `- ${p.id}（${p.view}、${p.by}、rev ${p.rev}）：${clip(textOf(p.data).split("\n")[0], 60)}`)] : []),
     ...(focus ? ["人のいま（受け持ったときのもの）：", ...focus.lines(board)] : []),
