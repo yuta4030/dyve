@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { claudeArgs, claudeSpawner, updateApp, workspace, integrate, isAppOf, claudeMissing } from "../src/agents.js";
+import { claudeArgs, claudeSpawner, updateApp, workspace, integrate, isAppOf, claudeMissing, agentEnv, agentOn } from "../src/agents.js";
 import { Store } from "../src/store.js";
 import { Waker } from "../src/waker.js";
 
@@ -199,7 +199,7 @@ function fakeClaude(dir) {
   fs.writeFileSync(cmd, `#!/usr/bin/env node
 const fs = require("node:fs");
 const a = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ args: a, cwd: process.cwd() }) + "\\n");
+fs.appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ args: a, cwd: process.cwd(), agent: process.env.DYVE_AGENT, board: process.env.DYVE_BOARD }) + "\\n");
 const r = a.indexOf("--resume");
 if (r >= 0 && a[r + 1] === "gone") { process.stderr.write("No conversation found with session ID: gone\\n"); process.exit(1); }
 process.stdout.write(JSON.stringify({ type: "result", result: "ok", session_id: r >= 0 ? a[r + 1] : "s-new", usage: { input_tokens: 1 } }));
@@ -208,6 +208,22 @@ process.stdout.write(JSON.stringify({ type: "result", result: "ok", session_id: 
   const runs = () => fs.readFileSync(seen, "utf8").trim().split("\n").map((l) => JSON.parse(l));
   return { cmd, runs };
 }
+
+test("起こしたエージェントには、誰として・どのボードから起こされたかを環境変数で渡す（中から人として書かせないため）", async () => {
+  const { dir, room } = repo();
+  const f = fakeClaude(dir);
+  const spawn = claudeSpawner({ cmd: f.cmd, room, staff: path.join(dir, "staff"), workDir: path.join(dir, "work"), boardUrl: "http://127.0.0.1:4740" });
+  await spawn({ role: "task", name: "アリス", taskId: "p9", prompt: "x" }).done;
+  assert.deepEqual([f.runs()[0].agent, f.runs()[0].board], ["アリス", "http://127.0.0.1:4740"]);
+  assert.deepEqual(agentEnv({ name: "ボブ" }, "http://127.0.0.1:1", { PATH: "/bin" }), { PATH: "/bin", DYVE_AGENT: "ボブ", DYVE_BOARD: "http://127.0.0.1:1" });
+  // そのボードから起こされたエージェントの中か：同じポートならその名前。別のボード（試しに立てたものなど）なら null
+  const env = { DYVE_AGENT: "アリス", DYVE_BOARD: "http://127.0.0.1:4740" };
+  assert.equal(agentOn("4740", env), "アリス");
+  assert.equal(agentOn(4740, env), "アリス");
+  assert.equal(agentOn("4741", env), null);
+  assert.equal(agentOn("4740", {}), null, "人の手元（環境変数がない）");
+  assert.equal(agentOn("4741", { DYVE_AGENT: "アリス" }), "アリス", "どのボードかわからなければ、人として書かせない方に倒す");
+});
 
 test("頼み直しの引き継ぎ：--resume は print モードの json のときだけ、前の回のセッション id で付く", () => {
   const a = claudeArgs({ role: "task", name: "ボブ", prompt: "続けて", resume: "s-1" }, "http://x");

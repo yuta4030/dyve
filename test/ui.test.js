@@ -271,3 +271,53 @@ test("指す先：表の行の上なら行、ほかはパネル", () => {
   assert.equal(pointTarget(el({ panel })), panel);
   assert.equal(pointTarget(null), null);
 });
+
+test("トークの返事：発言を元に持つ行・AI の text と、発言に about した AI の text を、新しい順に導く", () => {
+  const repliesOf = fnOf("repliesOf")();
+  const opts = { head: (id) => (id === "s0" ? "s1" : id), working: (id) => id === "busy", words: { busy: "取りかかっています…", wait: "受け取りました" } };
+  const ps = [
+    { id: "s1", view: "say", by: "human", data: "予定は？", seq: 1 },
+    { id: "s2", view: "say", by: "human", data: "今なにか待ち？", seq: 2 },
+    // 行：帰った一行（合流した発言 s0 は先頭の s1 に読み替える）
+    { id: "row", view: "task", key: "A", about: "t", by: "manager", state: "done", data: { text: "予定を出して", from: ["s0"], to: "アリス" }, line: "予定は 2 件", lineBy: "アリス", lineSeq: 5, seq: 3 },
+    // 行について置いた答え（from 付きの text）
+    { id: "ans", view: "text", about: "row", by: "manager", data: { text: "13 日と 14 日です", from: ["s1"] }, seq: 7 },
+    // 発言に about した答え
+    { id: "ans2", view: "text", about: "s2", by: "manager", data: "待ちは 1 件", seq: 8 },
+    // 数えないもの：伝言・人が置いた text・ボードが置いたもの・from のいちばん後ろが別の発言
+    { id: "msg", view: "text", about: "s2", by: "manager", data: { to: "アリス", text: "続き" }, seq: 9 },
+    { id: "sent", view: "text", about: "s2", by: "human", data: "送った", seq: 10 },
+    { id: "brd", view: "text", about: "s2", by: "board", data: "止まりました", seq: 11 },
+    { id: "later", view: "task", key: "B", about: "t", by: "manager", state: "task", data: { text: "x", from: ["s2", "s9"] }, seq: 12 },
+  ];
+  assert.deepEqual(repliesOf(ps[0], ps, opts).map((r) => [r.id, r.who, r.text, r.wait]), [["ans", "manager", "13 日と 14 日です", false], ["row", "アリス", "予定は 2 件", false]]);
+  assert.deepEqual(repliesOf(ps[1], ps, opts).map((r) => r.id), ["ans2"]);
+  // まだ帰っていない行：動いていれば「取りかかっています…」、まだなら「受け取りました」。結果を置かずに済んだ行は出さない
+  const row = (id, state) => ({ id, view: "task", key: "C", about: "t", by: "manager", state, data: { text: "x", from: ["s3"], to: "ボブ" }, seq: 3 });
+  const s3 = { id: "s3", view: "say", by: "human", seq: 1 };
+  assert.deepEqual(repliesOf(s3, [row("busy", "task")], opts).map((r) => [r.who, r.text, r.wait]), [["ボブ", "取りかかっています…", true]]);
+  assert.deepEqual(repliesOf(s3, [row("idle", "task")], opts).map((r) => r.text), ["受け取りました"]);
+  assert.deepEqual(repliesOf(s3, [row("gone", "done")], opts), []);
+  // 宛てた発言の直接の仕事（行でない）：相手が最初に置いた短い文へ
+  const direct = [
+    { id: "d", view: "task", about: "s3", by: "board", state: "task", data: { text: "やって", to: "アリス", direct: true, from: ["s3"] }, seq: 2 },
+    { id: "d1", view: "text", about: "d", by: "アリス", data: "わかりました", seq: 3 },
+    { id: "d2", view: "text", about: "d", by: "アリス", data: "できました。長い結果…", seq: 4 },
+  ];
+  assert.deepEqual(repliesOf(s3, direct, opts).map((r) => [r.id, r.who, r.text]), [["d1", "アリス", "わかりました"]]);
+  assert.deepEqual(repliesOf(s3, direct.slice(0, 1), opts).map((r) => [r.id, r.text, r.wait]), [["d", "受け取りました", true]]);
+});
+
+test("トークの返事：アイコンで宛てたかを問わずに出し、押すと閉じた面の中まで開いて見せる。溢れても潰れない", () => {
+  assert.match(html, /const rs = repliesOf\(p, S\.panels,/);
+  assert.doesNotMatch(html, /if \(p\.to\) \{\s*const t = S\.panels\.find/, "宛てた発言だけに限らない");
+  // 返事が複数あれば、新しいもの一行と「ほか N 件」
+  assert.match(html, /REPLY_OPEN\.has\(p\.id\) \? rs : rs\.slice\(0, 1\)/);
+  assert.match(html, /replyMore: \(n\) => `ほか \$\{n\} 件`/);
+  // 押した先が描かれていなければ、いちばん近い行の面を開く（人が押したときだけ）
+  const show = html.match(/^function showPanel\([\s\S]*?^}$/m)[0];
+  assert.match(show, /if \(isRow\(u\)\) \{ if \(!faceOpen\(u\.id\)\) takeOut\(u\.id\); break; \}/);
+  assert.match(html, /if \(go\) \{\s*showPanel\(go\);/);
+  // トークは縦に詰める flex。返事が縮んで見えなくならないように
+  assert.match(html, /\.reply \{ display: flex; flex: none;/);
+});

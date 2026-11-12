@@ -91,3 +91,39 @@ test("面の頭は番の一語。済み・知らせの印は並べない。受�
   // 結果が返ってきただけでは面を開かない（開くのは人とマネージャ）
   assert.doesNotMatch(take(/^function benchBox\([\s\S]*?^}$/m), /takeOut|LAYOUT\.out/);
 });
+
+test("面：控室の人への伝言（data.to 付きの text）は主役にせず、残りのいちばん後ろに畳む", () => {
+  const ps = [
+    { id: "c", view: "task", key: "C", seq: 1 },
+    { id: "cal", view: "days", about: "c", by: "アリス", seq: 2 },
+    { id: "tbl", view: "table", about: "c", by: "アリス", seq: 3 },
+    { id: "m1", view: "text", about: "c", by: "manager", data: { to: "アリス", text: "続きを作って" }, seq: 4 },
+    { id: "m2", view: "text", about: "c", by: "manager", data: { to: "アリス", text: "まだ？" }, seq: 5 },
+    { id: "h", view: "text", about: "c", by: "human", data: "送った入力", seq: 6 },
+  ];
+  // 印が付いていても、伝言は畳む（人が読むものではない。開けばいつでも読める）
+  const plan = benchPlan(ps[0], ps, kidsOf(ps), turn, { marked: () => true });
+  assert.equal(plan.main.p.id, "tbl", "いちばん新しくても、伝言は主役にしない");
+  assert.deepEqual(plan.rest.map((x) => x.p.id), ["h", "cal", "m2", "m1"], "結果が先、伝言は後ろ");
+  assert.deepEqual([...plan.fold], ["m2", "m1"]);
+  // 伝言しかなければ主役はない（どれも消さずに並べる）
+  const only = benchPlan(ps[0], [ps[0], ps[3], ps[4]], kidsOf([ps[0], ps[3], ps[4]]), turn);
+  assert.equal(only.main, null);
+  assert.deepEqual(only.rest.map((x) => x.p.id), ["m2", "m1"]);
+  // 伝言が開いておく数（新しい 3 つ）を使わない
+  const many = [ps[0], ...["r1", "r2", "r3", "r4"].map((id, i) => ({ id, view: "list", about: "c", by: "アリス", seq: 10 + i })), ...["n1", "n2", "n3"].map((id, i) => ({ id, view: "text", about: "c", by: "manager", data: { to: "アリス", text: "x" }, seq: 20 + i }))];
+  const p2 = benchPlan(many[0], many, kidsOf(many), turn);
+  assert.equal(p2.main.p.id, "r4");
+  assert.deepEqual([...p2.fold], ["n3", "n2", "n1"], "結果は三つとも開いたまま");
+});
+
+test("面の中を押しても面は閉じない：開く・閉じるのは ▸ のボタンだけ", () => {
+  // 面の箱に data-face を付けると、中のどこを押しても「面を閉じる」に化ける
+  const box = take(/^function benchBox\([\s\S]*?^}$/m);
+  assert.doesNotMatch(box, /dataset\.face/);
+  assert.match(box, /box\.dataset\.bench = t\.id/);
+  assert.match(html, /e\.target\.closest\("button\[data-face\]"\)/);
+  assert.doesNotMatch(html, /closest\("\[data-face\]"\)/);
+  // data-face を持つのはボタンだけ
+  for (const m of html.matchAll(/<(\w+)[^<>]*\sdata-face=/g)) assert.equal(m[1], "button");
+});

@@ -111,6 +111,18 @@ export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = 
   ];
 }
 
+// 起こしたエージェントに、誰として・どのボードから起こされたかを環境変数で渡す。エージェントの中で打った dyve put・dyve add は、
+// これを見て、そのボードへ人として書くのを断る（人が許可した source・send のコマンドはサーバーが走らせるので、付かない）
+export const agentEnv = (job, boardUrl, env = process.env) => ({ ...env, DYVE_AGENT: job.name, DYVE_BOARD: boardUrl });
+// いまのプロセスが、そのポートのボードから起こされたエージェントの中にいるなら、その名前（いなければ null）
+export function agentOn(port, env = process.env) {
+  if (!env.DYVE_AGENT) return null;
+  let own = null;
+  try { own = new URL(env.DYVE_BOARD).port; } catch {}
+  // どのボードかわからないときは、同じボードとみなす（人として書かせない方に倒す）
+  return own == null || own === String(port) ? env.DYVE_AGENT : null;
+}
+
 // 開発の仕事の作業場：部屋（git リポジトリ）のいまの HEAD から、仕事ごとのブランチと worktree を切り出す。
 // 名前は「ボード名-仕事の id-時刻」（id はボードごとに p1 から振られるので、ボード名で分ける）。
 // 同じ仕事でもう一度起こされたら、同じ作業場を使い続ける
@@ -298,7 +310,7 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
     let child;
     const done = new Promise((resolve) => {
       try {
-        child = nodeSpawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+        child = nodeSpawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentEnv(job, boardUrl) });
       } catch (e) {
         resolve({ code: -1, error: e.message, session: null, cwd });
         return;
@@ -374,7 +386,7 @@ export function claudeSession({ cmd = "claude", room = process.cwd(), staff = ro
     let pending = null, buf = "", cost = 0, child;
     const finish = (r) => { const p = pending; pending = null; p?.(r); };
     try {
-      child = nodeSpawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+      child = nodeSpawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"], env: agentEnv(job, boardUrl) });
     } catch (e) {
       s.alive = false;
       s.send = async () => ({ code: -1, error: e.message });
