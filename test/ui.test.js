@@ -349,3 +349,31 @@ test("選ぶ：利用者の view で選んだものは、同じものについ�
   assert.doesNotMatch(fn, /\bop\(|fetch\(|PENDING|sendOut/);
   assert.match(html, /m\.dyve === "select"/);
 });
+
+test("トークの返事：発言を元にした書き換え（決めたこと・いまどこまで）、伝言を宛てた仕事のそのあと。頼み直した行は前の一行を返事にしない", () => {
+  const repliesOf = fnOf("repliesOf")();
+  const opts = { working: (id) => id === "busy", words: { busy: "取りかかっています…", wait: "受け取りました" } };
+  const say = (id) => ({ id, view: "say", by: "human", seq: 1 });
+  const got = (s, ps) => repliesOf(say(s), ps, opts).map((r) => [r.id, r.who, r.text, r.wait]);
+  // 決めた：行の記号つき。行の一行（別の発言から出た）と混ぜない
+  const row = { id: "a", view: "task", key: "A", about: "t", by: "manager", state: "done", data: { text: "x", from: ["s1"] }, line: "予定は 2 件", lineBy: "アリス", lineSeq: 5, decided: "今日やる", decidedSeq: 9, heard: { from: ["s2"], seq: 9, by: "manager", text: "今日やる" }, seq: 3 };
+  assert.deepEqual(got("s2", [row]), [["a", "manager", "A　今日やる", false]]);
+  assert.deepEqual(got("s1", [row]), [["a", "アリス", "予定は 2 件", false]]);
+  // 話題のいまどこまで
+  const topic = { id: "t", view: "topic", by: "manager", data: { title: "予定", note: "13 日で決まり" }, heard: { from: ["s3"], seq: 12, by: "manager", text: "13 日で決まり" }, seq: 2 };
+  assert.deepEqual(got("s3", [topic]), [["t", "manager", "13 日で決まり", false]]);
+  // 同じ発言で行を立てて一行も書いた：同じ一言を二度出さない
+  const q = { id: "q", view: "task", key: "B", about: "t", by: "manager", state: "done", data: { text: "x", from: ["s4"] }, line: "要るか？", lineBy: "manager", lineSeq: 14, heard: { from: ["s4"], seq: 14, by: "manager", text: "要るか？" }, seq: 13 };
+  assert.deepEqual(got("s4", [q]).map((r) => r[2]), ["要るか？"]);
+  // 頼み直した行：新しい一行が帰るまでは「受け取りました」「取りかかっています…」。帰ったらその一行
+  const again = (id, lineSeq) => ({ id, view: "task", key: "C", about: "t", by: "manager", state: "task", taskSeq: 20, data: { text: "確かめて", from: ["s1", "s5"], to: "ボブ" }, line: "前の答え", lineBy: "ボブ", lineSeq, seq: 3 });
+  assert.deepEqual(got("s5", [again("idle", 10)]), [["idle", "ボブ", "受け取りました", true]]);
+  assert.deepEqual(got("s5", [again("busy", 10)]), [["busy", "ボブ", "取りかかっています…", true]]);
+  assert.deepEqual(got("s5", [again("busy", 22)]), [["busy", "ボブ", "前の答え", true]], "頼み直したあとの一行は、途中の一行");
+  // 伝言：宛てた行のそのあと。伝言より前の一行は返事にしない
+  const msg = { id: "m", view: "text", about: "r", by: "manager", data: { to: "アリス", text: "続きを作って", from: ["s6"] }, seq: 30 };
+  const r = (state, lineSeq) => ({ id: "r", view: "task", key: "D", about: "t", by: "manager", state, data: { text: "x", from: ["s1"], to: "アリス" }, line: "できました", lineBy: "アリス", lineSeq, seq: 3 });
+  assert.deepEqual(got("s6", [r("task", 8), msg]), [["r", "アリス", "受け取りました", true]]);
+  assert.deepEqual(got("s6", [r("done", 33), msg]), [["r", "アリス", "できました", false]]);
+  assert.deepEqual(got("s6", [r("done", 8), msg]), [], "宛てた相手が何も返さずに終えたら、出さない");
+});

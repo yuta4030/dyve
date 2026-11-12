@@ -781,8 +781,10 @@ function rowEl(t) {
 }
 
 // ── トークの返事：発言のすぐ下に、その発言から出たものの結末を一行ずつ出す。データに持たず、ボードから導く ──
-// 対象：その発言を元に持つ（data.from のいちばん後ろ。合流した発言は先頭に読み替える）仕事と AI の text、その発言に about した AI の text。
-// 行は帰った一行（まだなら、いまどこまで）、行でない仕事は受けた人が最初に置いた短い文、text はその文。新しい順に返す：[{ id, who, text, wait }]
+// 対象：その発言を元に持つ（data.from のいちばん後ろ。合流した発言は先頭に読み替える）仕事と AI の text、その発言に about した AI の text、
+// その発言を元にした書き換え（panel_edit の from。ボードが heard に導く：決めたこと・話題のいまどこまで）。
+// 行は帰った一行（まだなら、いまどこまで）、行でない仕事は受けた人が最初に置いた短い文、text はその文、伝言は宛てた仕事のその後。
+// 新しい順に返す：[{ id, who, text, wait }]
 // say：発言。panels：ボードの全部。head(id)：合流先。person(by)：人か。working(id)：動いているか。words：{ busy, wait }
 function repliesOf(say, panels, { head = (id) => id, person = (by) => by === "human", working = () => false, words = { busy: "", wait: "" } } = {}) {
   const from = (x) => (Array.isArray(x.data?.from) ? x.data.from.filter((id) => typeof id === "string").map(head) : []);
@@ -790,18 +792,37 @@ function repliesOf(say, panels, { head = (id) => id, person = (by) => by === "hu
   const ai = (x) => !person(x.by) && x.by !== "board";
   const str = (d) => (typeof d === "string" ? d : typeof d?.text === "string" ? d.text : "");
   const pending = (t) => (working(t.id) ? words.busy : t.state === "done" ? "" : words.wait);
+  // 行のいまの一言：since より後に帰った一行（頼み直したあとなら、そのあとの一行）。まだなら、いまどこまで
+  const rowNow = (t, since) => {
+    const fresh = !!t.line && (t.lineSeq || 0) >= since;
+    const text = fresh ? t.line : pending(t);
+    return text ? { id: t.id, who: (fresh && t.lineBy) || t.data?.to || t.by, text, wait: !fresh || t.state === "task", seq: (fresh && t.lineSeq) || since || t.seq || 0 } : null;
+  };
+  // 行でない仕事（宛てた発言の直接の仕事など）：受けた人が since より後に最初に置いた短い文
+  const taskNow = (t, since) => {
+    const ans = panels.find((q) => q.about === t.id && q.view === "text" && ai(q) && !q.data?.to && (q.seq || 0) >= since && str(q.data));
+    const text = ans ? str(ans.data) : pending(t);
+    return text ? { id: ans ? ans.id : t.id, who: ans?.by || t.data?.to || t.by, text, wait: !ans, seq: (ans || t).seq || 0 } : null;
+  };
   const out = [];
   for (const x of panels) {
-    if (x.id === say.id || !mine(x)) continue;
+    if (x.id === say.id) continue;
+    // その発言を元にした書き換え：決めたこと（行の記号つき）・話題のいまどこまで
+    const h = x.heard && Array.isArray(x.heard.from) && x.heard.from.map(head).at(-1) === say.id && x.heard.text ? x.heard : null;
+    if (h) out.push({ id: x.id, who: h.by, text: x.key && x.decided === h.text ? `${x.key}　${h.text}` : h.text, wait: false, seq: h.seq || 0 });
+    if (!mine(x)) continue;
     if (x.view === "task" && x.key) {
-      // 行：帰った一行。まだなら、いまどこまで
-      const text = x.line || pending(x);
-      if (text) out.push({ id: x.id, who: (x.line && x.lineBy) || x.data?.to || x.by, text, wait: !x.line, seq: (x.line && x.lineSeq) || x.seq || 0 });
+      const r = rowNow(x, x.state === "task" ? x.taskSeq || 0 : 0);
+      // 同じ発言への書き換え（決めた）と同じ一言を二度出さない
+      if (r && !(h && r.text === h.text)) out.push(r);
+    } else if (x.view === "text" && ai(x) && x.data?.to) {
+      // 伝言：宛てた仕事の、そのあとのこと
+      const t = panels.find((q) => q.id === x.about);
+      const r = t?.view === "task" ? (t.key ? rowNow(t, x.seq || 0) : taskNow(t, x.seq || 0)) : null;
+      if (r) out.push({ ...r, seq: Math.max(r.seq, x.seq || 0) });
     } else if (x.view === "task") {
-      // 行でない仕事（宛てた発言の直接の仕事など）：受けた人が最初に置いた短い文
-      const ans = panels.find((q) => q.about === x.id && q.view === "text" && ai(q) && !q.data?.to && str(q.data));
-      const text = ans ? str(ans.data) : pending(x);
-      if (text) out.push({ id: ans ? ans.id : x.id, who: ans?.by || x.data?.to || x.by, text, wait: !ans, seq: (ans || x).seq || 0 });
+      const r = taskNow(x, 0);
+      if (r) out.push(r);
     } else if (x.view === "text" && ai(x) && !x.data?.to && str(x.data)) {
       // 答えの text（伝言は数えない）
       out.push({ id: x.id, who: x.by, text: str(x.data), wait: false, seq: x.seq || 0 });

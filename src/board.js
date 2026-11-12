@@ -391,6 +391,12 @@ export class Board {
       if (p.state === "task") next.taskSeq = op.seq;
       if (p.decided != null) next.decidedSeq = op.seq;
       if (!isPerson(op.by)) next.aiSeq = op.seq;
+      // 人の発言を元にした書き換え（from）：どの発言に、何と応えたかを導く（トークのその発言の下に返事として出す）。
+      // 応えた一言は、そのとき書いた decided・line・話題の note。あとで書き換わっても、そのときの言葉を持つ
+      if (op.from && !isPerson(op.by)) {
+        const text = p.decided ?? p.line ?? (typeof p.data?.note === "string" ? p.data.note : null);
+        if (typeof text === "string" && text) next.heard = { from: [...op.from], seq: op.seq, by: op.by, text };
+      }
       this.panels.set(p.id, next);
       if ("about" in p || "view" in p) this._rekey(p.id);
     } else if (op.type === "drop") {
