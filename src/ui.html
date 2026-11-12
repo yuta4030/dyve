@@ -507,7 +507,7 @@ const L = {
   replyWait: "受け取りました", replyBusy: "取りかかっています…",
   toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
   toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
-  send: "置く", placeholder: "話すか書く（止まると置かれます。Enter でもすぐ置く）",
+  send: "置く", placeholder: "話すか書く（書いたら Enter で置く。声は止まると置かれます）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
@@ -564,7 +564,7 @@ const L = {
     readZoomPct: ["読める大きさ", "%", "これより小さく縮めて映っているものは、見たことにしない"],
   },
 };
-// しゃべり流し：入力が止まってからこの時間がたつと送る（ミリ秒）
+// しゃべり流し：声の入力が止まってからこの時間がたつと送る（ミリ秒）。キーボードで書いたものは Enter まで待つ
 const STREAM_PAUSE = 2500;
 // 組み込みのパネル（ボードの操作ログには持たず、画面が描く）。並びの key はこの名前か、パネルの id
 // 前の版にあった「いまの要点」と「いま」の枠はなくした（表と行が同じことを持つ）。前の版が置いた要点（summary）は、ふつうのパネルとして並ぶ
@@ -2993,9 +2993,12 @@ $("#newBoard").onclick = () => { if (confirm(L.newBoardAsk)) boardsDo({ action: 
 $("#seenAll").onclick = () => { for (const p of S.panels) if (p.aiSeq) S.seen[p.id] = p.aiSeq; saveSeen(); render(); };
 
 // ── 流し込む：しゃべり流し（間があいたら送る）と、ブラウザの音声認識 ──
-// 書いても OS の音声入力でも、止まって間があいたら置く。マイクは確定したらすぐ置く
+// OS の音声入力は、止まって間があいたら置く。キーボードで書いたものは Enter で置く（書きかけを勝手に送らない）。マイクは確定したらすぐ置く
+// キーボードか声かは、入力の直前にキーが押されたかで見分ける（OS の音声入力はキーを押さずに文字が入る）
 const msg = $("#msg");
-let timer = null, composing = false, sending = false;
+let timer = null, composing = false, sending = false, lastKey = 0, typed = false;
+const byKey = () => Date.now() - lastKey < 300;
+msg.addEventListener("keydown", () => { lastKey = Date.now(); });
 const arm = () => { clearTimeout(timer); timer = setTimeout(send, STREAM_PAUSE); };
 async function send() {
   if (composing || sending) return arm();
@@ -3013,13 +3016,14 @@ async function send() {
   PT.cur = msg.value.trim() ? pointNow() : undefined;
   grow();
   showPoint();
-  if (msg.value.trim()) arm();
+  if (msg.value.trim() && !typed) arm();
 }
 // 入力欄は一行から、書いたぶんだけ伸びる
 const grow = () => { msg.style.height = "auto"; msg.style.height = `${msg.scrollHeight + 2}px`; };
-msg.addEventListener("input", () => { notePoint(); grow(); arm(); });
+// キーで書いたら、声で待っていた送りも止める（直しているところを送らない）
+msg.addEventListener("input", () => { notePoint(); grow(); typed = byKey(); if (typed) clearTimeout(timer); else arm(); });
 msg.addEventListener("compositionstart", () => { composing = true; });
-msg.addEventListener("compositionend", () => { composing = false; arm(); });
+msg.addEventListener("compositionend", () => { composing = false; if (!byKey() && !typed) arm(); });
 // Enter で置く。改行は Shift+Enter
 // 宛先：状況のアイコンを押すと決まり、もう一度押すか ✕ か Esc で外れる。外すまで続く
 function setTo(name) {
