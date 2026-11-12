@@ -33,13 +33,15 @@ dyve.view((el, data, ctx) => {
   - \`ctx.panel\`：パネル（id・by・view・about…）
   - \`ctx.board()\`：ボードのパネル全部（Promise）
   - \`ctx.open(id)\`：ボードのそのパネルを見せる
+  - \`ctx.select(値)\`：この view の中で人が選んだもの（予定の一件、札の一枚）を知らせる。同じものについてのパネル（about が同じか、互いに about）に届く。ボードには書かれず、何も走らない
+  - \`ctx.selected\`：届いた選ばれたもの（\`{ from: 選んだパネルの id, value }\`。なければ null）。これを読む view（ソースに selected と書いてある view）は、選ばれるたびに描き直される。選ぶ view と詳しく描く view を別のパネルにして組み合わせる（見本の days と detail）
   - \`ctx.send(値)\`：パネルの送り出し（下の「外への送り出し方」）に、これを送りたいと頼む。view は自分では送れない。送る中身がパネルの下に出て、人が「送る」を押すと走る
 - 描く場所は囲い（sandbox の iframe）の中。外のページやボードの API には触れない。外のスクリプトや CDN は読まない
 - 色は CSS 変数で：\`--bg\` \`--card\` \`--ink\` \`--mute\` \`--line\` \`--accent\` \`--accent-soft\` \`--warn\` \`--ok\`
 - 高さは中身に合わせて自動で決まる
 - \`<style>\` は view の中で書いてよい（\`el.innerHTML\` に含める）
 - ファイルの頭のコメントに、データの形を書いておく。エージェントは view を選ぶとき、ここを読む
-- 見本（bars・cards・change・tree・days）は dyve が配る。新しい見本は、まだ配っていないものだけ足す（\`.samples\` に記録する。消したものや同じ名前のものは上書きしない）
+- 見本（bars・cards・change・tree・days・detail）は dyve が配る。新しい見本は、まだ配っていないものだけ足す（\`.samples\` に記録する。消したものや同じ名前のものは上書きしない）
 
 ## データの流し込み方
 
@@ -65,7 +67,7 @@ dyve.view((el, data, ctx) => {
 
 // 配る見本の view（汎用のものだけ。本体の view には足さない）。中身は src/samples/<名前>.js、管理の絵に使う見本のデータは src/samples/data.json
 const SAMPLE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "samples");
-export const SAMPLES = ["bars", "cards", "change", "tree", "days"];
+export const SAMPLES = ["bars", "cards", "change", "tree", "days", "detail"];
 export const sampleSource = (name) => fs.readFileSync(path.join(SAMPLE_DIR, `${name}.js`), "utf8");
 export function sampleData() {
   try { return JSON.parse(fs.readFileSync(path.join(SAMPLE_DIR, "data.json"), "utf8")); } catch { return {}; }

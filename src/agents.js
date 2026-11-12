@@ -258,6 +258,7 @@ export function panelsNote(dir) {
     "- まず README.md を読み、view の書き方に従います。view は views/<名前>.js に一つずつ置きます",
     "- 書いたら `git add` と `git commit` でコミットします（履歴があるので戻せます）。push はしません",
     "- 書き終えたら、その view を使うパネルをボードに置くか、頼まれたパネルの view を書き換えて、すぐ見えるようにします",
+    "- 押したら詳細を出すような読むだけの見せ方は、選ぶ view と詳しく描く view を別のパネルにして、同じものに about して並べます。選ぶ側は `ctx.select(値)` を呼び、描く側は `ctx.selected`（{ from, value }）を読みます（見本の days と detail）。送り出し（send）は使いません",
     "- shell コマンドでデータを流し込むなら、パネルの source に { shell, every } を書きます。走らせてよいかは人が決めるので、人が「実行を許可」を押すまで走りません",
     "- 結果は仕事に about して短く置き（何を作ったか、view の名前、どのパネルか）、仕事を done にします。すぐ見えて話して直せるので、提案にはしません",
   ].join("\n");

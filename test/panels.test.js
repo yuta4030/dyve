@@ -89,10 +89,10 @@ test("見本の配り方：すでにある置き場には、まだ配ってい�
   git("-c", "user.name=t", "-c", "user.email=t@x", "commit", "-q", "-m", "前の版");
   ensurePanels(dir);
   const names = listViews(dir).map((v) => v.name).sort();
-  assert.deepEqual(names, ["cards", "change", "days"], "bars は前に配ったので戻さない。tree は消したので戻さない");
+  assert.deepEqual(names, ["cards", "change", "days", "detail"], "bars は前に配ったので戻さない。tree は消したので戻さない");
   assert.match(readView(dir, "cards"), /自分の札/, "同じ名前のものは上書きしない");
   assert.equal(readView(dir, "change"), sampleSource("change"));
-  assert.match(git("log", "--format=%s", "-1"), /見本の view を足す：change・days/);
+  assert.match(git("log", "--format=%s", "-1"), /見本の view を足す：change・days・detail/);
   assert.equal(git("status", "--porcelain").trim(), "", "足したものと記録は履歴に積む");
   // 足したものを消しても、もう一度は配らない
   fs.rmSync(path.join(dir, "views", "change.js"));
@@ -116,8 +116,32 @@ test("見本の view：形の違うデータが来ても投げずに何か描き
       assert.ok(el.innerHTML.length > 0, `${name} が ${JSON.stringify(d)} で何か描く`);
     }
   }
+  // 選ぶ：days は押した予定を ctx.select で知らせ（日付つき。ほかの項目もそのまま）、detail は ctx.selected を詳しく描く
+  const load = (name) => { let f = null; new Function("dyve", sampleSource(name))({ view: (x) => { f = x; } }); return f; };
+  const picked = [], cal = { innerHTML: "", querySelectorAll: () => [] };
+  load("days")(cal, [{ date: "2026-11-13", items: [{ id: "a", text: "朝会", time: "10:00", 場所: "会議室 B" }, "取り込み"] }], { panel: { id: "p1" }, select: (v) => picked.push(v) });
+  const hit = (i) => ({ target: { closest: () => ({ dataset: { i }, classList: { add() {} } }) } });
+  cal.onclick(hit("0:0"));
+  cal.onclick(hit("0:1"));
+  cal.onclick({ target: { closest: () => null } });
+  assert.deepEqual(picked, [{ date: "2026-11-13", id: "a", text: "朝会", time: "10:00", 場所: "会議室 B" }, { date: "2026-11-13", text: "取り込み" }]);
+  assert.doesNotMatch(sampleSource("days"), /\bselected\b/, "選ぶ側は、選ばれたものを読まない（押しても描き直されない）");
+  const det = (data, value) => { const el = { innerHTML: "" }; load("detail")(el, data, { panel: { id: "p2" }, selected: value === undefined ? null : { from: "p1", value } }); return el.innerHTML.replace(/<style>[\s\S]*?<\/style>/, ""); };
+  assert.match(det(null), /ほかのパネルで選ぶと/);
+  const one = det(null, picked[0]);
+  assert.match(one, /<h4>朝会<\/h4>/);
+  assert.match(one, /<dt>場所<\/dt><dd>会議室 B<\/dd>/);
+  assert.doesNotMatch(one, /<dt>id<\/dt>/, "見た目のための項目は並べない");
+  // data に詳しい中身があれば、選ばれたものの id で引いて重ねる（見出しは選ばれたもの、本文は data）
+  const more = det({ a: { text: "議題は三つ", 持ち物: ["資料", "PC"] } }, picked[0]);
+  assert.match(more, /<h4>朝会<\/h4><p>議題は三つ<\/p>/);
+  assert.match(more, /<dt>持ち物<\/dt><dd>資料、PC<\/dd>/);
+  assert.match(det([{ id: "x", title: "X の件" }], "x"), /<h4>X の件<\/h4>/, "文字列で選ばれたら、それ自体で引く");
+  assert.match(det(null, "<b>"), /<h4>&lt;b&gt;<\/h4>/, "中身はそのまま HTML にしない");
   const dir = ensurePanels(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-panels-")), "panels"));
   const about = Object.fromEntries(describeViews(dir).map((v) => [v.name, v.about]));
+  assert.match(about.detail, /ctx\.selected/);
+  assert.match(fs.readFileSync(path.join(dir, "README.md"), "utf8"), /ctx\.select\(値\)/);
   assert.match(about.change, /data は \{ title/);
   assert.ok(!about.change.includes("dyve.view"), "コメントのところだけ");
 });

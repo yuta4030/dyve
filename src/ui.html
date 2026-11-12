@@ -491,7 +491,7 @@ const L = {
   turnWord: { ai: "AI の番", you: "あなたの番", back: "帰った", ok: "決まった", wait: "待ち" }, turnCount: (w, n) => `${w}　${n} 件`,
   todo: "やること", lane: { you: "あなたの番", ai: "AI の番", back: "帰った", wait: "待ち", ok: "決まった" },
   kind: { text: "文", list: "箇条", table: "表", json: "データ", say: "発言", task: "仕事", topic: "話題", summary: "要点", proposal: "提案",
-    bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", md: "文書", diff: "差分" },
+    bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", detail: "詳細", md: "文書", diff: "差分" },
   refTitle: (k) => `${k} の結果`,
   move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
@@ -624,6 +624,7 @@ const KIND_ICON = (() => {
     tree: svg('<path d="M2 4.5h4l1.5 1.5H14v7H2z"/>'),
     days: svg('<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/>'),
     bars: svg('<path d="M2 13.5h12M4 11V7M8 11V3.5M12 11V8.5"/>'),
+    detail: svg('<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M4.5 5.5h4M4.5 8h7M4.5 10.5h7"/>'),
     diff: svg('<path d="M5 2.5v6M2 5.5h6M2 12.5h6M11 3v10"/>'),
   };
 })();
@@ -1066,9 +1067,15 @@ const RUNTIME = `window.dyve = (() => {
     board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }),
     open: (id) => parent.postMessage({ dyve: "open", id }, "*"),
     send: (input) => parent.postMessage({ dyve: "send", input }, "*"),
+    select: (value) => parent.postMessage({ dyve: "select", value }, "*"),
+    selected: init.selected,
   };
   const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch (e) { root.textContent = init.err + e.message; } };
-  addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });
+  addEventListener("message", (e) => {
+    const m = e.data || {};
+    if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); }
+    if (m.dyve === "selected") { ctx.selected = m.selected; draw(); }
+  });
   // 大きさが続けて変わったときの知らせ（ResizeObserver loop …）は描けなかったのではないので、描いたものを消さない
   addEventListener("error", (e) => { if (/ResizeObserver loop/.test(e.message)) return; root.textContent = init.err + e.message; });
   addEventListener("wheel", (e) => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); parent.postMessage({ dyve: "zoom", dy: e.deltaY, mode: e.deltaMode, x: e.clientX, y: e.clientY }, "*"); }, { passive: false });
@@ -1085,12 +1092,50 @@ function userFrame(p, data) {
   const cs = getComputedStyle(document.documentElement);
   const vars = THEME.map((v) => `${v}:${cs.getPropertyValue(v)}`).join(";");
   const safe = (t) => String(t).replace(/<\/(script)/gi, "<\\/$1");
-  const init = JSON.stringify({ data, panel: p, err: L.viewError("") }).replace(/</g, "\\u003c");
+  const init = JSON.stringify({ data, panel: p, selected: selectedFor(p, SELECTED, panelById), err: L.viewError("") }).replace(/</g, "\\u003c");
   f.srcdoc = `<!doctype html><meta charset="utf-8"><style>:root{${vars};color-scheme:dark}html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}</style>` +
     `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe(S.views.get(p.view).src)}<\/script></body>`;
   return f;
 }
-// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい・ボードの倍率を変えたい・これを送りたい（書くことも、自分で送ることもできない）
+// ── 選ぶ：利用者の view の中で人が選んだもの（予定の一件、札の一枚）を、同じものについてのほかのパネルに知らせる ──
+// 選んだ中身を別のパネルが詳しく描く（選ぶ側と描く側を組み合わせられる）。画面の中だけのことで、操作ログには積まず、shell も走らせない。
+// 見えるのは、同じものについてのパネル（about が同じ）と、互いに about したパネル。選んだパネル自身にも見える
+const SELECTED = new Map(); // 選んだパネルの id -> { value, n }（n は選んだ順）
+let selCount = 0;
+const seesSelect = (q, p) => q.id === p.id || (q.about != null && q.about === p.about) || q.about === p.id || p.about === q.id;
+// そのパネルに見える、いちばん新しく選ばれたもの：{ from: 選んだパネルの id, value }。なければ null
+function selectedFor(q, selected, byId) {
+  let best = null;
+  for (const [id, s] of selected) {
+    const p = byId(id);
+    if (p && seesSelect(q, p) && (!best || s.n > best.n)) best = { from: id, value: s.value, n: s.n };
+  }
+  return best ? { from: best.from, value: best.value } : null;
+}
+// 選ばれたものを描く view か：ソースに selected と書いてあるもの（ctx.selected を読む）。描く前でもわかるように、ソースで見分ける
+const followsSelect = (view) => /\bselected\b/.test(S.views.get(view)?.src || "");
+function selectIn(p, value) {
+  SELECTED.set(p.id, { value, n: ++selCount });
+  const near = S.panels.filter((q) => q.id !== p.id && isUserView(q.view) && followsSelect(q.view) && seesSelect(q, p));
+  // 畳んであって見えない描く側は開く（人が押して選んだので。開いたことは並びに覚える）
+  const folded = near.filter((q) => isFolded(q.id));
+  if (folded.length) {
+    LAYOUT.fold = { ...LAYOUT.fold, ...Object.fromEntries(folded.map((q) => [q.id, false])) };
+    saveLayout();
+    render();
+    applyLayout();
+  }
+  // 囲いは作り直さず、選ばれたものだけ渡して描き直させる（選ばれたものを読まない view は、読んでいるところが動かないようにそのまま）
+  for (const f of $$("iframe.uview")) {
+    const q = panelById(f.dataset.id);
+    if (q && followsSelect(q.view) && seesSelect(q, p)) f.contentWindow?.postMessage({ dyve: "selected", selected: selectedFor(q, SELECTED, panelById) }, "*");
+  }
+  // 描く側が画面の外なら、近いところまで寄せる（見えていれば動かさない）
+  const el = near.map((q) => panelOf(q.id)).find(Boolean), r = el?.getBoundingClientRect();
+  if (r && (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth)) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// 囲いの中からの知らせ：高さ・ボードを読みたい・あるパネルを見せたい・ボードの倍率を変えたい・これを送りたい・これを選んだ（書くことも、自分で送ることもできない）
 addEventListener("message", (e) => {
   const f = $$("iframe.uview").find((x) => x.contentWindow === e.source);
   const m = e.data || {};
@@ -1110,6 +1155,12 @@ addEventListener("message", (e) => {
     if (!p?.send || m.input == null || JSON.stringify(m.input).length > 100 * 1024) return;
     PENDING.set(p.id, m.input);
     refreshSend(p.id);
+  } else if (m.dyve === "select") {
+    const p = panelById(f.dataset.id);
+    // JSON にできて、大きすぎないものだけ（囲いの中から来るので、形は信じない）
+    let size = Infinity;
+    try { size = JSON.stringify(m.value)?.length ?? Infinity; } catch {}
+    if (p && m.value != null && size <= 100 * 1024) selectIn(p, m.value);
   } else if (m.dyve === "zoom" && [m.dy, m.x, m.y].every(Number.isFinite)) {
     const r = f.getBoundingClientRect(), s = r.width / (f.offsetWidth || r.width) || 1;
     zoomAround(zoomNow() * wheelFactor(m.dy, m.mode), r.left + m.x * s, r.top + m.y * s);

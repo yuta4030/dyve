@@ -321,3 +321,31 @@ test("トークの返事：アイコンで宛てたかを問わずに出し、�
   // トークは縦に詰める flex。返事が縮んで見えなくならないように
   assert.match(html, /\.reply \{ display: flex; flex: none;/);
 });
+
+test("選ぶ：利用者の view で選んだものは、同じものについてのパネルと互いに about したパネルにだけ見える。いちばん新しいものが勝つ", () => {
+  const sees = html.match(/^const seesSelect = .*$/m)[0];
+  const selectedFor = new Function(`${sees}; ${html.match(/^function selectedFor\([\s\S]*?^}$/m)[0]}; return selectedFor;`)();
+  const ps = [
+    { id: "row", view: "task" }, { id: "cal", view: "days", about: "row" }, { id: "tl", view: "bars", about: "row" }, { id: "det", view: "detail", about: "row" },
+    { id: "kid", view: "detail", about: "cal" }, { id: "far", view: "detail", about: "other" }, { id: "top1", view: "days" }, { id: "top2", view: "detail" },
+  ];
+  const byId = (id) => ps.find((p) => p.id === id);
+  const sel = new Map([["cal", { value: { text: "朝会" }, n: 1 }]]);
+  const of = (id) => selectedFor(byId(id), sel, byId);
+  assert.deepEqual(of("det"), { from: "cal", value: { text: "朝会" } }, "about が同じ");
+  assert.deepEqual(of("kid"), { from: "cal", value: { text: "朝会" } }, "選んだパネルに about している");
+  assert.deepEqual(of("row"), { from: "cal", value: { text: "朝会" } }, "選んだパネルが about している先");
+  assert.deepEqual(of("cal"), { from: "cal", value: { text: "朝会" } }, "選んだパネル自身");
+  assert.equal(of("far"), null, "ほかのものについてのパネルには見えない");
+  // about のないものどうしは、同じものについてではない
+  sel.set("top1", { value: "x", n: 2 });
+  assert.equal(of("top2"), null);
+  // 別の view で選び直したら、新しい方
+  sel.set("tl", { value: "src", n: 3 });
+  assert.deepEqual(of("det"), { from: "tl", value: "src" });
+  assert.deepEqual(of("kid"), { from: "cal", value: { text: "朝会" } }, "kid から tl は見えない");
+  // 選んだことは画面の中だけ：操作（op）にも送り出し（/api/send）にもつながない
+  const fn = html.match(/^function selectIn\([\s\S]*?^}$/m)[0];
+  assert.doesNotMatch(fn, /\bop\(|fetch\(|PENDING|sendOut/);
+  assert.match(html, /m\.dyve === "select"/);
+});

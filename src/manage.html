@@ -289,7 +289,7 @@ const THEME = ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--acc
 const RUNTIME = `window.dyve = (() => {
   let fn = null, n = 0;
   const wait = new Map(), root = document.getElementById("root"), init = JSON.parse(document.getElementById("init").textContent);
-  const ctx = { panel: init.panel, board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }), open: () => {} };
+  const ctx = { panel: init.panel, board: () => new Promise((ok) => { const k = ++n; wait.set(k, ok); parent.postMessage({ dyve: "board", k }, "*"); }), open: () => {}, send: () => {}, select: () => {}, selected: null };
   const draw = () => { if (!fn) return; try { fn(root, init.data, ctx); } catch {} };
   new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
   addEventListener("message", (e) => { const m = e.data || {}; if (m.dyve === "board") { wait.get(m.k)?.(m.panels); wait.delete(m.k); } });

@@ -2,7 +2,8 @@
 // data は [{ date, items: [予定] }] か { 日付: [予定] } か [{ date, text, time?, tone? }]（予定ひとつずつ）。予定は文字列か { text, time?, tone? }
 // date が YYYY-MM-DD なら「11/11（水）」と出し、今日・明日はそう書いて今日に印を付ける。ほかの字はそのまま見出しにする
 // tone は warn・ok・accent（予定の左の線の色）。日は書いた順に並べる
-dyve.view((el, data) => {
+// 予定を押すと、その予定（date つき。ほかの項目もそのまま）を ctx.select で知らせる。同じものについての詳細の view（detail など）が詳しく描く
+dyve.view((el, data, ctx) => {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const str = (v) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
   const ev = (x) => (x && typeof x === "object" && !Array.isArray(x) ? { ...x, text: str(x.text ?? x.title ?? x.name) } : { text: str(x) });
@@ -43,6 +44,16 @@ dyve.view((el, data) => {
     .ev { margin-top: 3px; padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); border-left: 2px solid var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ev.warn { background: var(--warn-soft); border-left-color: var(--warn); } .ev.ok { border-left-color: var(--ok); }
     .ev time { color: var(--mute); margin-right: 4px; }
+    .ev { cursor: pointer; } .ev.on { outline: 1px solid var(--accent); }
     .none { color: var(--mute); }
-  </style><div class="days">${days.map((d) => `<div class="dy${d.date.startsWith(today) ? " today" : ""}"><b>${esc(label(d.date)) || "&nbsp;"}</b>${d.items.map((e) => `<div class="ev ${TONES.includes(e.tone) ? e.tone : ""}" title="${esc(e.text)}">${e.time != null ? `<time>${esc(str(e.time))}</time>` : ""}${esc(e.text)}</div>`).join("")}</div>`).join("") || '<span class="none">—</span>'}</div>`;
+  </style><div class="days">${days.map((d, i) => `<div class="dy${d.date.startsWith(today) ? " today" : ""}"><b>${esc(label(d.date)) || "&nbsp;"}</b>${d.items.map((e, j) => `<div class="ev ${TONES.includes(e.tone) ? e.tone : ""}" data-i="${i}:${j}" title="${esc(e.text)}">${e.time != null ? `<time>${esc(str(e.time))}</time>` : ""}${esc(e.text)}</div>`).join("")}</div>`).join("") || '<span class="none">—</span>'}</div>`;
+  // 押した予定を知らせる（選んだ印はこの中だけで付ける）
+  el.onclick = (e) => {
+    const t = e.target.closest?.(".ev");
+    if (!t || !ctx?.select) return;
+    const [i, j] = t.dataset.i.split(":").map(Number), d = days[i];
+    for (const x of el.querySelectorAll(".ev.on")) x.classList.remove("on");
+    t.classList.add("on");
+    ctx.select({ date: d.date, ...d.items[j] });
+  };
 });

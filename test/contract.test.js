@@ -214,7 +214,7 @@ test("約束：利用者の view の書き方（dyve.view、ctx、色、囲い�
   assert.match(runtime, /window\.dyve = /);
   assert.match(runtime, /return \{ view: /);
   assert.match(runtime, /fn\(root, init\.data, ctx\)/, "fn(el, data, ctx)");
-  for (const k of ["panel", "board", "open", "send"]) assert.match(runtime, new RegExp(`\\b${k}: `), `ctx.${k}`);
+  for (const k of ["panel", "board", "open", "send", "select", "selected"]) assert.match(runtime, new RegExp(`\\b${k}: `), `ctx.${k}`);
   const theme = html.match(/const THEME = (\[.*?\]);/)[1];
   for (const v of ["--bg", "--card", "--ink", "--mute", "--line", "--accent", "--accent-soft", "--warn", "--ok"]) assert.ok(theme.includes(`"${v}"`), v);
   // 囲いは allow-scripts だけ（ボードの API に触れない）

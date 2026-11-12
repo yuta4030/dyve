@@ -27,6 +27,7 @@ dyve を作る人・使う人・エージェントが、同じものを同じ言
 | view | `view` | パネルの描き方。本体が持つのは `say`・`text`・`list`・`table`・`task`・`topic`・`summary`・`json` |
 | データ | `data` | パネルの中身。形は view が決める |
 | 利用者の view | `~/.dyve/panels/views/<名前>.js` | 利用者が足す描き方。sandbox の中で描き、ボードには触れない |
+| 選ぶ | `ctx.select`・`ctx.selected` | 利用者の view の中で人が押して選ぶこと。選んだものは、同じものについての別のパネルに画面の中だけで届く |
 | 見本の view | `src/samples` | dyve が配る汎用の view（`bars`・`cards`・`change`・`tree`・`days`） |
 
 ## パネルの項目
