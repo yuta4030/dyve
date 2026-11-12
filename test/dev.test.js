@@ -23,7 +23,7 @@ function repo() {
   return { dir, room, git };
 }
 
-test("開発の道具：書けるが push はできない。控室は auto で動き、調べものはファイルを書き換えない", () => {
+test("開発の道具：書けるが push はできない。控室は auto で動き、調べものには Edit・Write を渡さない", () => {
   const d = claudeArgs({ role: "dev", name: "アリス", prompt: "直して" }, "http://x", { task: "opus" });
   const allowed = d.slice(d.indexOf("--allowedTools") + 1);
   assert.ok(allowed.includes("Edit") && allowed.includes("Bash(node --test:*)") && allowed.includes("Bash(git commit:*)"));

@@ -17,7 +17,7 @@ const DEFS = {
 };
 
 // 取り消せないことは人が決める。清書係は発言の書き換えと辞書への追記だけ、マネージャはボードだけ。
-// 控室は Claude Code の auto で動く（危ない操作は auto の判定が止める）。調べもの（task）はファイルを書き換えない。
+// 控室は Claude Code の auto で動く（危ない操作は auto の判定が止める）。調べもの（task）には Edit・Write を渡さない（シェルでの書き込みは auto の判定に任せる）。
 // 開発（dev）は仕事ごとの git worktree の中で書き、取り込むかは人が決める。push など外に届くことは DENY で止める。
 // 人が受け入れた提案（act）だけは、提案の範囲で外に届くこともしてよいので DENY を付けず、危ない操作は auto の判定に任せる
 const READ = ["mcp__board", "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
