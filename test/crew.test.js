@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { readConfig, loadCrew, ensureCrew, namesOf, initialsOf, agentOf, callsOf, teamsOf, NAMES } from "../src/crew.js";
+import { readConfig, loadCrew, ensureCrew, namesOf, initialsOf, agentOf, callsOf, callOf, teamsOf, NAMES } from "../src/crew.js";
 import { Store } from "../src/store.js";
 import { Waker } from "../src/waker.js";
 import { claudeArgs, claudeSpawner, claudeSession, exitError, systemPrompt, workspace, integrate } from "../src/agents.js";
@@ -28,22 +28,26 @@ test("設定も指示もなければ既定のまま。置き場には README だ
   assert.ok(fs.existsSync(path.join(h.agents, "README.md")));
   const crew = h.crew();
   assert.deepEqual([crew.scribe, crew.manager, crew.members, crew.teams, crew.warnings], [null, null, [], [], []]);
-  assert.deepEqual(namesOf(crew), NAMES);
-  assert.equal(initialsOf(crew, NAMES)["ボブ"], "B");
-  assert.equal(agentOf(crew, "アリス"), null);
+  assert.deepEqual(namesOf(crew), ["backroom"], "既定の役割は一つ");
+  assert.deepEqual(NAMES, ["backroom"]);
+  assert.equal(callOf(crew, "backroom"), "控室");
+  assert.equal(initialsOf(crew, NAMES).backroom, "控");
+  assert.equal(agentOf(crew, "backroom"), null);
 });
 
-test("設定：控室は team の順、名前・頭文字・モデル・部屋。パスは ~ と config.json からの相対。--names が勝つ", () => {
+test("設定：役割は team の順、名前・説明・頭文字・モデル・部屋。パスは ~ と config.json からの相対。--names が勝つ", () => {
   const h = home({
     port: 4800,
     room: "./repo",
     scribe: { model: "sonnet", pause: 300, cwd: "s" },
-    team: [{ name: "マイ", initial: "M", model: "opus", room: "~/code/x" }, { name: "ケン" }],
+    team: [{ name: "マイ", description: "文書を書く", initial: "M", model: "opus", room: "~/code/x" }, { name: "ケン" }],
   });
   const crew = h.crew();
   assert.deepEqual(crew.settings, { port: 4800, room: path.join(h.dir, "repo") });
   assert.deepEqual(namesOf(crew), ["マイ", "ケン"]);
   assert.equal(agentOf(crew, "マイ").room, path.join(os.homedir(), "code", "x"));
+  assert.equal(agentOf(crew, "マイ").description, "文書を書く");
+  assert.equal(agentOf(crew, "ケン").description, null);
   assert.deepEqual(initialsOf(crew, namesOf(crew)), { "マイ": "M", "ケン": "ケ" });
   assert.deepEqual(crew.scribe, { mode: "append", model: "sonnet", pause: 300, cwd: path.join(h.dir, "s"), body: "" });
   assert.deepEqual(namesOf(crew, ["ジョー"]), ["ジョー"]);
@@ -58,12 +62,14 @@ test("設定の書き間違いは、どこの何かを言って断る", () => {
   assert.throws(bad({ manager: { mode: "over" } }), /"append" か "replace"/);
   assert.throws(bad({ team: [{ initial: "A" }] }), /team\[0\] に name がない/);
   assert.throws(bad({ team: [{ name: "manager" }] }), /ボードの立場の名前/);
-  assert.throws(bad({ team: [{ name: "x" }, { name: "x" }] }), /二人いる/);
+  assert.throws(bad({ team: [{ name: "x" }, { name: "x" }] }), /二つある/);
+  assert.throws(bad({ team: [{ name: "x", description: "" }] }), /team\[0\]\.description は空でない文字列/);
+  assert.throws(bad({ team: [{ name: "x", description: 1 }] }), /description は空でない文字列/);
   assert.throws(bad({ team: { name: "x" } }), /team は配列/);
   assert.throws(bad({ scribe: { prompt: "./nai.md" } }), /scribe\.prompt のファイルがない/);
 });
 
-test("指示：置き場の <名前>.md を既定に足す（append）か差し替える（replace）。{{names}} は控室の名前になる", () => {
+test("指示：置き場の <名前>.md を既定に足す（append）か差し替える（replace）。{{names}} は役割の呼び名になる", () => {
   const h = home({ scribe: { mode: "replace" }, team: [{ name: "マイ" }] }, {
     "manager.md": "要点は 5 項目まで。{{names}} を呼ぶ",
     "scribe.md": "あなたは私専用の清書係。{{names}}",
@@ -73,17 +79,18 @@ test("指示：置き場の <名前>.md を既定に足す（append）か差し�
   const m = systemPrompt("manager", "manager", { crew, names });
   assert.match(m, /あなたはボードマネージャです/);
   assert.match(m, /## 利用者からの指示\n要点は 5 項目まで。マイ を呼ぶ/);
-  assert.match(m, /控室のエージェントの名前（マイ）/);
+  assert.match(m, /役割の名前（マイ）/);
   assert.doesNotMatch(m, /\{\{names\}\}|アリス/);
   assert.equal(systemPrompt("scribe", "scribe", { crew, names }), "あなたは私専用の清書係。マイ");
   assert.match(systemPrompt("task", "マイ", { crew, names }), /控室のタスクエージェント[\s\S]*## 利用者からの指示\n結論は一行目/);
   assert.match(systemPrompt("dev", "マイ", { crew, names }), /結論は一行目/);
-  // 置き場がなければ、いままでどおり既定の六人
-  assert.match(systemPrompt("scribe", "scribe"), /アリス、ボブ、キャロル、デイブ、エレン、フランク/);
+  // 置き場がなければ既定の役割
+  assert.match(systemPrompt("scribe", "scribe"), /役割の呼び名は、この書き方のまま：控室\n/);
+  assert.match(systemPrompt("manager", "manager"), /役割の名前（控室）/);
 });
 
-test("prompt：育てている CLAUDE.md などのファイルを指示として読ませる（task は控室の全員に）", () => {
-  const h = home(null, { "アリス.md": "アリスだけ" });
+test("prompt：育てている CLAUDE.md などのファイルを指示として読ませる（task はどの役割にも）", () => {
+  const h = home(null, { "backroom.md": "控室だけ" });
   const notes = path.join(h.dir, "notes");
   fs.mkdirSync(notes);
   fs.writeFileSync(path.join(notes, "CLAUDE.md"), "# 私の流儀\n短く書く");
@@ -93,7 +100,8 @@ test("prompt：育てている CLAUDE.md などのファイルを指示として
   const crew = h.crew();
   assert.equal(crew.scribe.body, "# 私の流儀\n短く書く\n\nホゲ → hoge");
   assert.match(systemPrompt("scribe", "scribe", { crew }), /## 利用者からの指示\n# 私の流儀/);
-  assert.equal(agentOf(crew, "アリス").body, "一次資料から\n\nアリスだけ");
+  assert.equal(agentOf(crew, "backroom").body, "一次資料から\n\n控室だけ");
+  assert.equal(agentOf(crew, "backroom").call, "控室");
   assert.equal(agentOf(crew, "ボブ").body, "一次資料から");
   assert.equal(crew.manager, null);
 });
@@ -106,14 +114,23 @@ test("モデル：控室は --task-model、なければその人の model", () =
   assert.equal(model(claudeArgs({ role: "task", name: "マイ", prompt: "x" }, "http://x", { task: "haiku" }, { crew })), "haiku");
 });
 
-test("マネージャには、別の部屋で働く人とその場所を教える", () => {
-  const crew = home({ team: [{ name: "マイ", room: "/repo/docs" }, { name: "ケン" }] }).crew();
+test("マネージャには役割の一覧を渡す：呼び名・data.to・説明・働く場所と、どれが既定か", () => {
+  const crew = home({ team: [{ name: "マイ", description: "文書を書く・直す", room: "/repo/docs" }, { name: "ケン", description: "バグを調べる" }, { name: "ジョー" }] }).crew();
   const m = sys(claudeArgs({ role: "manager", name: "manager", prompt: "x" }, "http://x", {}, { room: "/repo/x", crew, names: namesOf(crew) }));
+  assert.match(m, /## 役割\n/);
   assert.match(m, /リポジトリ \/repo\/x で働きます/);
-  assert.match(m, /- マイ → data.to: "マイ"（\/repo\/docs で働く）/);
-  assert.match(m, /- ケン → data.to: "ケン"\n|- ケン → data.to: "ケン"$/);
-  // 呼び名も場所もふつうなら、顔ぶれの一覧は出さない
-  assert.doesNotMatch(sys(claudeArgs({ role: "manager", name: "manager", prompt: "x" }, "http://x", {}, { room: "/repo/x" })), /data\.to: "/);
+  assert.match(m, /説明を読んで選び、data\.to に右の名前をそのまま書きます/);
+  assert.match(m, /空いているかは確かめません/);
+  assert.match(m, /- マイ → data\.to: "マイ"（既定。\/repo\/docs で働く）：文書を書く・直す\n/);
+  assert.match(m, /- ケン → data\.to: "ケン"：バグを調べる\n/);
+  assert.match(m, /- ジョー → data\.to: "ジョー"(\n|$)/);
+  // 既定の役割だけで、説明も場所もなければ一覧は出さない
+  const bare = sys(claudeArgs({ role: "manager", name: "manager", prompt: "x" }, "http://x", {}, { room: "/repo/x" }));
+  assert.doesNotMatch(bare, /data\.to: "/);
+  // --names だけ（説明なし）も出さない。既定の役割に説明を書けば出す
+  assert.doesNotMatch(systemPrompt("manager", "manager", { names: ["マイ", "ケン"] }), /data\.to: "/);
+  const one = home({ team: [{ name: "backroom", description: "なんでも" }] }).crew();
+  assert.match(systemPrompt("manager", "manager", { crew: one, names: namesOf(one) }), /- backroom → data\.to: "backroom"（既定）：なんでも/);
 });
 
 test("起きる場所：控室はその人の room、清書係とマネージャは設定の cwd", async () => {
@@ -169,9 +186,9 @@ function teamRepo(base, dirName, conf, files = {}) {
   return root;
 }
 
-test("チーム：顔ぶれを合わせ、ログの名前は「名前@チーム」。働く場所の既定はチームのリポジトリ", () => {
+test("チーム：役割を合わせ、ログの名前は「名前@チーム」。働く場所の既定はチームのリポジトリ。説明も持つ", () => {
   const h = home(null);
-  const algr = teamRepo(h.dir, "algr", { task: { model: "sonnet" }, team: [{ name: "マイ" }, { name: "ケン", model: "opus", room: "sub" }] });
+  const algr = teamRepo(h.dir, "algr", { task: { model: "sonnet" }, team: [{ name: "マイ", description: "バグを調べる" }, { name: "ケン", model: "opus", room: "sub" }] });
   fs.mkdirSync(path.join(algr, ".dyve", "sub"));
   fs.writeFileSync(h.config, JSON.stringify({ team: [{ name: "アリス" }], teams: ["algr"] }));
   const crew = h.crew(), names = namesOf(crew);
@@ -182,7 +199,13 @@ test("チーム：顔ぶれを合わせ、ログの名前は「名前@チーム�
   assert.equal(agentOf(crew, "ケン@algr").room, path.join(algr, ".dyve", "sub"));
   assert.equal(agentOf(crew, "マイ@algr").model, "sonnet");
   assert.equal(agentOf(crew, "ケン@algr").model, "opus");
+  assert.equal(agentOf(crew, "マイ@algr").description, "バグを調べる");
+  assert.equal(agentOf(crew, "ケン@algr").description, null);
   assert.deepEqual(crew.warnings, []);
+  const m = systemPrompt("manager", "manager", { crew, names });
+  assert.match(m, /- アリス → data\.to: "アリス"（既定）\n/);
+  assert.match(m, /- マイ → data\.to: "マイ@algr"：バグを調べる/);
+  assert.match(m, /data\.team に "algr" を入れます（そのチームの最初の役割が受けます）/);
 });
 
 test("チーム：名前がぶつかったら知らせ、チームの人を「チーム の 名前」と呼び分ける。rename で変えられる", () => {
@@ -192,15 +215,15 @@ test("チーム：名前がぶつかったら知らせ、チームの人を「�
   fs.writeFileSync(h.config, JSON.stringify({ team: [{ name: "アリス" }], teams: ["algr", "k2down"] }));
   let crew = h.crew(), names = namesOf(crew);
   assert.deepEqual(callsOf(crew, names), { "アリス": "アリス", "アリス@algr": "algr の アリス", "アリス@k2down": "k2down の アリス", "ボブ@k2down": "ボブ" });
-  assert.deepEqual(initialsOf(crew, names), { "アリス": "A", "アリス@algr": "aA", "アリス@k2down": "kA", "ボブ@k2down": "B" });
+  assert.deepEqual(initialsOf(crew, names), { "アリス": "ア", "アリス@algr": "aア", "アリス@k2down": "kア", "ボブ@k2down": "ボ" });
   assert.equal(crew.warnings.length, 1);
-  assert.match(crew.warnings[0], /自分の控室 と algr と k2down の両方に アリス がいる/);
+  assert.match(crew.warnings[0], /自分の設定 と algr と k2down の両方に アリス がある/);
   // rename：呼び名だけ変わり、ログの名前（id）は変わらない
   fs.writeFileSync(h.config, JSON.stringify({ teams: ["algr", { path: "k2down", rename: { "アリス": "アリサ", "ゾーイ": "z" } }] }));
   crew = h.crew();
   names = namesOf(crew);
   assert.deepEqual(callsOf(crew, names), { "アリス@algr": "アリス", "アリス@k2down": "アリサ", "ボブ@k2down": "ボブ" });
-  assert.deepEqual(crew.warnings, ["teams の k2down の rename：ゾーイ はそのチームにいない"]);
+  assert.deepEqual(crew.warnings, ["teams の k2down の rename：ゾーイ はそのチームにない"]);
 });
 
 test("チーム：指示はチームのあとに個人。清書係はつなぎ、マネージャにはチームごとの節を渡す", () => {
@@ -212,11 +235,11 @@ test("チーム：指示はチームのあとに個人。清書係はつなぎ�
   const crew = h.crew(), names = namesOf(crew);
   assert.equal(crew.scribe.body, "アルゴ → algr\n\n個人の言い換え");
   assert.equal(agentOf(crew, "マイ@algr").body, "algr の決まり\n\n個人からマイへ");
-  assert.match(crew.warnings.join("\n"), /チーム k2down には控室の人がいない/);
+  assert.match(crew.warnings.join("\n"), /チーム k2down には役割がない/);
   const m = systemPrompt("manager", "manager", { room: "/r", crew, names });
   assert.match(m, new RegExp(`### チーム algr（リポジトリ ${path.join(h.dir, "algr")}）\nalgr はバグを先に\n\n- マイ → data.to: "マイ@algr"`));
   assert.match(m, /data\.team に "algr"/);
-  assert.match(m, /### チーム k2down[^\n]*\n- （控室の人はいない）/);
+  assert.match(m, /### チーム k2down[^\n]*\n- （役割がない）/);
   assert.match(m, /どちらの〇〇か決まっていません/);
   assert.match(systemPrompt("task", "マイ@algr", { crew, names }), /## 利用者からの指示\nalgr の決まり/);
 });
@@ -235,6 +258,7 @@ test("チームの設定は、書ける項目とリポジトリの外を断る",
   assert.throws(bad({ room: "../.." }), /リポジトリ（[^）]+）の中だけ/);
   assert.throws(bad({ task: { prompt: "~/.ssh/id_rsa" } }), /の中だけ/);
   assert.throws(bad({ team: [{ name: "a@b" }] }), /@ を含まない/);
+  assert.throws(bad({ team: [{ name: "a", description: ["x"] }] }), /team\[0\]\.description は空でない文字列/);
   assert.throws(bad({ name: "日本語" }), /チームの名前/);
   const h = home(null);
   fs.writeFileSync(h.config, JSON.stringify({ teams: ["nai"] }));
@@ -245,7 +269,7 @@ test("チームの設定は、書ける項目とリポジトリの外を断る",
   assert.throws(() => h.crew(), /チームの名前 same が二つある/);
 });
 
-test("取り次ぎ：data.team ならそのチームの空いている人、data.to は呼び名や @ を省いた名前でも一人に決まれば渡す", () => {
+test("取り次ぎ：data.team ならそのチームの最初の役割、data.to は呼び名や @ を省いた名前でも一つに決まればその役割。動いている役割でも待たない", () => {
   const store = new Store(null);
   const jobs = [];
   const w = new Waker({
@@ -261,9 +285,9 @@ test("取り次ぎ：data.team ならそのチームの空いている人、data
   task({ text: "k2down のこと", team: "k2down" });
   task({ text: "マイへ", to: "マイ" });
   task({ text: "呼び名で", to: "k2down の アリス" });
-  // 呼び名で呼ばれた k2down の アリス は働いているので、ほかの人に回さずに空くまで待つ
-  assert.deepEqual(jobs.map((j) => j.name), ["アリス@k2down", "マイ@algr"]);
-  assert.match(jobs[1].prompt, /「マイ」（ボードの上の名前は マイ@algr）/);
+  task({ text: "知らないチーム", team: "nai" });
+  assert.deepEqual(jobs.map((j) => j.name), ["アリス@k2down", "マイ@algr", "アリス@k2down", "アリス"]);
+  assert.match(jobs[1].prompt, /この行の役割は「マイ」（ボードの上の名前は マイ@algr）です/);
   w.stop();
   assert.equal(w.resolve("アリス"), "アリス");
   assert.equal(w.resolve("k2down の アリス"), "アリス@k2down");

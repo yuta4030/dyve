@@ -12,7 +12,7 @@ import { Board, CODES, STATES, RELS, POINTS, TURNS, marks, sourceApproved } from
 import { Feeds, parseOutput, asStdin } from "../src/feeds.js";
 import { createServer } from "../src/server.js";
 import { handleRpc, TOOLS } from "../src/mcp.js";
-import { readConfig } from "../src/crew.js";
+import { readConfig, readTeam } from "../src/crew.js";
 import { ensurePanels } from "../src/panels.js";
 
 const here = (f) => fileURLToPath(new URL(f, import.meta.url));
@@ -240,12 +240,24 @@ test("約束：設定（config.json）の項目", () => {
     task: { model: "opus", prompt: "notes.md" },
     scribe: { model: "haiku", pause: 1000, cwd: ".", mode: "append", prompt: ["notes.md"] },
     manager: { model: "sonnet", pause: 4000, cwd: ".", mode: "replace", prompt: "notes.md" },
-    team: [{ name: "マイ", initial: "M", model: "opus", room: ".", mode: "append", prompt: "notes.md" }, { name: "ケン" }],
+    team: [{ name: "マイ", description: "文書を書く", initial: "M", model: "opus", room: ".", mode: "append", prompt: "notes.md" }, { name: "ケン" }],
     teams: [],
   };
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(conf));
   const c = readConfig(path.join(dir, "config.json"));
   for (const k of Object.keys(conf)) assert.ok(k in c, k);
   assert.deepEqual(c.team.map((m) => m.name), ["マイ", "ケン"]);
+  assert.equal(c.team[0].description, "文書を書く");
   assert.deepEqual(readConfig(path.join(dir, "nai.json")), {}, "なければ既定のまま");
+  // チームの設定（<リポジトリ>/.dyve/config.json）
+  fs.mkdirSync(path.join(dir, ".dyve"));
+  fs.writeFileSync(path.join(dir, ".dyve", "notes.md"), "指示");
+  const team = {
+    name: "algr", room: ".", task: { model: "sonnet", prompt: "notes.md" }, scribe: { prompt: "notes.md" }, manager: { prompt: "notes.md" },
+    team: [{ name: "マイ", description: "バグを調べる", initial: "M", model: "opus", room: ".", prompt: "notes.md" }],
+  };
+  fs.writeFileSync(path.join(dir, ".dyve", "config.json"), JSON.stringify(team));
+  const t = readTeam(dir);
+  for (const k of Object.keys(team)) assert.ok(k in t, k);
+  assert.equal(t.team[0].description, "バグを調べる");
 });

@@ -173,13 +173,13 @@ test("サーバー：view を配り、「今すぐ更新」は許可されたコ
   }
 });
 
-test("パネルの仕事：アリスたちがパネル置き場で、そこだけを書く", async () => {
+test("パネルの仕事：タスクエージェントがパネル置き場で、そこだけを書く", async () => {
   const store = new Store();
   const jobs = [];
   const w = new Waker({ store, spawn: (j) => { jobs.push(j); return { done: new Promise(() => {}), kill() {} }; }, pause: 1e6 }).start();
   store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "棒グラフのパネルを作って", write: "panels" } }, reason: "x" });
   assert.equal(jobs[0].role, "panels");
-  assert.equal(jobs[0].name, "アリス");
+  assert.equal(jobs[0].name, "backroom");
   w.stop();
   const a = claudeArgs({ role: "panels", name: "アリス", prompt: "作って" }, "http://x", { task: "opus" });
   const allowed = a.slice(a.indexOf("--allowedTools") + 1);

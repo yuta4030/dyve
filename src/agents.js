@@ -3,7 +3,7 @@ import { spawn as nodeSpawn, execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { NAMES, agentOf, callOf } from "./crew.js";
+import { NAMES, DEFAULT, agentOf, callOf } from "./crew.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -36,10 +36,10 @@ const DENY = { task: [...OUTWARD, "Edit", "Write", "NotebookEdit"], panels: OUTW
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
 export const inRoom = (role) => role === "task" || role === "dev" || role === "panels" || role === "act";
 
-// 控室（調べもの・開発・パネル）は --task-model、なければその人の model（チームの task.model を含む）、なければ個人の task.model。
+// 控室（調べもの・開発・パネル）は --task-model、なければその役割の model（チームの task.model を含む）、なければ個人の task.model。
 // 清書係とマネージャは models に決まったものが入っている
 const modelOf = (models, role, crew = null, name = null) => inRoom(role) ? models.task ?? agentOf(crew, name)?.model ?? crew?.settings?.task?.model ?? undefined : models[role];
-// 起きる場所：控室はその人の room（なければ部屋）、清書係とマネージャは置き場の cwd（なければ作業場）
+// 起きる場所：控室はその役割の room（なければ部屋）、清書係とマネージャは置き場の cwd（なければ作業場）
 const roomOf = (crew, name, room) => agentOf(crew, name)?.room ?? room;
 const staffOf = (crew, role, staff) => crew?.[role]?.cwd ?? staff;
 
@@ -49,8 +49,8 @@ export function readDef(file) {
 }
 
 // 前置き：dyve の定義に、利用者の指示（個人の置き場・設定の prompt・チームの指示）を足す（mode: replace なら差し替える）。
-// {{names}} は控室の呼び名の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
-// names：控室の名前（id。チームの人は「名前@チーム」）
+// {{names}} は役割の呼び名の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
+// names：役割の名前（id。チームの役割は「名前@チーム」）。最初のものが既定
 export function systemPrompt(role, name, { room = null, crew = null, names = NAMES } = {}) {
   const fill = (s) => s.replaceAll("{{names}}", names.map((n) => callOf(crew, n)).join("、"));
   const tune = inRoom(role) ? agentOf(crew, name) : crew?.[role];
@@ -60,40 +60,48 @@ export function systemPrompt(role, name, { room = null, crew = null, names = NAM
   return text;
 }
 
-// マネージャに渡す控室の顔ぶれ：呼び名と data.to に書く名前、働く場所、チームごとの指示
+// マネージャに渡す役割の一覧：呼び名と data.to に書く名前、得意なこと、働く場所、チームごとの指示。
+// どれも既定のまま（説明・チーム・別の場所がなく、呼び名が名前のまま）なら一覧は出さない
 function roster(names, room, crew) {
-  const people = names.map((n) => agentOf(crew, n) ?? { id: n, call: n, team: null, room: null });
+  const all = names.map((n) => agentOf(crew, n) ?? { id: n, call: callOf(crew, n), team: null, room: null });
   const teams = crew?.teams ?? [];
   const lines = [];
-  if (room) lines.push(`控室のエージェントはふだんリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`);
-  const plain = people.every((m) => !m.team && m.call === m.id && (!m.room || m.room === room));
-  if (!plain) {
-    const line = (m, base) => `- ${m.call} → data.to: "${m.id}"${m.room && m.room !== base ? `（${m.room} で働く）` : ""}`;
-    lines.push("人が呼ぶ名前（呼び名）と、仕事の data.to に書く名前は次のとおりです。data.to には右の名前をそのまま書きます。");
-    const mine = people.filter((m) => !m.team);
+  if (room) lines.push(`タスクエージェントはふだんリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`);
+  const bare = (m) => !m.team && !m.description && (m.call === m.id || (m.id === DEFAULT && m.call === callOf(null, DEFAULT))) && (!m.room || m.room === room);
+  if (!all.every(bare)) {
+    const first = all[0];
+    const line = (m, base) => {
+      const notes = [m === first ? "既定" : "", m.room && m.room !== base ? `${m.room} で働く` : ""].filter(Boolean);
+      return `- ${m.call} → data.to: "${m.id}"${notes.length ? `（${notes.join("。")}）` : ""}${m.description ? `：${m.description}` : ""}`;
+    };
+    lines.push(
+      "行をどの役割で受け持つかは、説明を読んで選び、data.to に右の名前をそのまま書きます。どれでもよいとき・合うものがないときは data.to を付けません（既定の役割が受けます）。",
+      "一つの役割で何本でも行が並んで動くので、空いているかは確かめません。",
+    );
+    const mine = all.filter((m) => !m.team);
     if (mine.length) lines.push(...mine.map((m) => line(m, room)));
     for (const t of teams) {
       lines.push("", `### チーム ${t.name}（リポジトリ ${t.room}）`);
       if (t.manager) lines.push(t.manager, "");
-      const who = people.filter((m) => m.team === t.name);
-      lines.push(...(who.length ? who.map((m) => line(m, t.room)) : ["- （控室の人はいない）"]));
-      lines.push(`このチームの仕事で、誰でもよいときは data.team に "${t.name}" を入れます（そのチームの空いている人が受けます）。依頼にファイルの場所を書くときは、このリポジトリを基準にします。`);
+      const who = all.filter((m) => m.team === t.name);
+      lines.push(...(who.length ? who.map((m) => line(m, t.room)) : ["- （役割がない）"]));
+      lines.push(`このチームの仕事で、どの役割でもよいときは data.team に "${t.name}" を入れます（そのチームの最初の役割が受けます）。依頼にファイルの場所を書くときは、このリポジトリを基準にします。`);
     }
     if (teams.length) {
       lines.push(
         "",
         "どのチームの仕事かは、話題・リポジトリ・チームの言葉から見分けます。決められないときは data.team を付けずに取り次ぎます。",
-        "同じ名前の人が二人いて、チームを言わずに名前だけで呼ばれ、話の流れからも決められないときは、取り次がずに、その発言に about して「どちらの〇〇か決まっていません」と短い text を置きます。",
+        "同じ名前の役割が二つあって、チームを言わずに名前だけで呼ばれ、話の流れからも決められないときは、取り次がずに、その発言に about して「どちらの〇〇か決まっていません」と短い text を置きます。",
       );
     }
   }
-  return lines.length ? `\n\n## 控室の顔ぶれ\n${lines.join("\n")}` : "";
+  return lines.length ? `\n\n## 役割\n${lines.join("\n")}` : "";
 }
 
 // 前置き（system prompt・道具）は役ごとに固定し、変わるもの（名前・seq・発言）は指示の側に置く。キャッシュを効かせるため
-// models：役割ごとのモデル（{ scribe, manager, task }）。指定がなければ claude の既定
+// models：清書係・マネージャ・タスクエージェントのモデル（{ scribe, manager, task }）。指定がなければ claude の既定
 // room：控室が働くディレクトリ。マネージャは空の作業場で起きるので、依頼に書けるよう前置きで教える（起動中は変わらないのでキャッシュは外れない）
-// crew・names：利用者の置き場から読んだ配役と、控室の名前の並び
+// crew・names：利用者の置き場から読んだ配役と、役割の名前の並び
 export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = null, crew = null, names = NAMES } = {}) {
   const mcp = { mcpServers: { board: { type: "http", url: `${boardUrl}/mcp?as=${encodeURIComponent(job.name)}` } } };
   return [
@@ -158,7 +166,7 @@ export function workspace({ room, workDir, taskId, board = "board", now = new Da
 
 // 取り込む：人が開発の提案を受け入れたら、その仕事のブランチを部屋のいまのブランチにマージコミットで取り込む
 // （git revert -m 1 で戻せる）。ぶつかったら取りやめて元に戻す。取り込めたら作業場とブランチを片付ける
-// rooms：控室のエージェントが別の部屋（置き場の room）で働くとき、その部屋も探す。見つかった部屋に取り込む
+// rooms：役割が別の部屋（設定の room）で働くとき、その部屋も探す。見つかった部屋に取り込む
 export function integrate({ room, rooms = [room], workDir, board = "board", taskId }) {
   let ws = null;
   for (const r of new Set([room, ...rooms])) {
