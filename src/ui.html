@@ -157,7 +157,6 @@ a { color: var(--accent); }
 button.ava { cursor: pointer; }
 .ava.to { color: var(--accent); }
 .ava.to .ini { border-color: var(--accent); background: var(--accent-soft); }
-.tile-head .ctl #keyPause[aria-pressed="true"] { opacity: 1; color: var(--accent); }
 #to { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
 dv-panel .meta .to { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
 dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
@@ -440,7 +439,6 @@ dv-panel .meta .by { display: inline-flex; }
           <button id="send" class="primary"></button>
         </div>
         <div class="bar">
-          <button id="keyPause" aria-pressed="false"></button>
           <button id="mic" class="icon" aria-pressed="false" hidden></button>
           <button id="to" hidden></button>
           <span class="grow"><span id="err" role="status"></span></span>
@@ -510,8 +508,6 @@ const L = {
   toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
   toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
   send: "置く", placeholder: "話すか書く（声は止まると置かれます）",
-  keyPauseOn: "書いても間で置く", keyPauseOff: "Enter で置く",
-  keyPauseTitle: "キーボードで書いたものも、止まって間があいたら置くか（声はいつも間で置く）。押すと切り替わる",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
   export: "Markdown に書き出す", seenAll: "すべて見た", resetLayout: "並びを戻す",
@@ -2489,7 +2485,7 @@ function setupTile(k) {
   });
 }
 for (const k of BUILTIN) setupTile(k);
-$('.tile[data-tile="talk"] .ctl').prepend($("#keyPause"), $("#mic"));
+$('.tile[data-tile="talk"] .ctl').prepend($("#mic"));
 for (const k of FLOATS) FLOAT_RO.observe(tileOf(k));
 $("#floatMode").innerHTML = `<span>${esc(L.float)}</span>` + FLOAT_MODES.map((m) => `<button data-float="${m}" title="${esc(L.floatTitle[m])}">${esc(L.floatModes[m])}</button>`).join("");
 $("#floatMode").addEventListener("click", (e) => { const m = e.target.closest("button")?.dataset.float; if (m) setFloatMode(m); });
@@ -2997,16 +2993,12 @@ $("#newBoard").onclick = () => { if (confirm(L.newBoardAsk)) boardsDo({ action: 
 $("#seenAll").onclick = () => { for (const p of S.panels) if (p.aiSeq) S.seen[p.id] = p.aiSeq; saveSeen(); render(); };
 
 // ── 流し込む：しゃべり流し（間があいたら送る）と、ブラウザの音声認識 ──
-// OS の音声入力は、止まって間があいたら置く。キーボードで書いたものは Enter で置く（書きかけを勝手に送らない）。マイクは確定したらすぐ置く
+// 話しているだけなら、OS の音声入力は止まって間があいたら置き、マイクは確定したらすぐ置く
+// 書きかけにキーボードで一文字でも打ったら、その書きかけは Enter まで置かない（声で足しても待つ）。欄が空になったらまた話すだけに戻る
 // キーボードか声かは、入力の直前にキーが押されたかで見分ける（OS の音声入力はキーを押さずに文字が入る）
 const msg = $("#msg");
 let timer = null, composing = false, sending = false, lastKey = 0, typed = false;
-// 「書いても間で置く」にしたら、キーボードで書いたものも声と同じに扱う（画面ごとに覚える）
-let keyPause = keep("keyPause", false);
-const byKey = () => !keyPause && Date.now() - lastKey < 300;
-const showKeyPause = () => { const b = $("#keyPause"); b.textContent = keyPause ? L.keyPauseOn : L.keyPauseOff; b.title = L.keyPauseTitle; b.setAttribute("aria-pressed", String(keyPause)); };
-$("#keyPause").onclick = () => { keyPause = !keyPause; put("keyPause", keyPause); showKeyPause(); if (keyPause && msg.value.trim()) { typed = false; arm(); } };
-showKeyPause();
+const byKey = () => Date.now() - lastKey < 300;
 msg.addEventListener("keydown", () => { lastKey = Date.now(); });
 const arm = () => { clearTimeout(timer); timer = setTimeout(send, STREAM_PAUSE); };
 async function send() {
@@ -3014,7 +3006,8 @@ async function send() {
   const raw = msg.value, text = raw.trim();
   if (!text) return;
   sending = true;
-  FOCUS.input = Date.now(); // 話しているなら、いる
+  const t0 = Date.now();
+  FOCUS.input = t0; // 話しているなら、いる
   // 話しはじめたときに指していたパネルを付ける（手がかり。人の操作として発言に残る）
   const pt = PT.cur !== undefined ? PT.cur : pointNow();
   const r = await op("add", { view: "say", data: text, ...(S.to ? { to: S.to } : {}), ...(pt ? { point: pt } : {}) });
@@ -3025,12 +3018,18 @@ async function send() {
   PT.cur = msg.value.trim() ? pointNow() : undefined;
   grow();
   showPoint();
+  // 残ったぶんは、送っているあいだにキーで打ったかで決め直す
+  typed = !!msg.value.trim() && lastKey > t0;
   if (msg.value.trim() && !typed) arm();
 }
 // 入力欄は一行から、書いたぶんだけ伸びる
 const grow = () => { msg.style.height = "auto"; msg.style.height = `${msg.scrollHeight + 2}px`; };
 // キーで書いたら、声で待っていた送りも止める（直しているところを送らない）
-msg.addEventListener("input", () => { notePoint(); grow(); typed = byKey(); if (typed) clearTimeout(timer); else arm(); });
+msg.addEventListener("input", () => {
+  notePoint(); grow();
+  if (!msg.value.trim()) typed = false; else if (byKey()) typed = true;
+  if (typed) clearTimeout(timer); else arm();
+});
 msg.addEventListener("compositionstart", () => { composing = true; });
 msg.addEventListener("compositionend", () => { composing = false; if (!byKey() && !typed) arm(); });
 // Enter で置く。改行は Shift+Enter
@@ -3074,7 +3073,7 @@ if (SR) {
       grow();
       interim = mid.length;
       // 確定したらすぐ置く（まとめて整えるのは起こし係の間が受け持つ）
-      if (mid) clearTimeout(timer); else if (fin) { clearTimeout(timer); send(); }
+      if (mid || typed) clearTimeout(timer); else if (fin) { clearTimeout(timer); send(); }
     };
     rec.onend = () => { if (on) rec.start(); };
     rec.onerror = (ev) => { if (ev.error === "not-allowed") setMic(false); };
