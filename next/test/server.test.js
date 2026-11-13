@@ -66,7 +66,12 @@ test("画面を返す。外のものを読ませない", async () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type"), /text\/html/);
     assert.match(res.headers.get("content-security-policy"), /default-src 'none'/);
+    assert.match(res.headers.get("content-security-policy"), /script-src 'self' 'unsafe-inline'/);
     assert.match(await res.text(), /<dyve-chat/);
+    const st = await fetch(`${base}/state.js`);
+    assert.equal(st.status, 200);
+    assert.match(st.headers.get("content-type"), /text\/javascript/);
+    assert.match(await st.text(), /export function step/);
   } finally {
     server.closeAll();
   }

@@ -77,7 +77,10 @@ dyve-chat.zone { border-left: 1px solid var(--line); }
   <dyve-chat class="zone"></dyve-chat>
 </main>
 
-<script>
+<script type="module">
+// 記録の当て方はサーバーと同じもの（state.js）を使う
+import { step } from "/state.js";
+
 // 画面の言葉
 const L = {
   overview: "オーバービュー", overviewCap: "動いているセッションが全部。カードは動かない",
@@ -236,18 +239,19 @@ class Chat extends HTMLElement {
 customElements.define("dyve-overview", Overview);
 customElements.define("dyve-chat", Chat);
 
-// いまの状態はサーバーが記録を当て直して作る。画面はつないだときにそれを受け取り、あとは増えた記録を一件ずつ当てる
+// つないだときにサーバーからいまの状態を受け取り、あとは増えた記録を、サーバーと同じ step で一件ずつ当てる
 const chat = document.querySelector("dyve-chat");
-let seq = 0;
-function reset(state) {
-  seq = state.seq;
+let state = null;
+function reset(s) {
+  state = s;
   chat.reset(state.said);
 }
 async function take(r) {
-  if (r.seq <= seq) return; // もう当てた
-  if (r.seq !== seq + 1) return reset(await (await fetch("/api/state")).json()); // 抜けがあったら取り直す
-  seq = r.seq;
-  if (r.kind === "say") chat.add({ id: r.seq, at: r.at, text: r.text });
+  if (!state || r.seq <= state.seq) return; // もう当てた
+  if (r.seq !== state.seq + 1) return reset(await (await fetch("/api/state")).json()); // 抜けがあったら取り直す
+  const n = state.said.length;
+  step(state, r);
+  if (state.said.length > n) chat.add(state.said.at(-1));
 }
 async function say(text) {
   try {

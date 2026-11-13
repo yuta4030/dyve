@@ -3,11 +3,13 @@ import http from "node:http";
 import fs from "node:fs";
 
 const UI = new URL("./ui.html", import.meta.url);
+// 状態の作り方は一つだけ。画面も同じものを module として読み、記録を一件ずつ当てる
+const STATE = new URL("./state.js", import.meta.url);
 // 画面は一枚。外のものを読まず、ほかのページに埋め込ませない
 const PAGE = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
-  "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; frame-ancestors 'none'",
+  "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; frame-ancestors 'none'",
 };
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 const LOCAL_HOST = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -35,6 +37,10 @@ export function createServer({ log }) {
       if (route === "GET /") {
         res.writeHead(200, PAGE);
         return res.end(fs.readFileSync(UI));
+      }
+      if (route === "GET /state.js") {
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" });
+        return res.end(fs.readFileSync(STATE));
       }
       if (route === "GET /api/state") return json(200, log.state);
       if (route === "POST /api/say") {

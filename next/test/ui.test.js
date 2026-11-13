@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const html = fs.readFileSync(new URL("../src/ui.html", import.meta.url), "utf8");
-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const script = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
 const fn = (name) => new Function(`${html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0]}; return ${name};`)();
 
 test("外のものを読まない（CDN・フォント・外の画像）", () => {
@@ -20,7 +20,7 @@ test("画面の言葉は L にまとめる", () => {
     .replace(/\/\/.*$/gm, "");
   assert.doesNotMatch(body, /["'`][^"'`\n]*[぀-ヿ一-鿿][^"'`\n]*["'`]/);
   // HTML の地の文にも日本語を書かない
-  const markup = html.replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>/g, "").replace(/<!--[\s\S]*?-->/g, "");
+  const markup = html.replace(/<style>[\s\S]*?<\/style>|<script[^>]*>[\s\S]*?<\/script>/g, "").replace(/<!--[\s\S]*?-->/g, "");
   assert.doesNotMatch(markup.replace(/<[^>]*>/g, ""), /[぀-ヿ一-鿿]/);
 });
 
@@ -50,6 +50,13 @@ test("声は間があいたら置き、打ったものは Enter まで待つ", (
   assert.match(script, /lastKey/);
 });
 
+test("記録の当て方は state.js 一つ。画面はそれを読み、自分では当て方を書かない", () => {
+  assert.match(script, /^import \{ step \} from "\/state\.js";$/m);
+  assert.doesNotMatch(script, /\bkind === "say"|\.kind\s*===/);
+  const state = fs.readFileSync(new URL("../src/state.js", import.meta.url), "utf8");
+  assert.doesNotMatch(state, /^\s*import\b|\brequire\(/m, "state.js は import を持たない");
+});
+
 test("ライトとダークの両方がある", () => {
   assert.match(html, /@media \(prefers-color-scheme: dark\)/);
   assert.match(html, /--bg: #f1f5f6/);
@@ -58,7 +65,7 @@ test("ライトとダークの両方がある", () => {
 
 test("作り直しのコードに現行の言葉を使わない", () => {
   const dir = new URL("../", import.meta.url);
-  const files = ["src", "bin", "test"].flatMap((d) => fs.readdirSync(new URL(`${d}/`, dir)).map((f) => new URL(`${d}/${f}`, dir)));
+  const files = ["src", "bin", "test", "roles"].flatMap((d) => fs.readdirSync(new URL(`${d}/`, dir)).map((f) => new URL(`${d}/${f}`, dir)));
   const old = /(?<!キー)ボード|トーク|ピン留め|マネージャ|清書係|控室/;
   for (const f of files) {
     if (f.pathname.endsWith("/ui.test.js")) continue; // この試験そのもの
