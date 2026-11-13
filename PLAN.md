@@ -19,6 +19,7 @@
 | 入れ方・使い方・しくみ・互換性の約束 | `README.md` |
 | ボードの決まり（エージェントが読む） | `src/mcp.js` の `INSTRUCTIONS` と `TOOLS` |
 | 版ごとの変更 | `CHANGELOG.md` |
+| 作り直す先の形と、持っていくもの・捨てるもの | `REBUILD.md` |
 
 ## 1. 課題
 
