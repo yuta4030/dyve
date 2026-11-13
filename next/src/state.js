@@ -33,13 +33,14 @@ function freeSymbol(s) {
 export const KINDS = {
   // 発言：人が言った元の文。発言の id は、その記録の通し番号
   say: {
-    make({ text: t }) {
-      return { text: text(t, "発言の text") };
+    // peek：人がこの発言を置いたとき覗いていたセッション（発言の一部として残す。人のいまを追い続けるのではない）
+    make({ text: t, peek = null }) {
+      return { text: text(t, "発言の text"), ...(peek != null ? { peek: id(peek, "peek") } : {}) };
     },
     apply(s, r) {
       // fair：清書した文（なければ null。元の文 text は残る）。届け先は session か aside（どこにも届けない）。miss：係が届け先を決められなかった理由。
       // body：セッションに渡した文が違ったとき。resent：この発言で届け直した発言
-      s.said.push({ id: r.seq, at: r.at, text: r.text, fair: null, session: null, aside: false, miss: null, body: null, resent: [] });
+      s.said.push({ id: r.seq, at: r.at, text: r.text, peek: r.peek ?? null, fair: null, session: null, aside: false, miss: null, body: null, resent: [] });
     },
   },
 

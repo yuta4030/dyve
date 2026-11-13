@@ -179,7 +179,7 @@ export function saidPrompt({ state, batch, again = [], roles, words = [], contex
     ...(again.length ? ["", "届けていない発言（届け直せる）：", ...again.map((p) => `- ${p.id}：${oneLine(shown(p))}`)] : []),
     "",
     "新しい発言：",
-    ...batch.map((p) => `- ${p.id}：${p.text}`),
+    ...batch.map((p) => `- ${p.id}${p.peek != null ? `（${symOf(p.peek)} を覗いていた）` : ""}：${p.text}`),
   ].join("\n");
 }
 

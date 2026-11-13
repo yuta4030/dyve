@@ -8,6 +8,7 @@
 :root {
   --bg: #f1f5f6; --surface: #ffffff; --sunk: #e7edef; --ink: #13252c; --muted: #566a72;
   --line: #d2dce0; --accent: #0a6c88; --accent-soft: #dbecf1; --you: #a05406; --you-soft: #f8e9d4;
+  --back: #2a7548; --back-soft: #ddefe3; --hl: #ffefbf;
   --font-body: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   --font-mono: ui-monospace, Menlo, monospace;
   color-scheme: light;
@@ -16,6 +17,7 @@
   :root {
     --bg: #0b161b; --surface: #12222a; --sunk: #1a2e37; --ink: #e2edf0; --muted: #8fa5ad;
     --line: #253a43; --accent: #55bcd8; --accent-soft: #143744; --you: #e3a552; --you-soft: #3a2c14;
+    --back: #6fc490; --back-soft: #16352a; --hl: #4a3d12;
     color-scheme: dark;
   }
 }
@@ -31,7 +33,7 @@ button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .app {
-  height: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  height: 100%; grid-template-rows: minmax(0, 1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); overflow: hidden;
 }
 .zone { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
@@ -41,15 +43,107 @@ dyve-chat.zone { border-left: 1px solid var(--line); }
 .cap .down { color: var(--you); }
 .empty { color: var(--muted); font-size: 13.5px; }
 
-/* オーバービュー */
-.cards { flex: 1; border: 1px dashed var(--line); border-radius: 10px; padding: 14px; min-height: 96px; }
+[hidden] { display: none !important; }
+dyve-overview.zone, dyve-peek.zone { overflow-y: auto; }
+
+/* オーバービュー：カードはできた順に並び、動かない */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px 10px; align-items: start; padding-top: 6px; }
+.noses { border: 1px dashed var(--line); border-radius: 10px; padding: 14px; min-height: 96px; }
+.sym { font-family: var(--font-mono); font-weight: 500; width: 24px; height: 24px; flex: none; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; font-weight: 500; }
+.pill.run { background: var(--accent-soft); color: var(--accent); }
+.pill.wait { background: var(--you-soft); color: var(--you); }
+.pill.back { background: var(--back-soft); color: var(--back); }
+.pill.none { background: var(--sunk); color: var(--muted); }
+.card {
+  position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; min-width: 0;
+}
+.card:hover { border-color: var(--muted); }
+.card.hit { border-color: var(--accent); animation: pulse .7s ease-out; }
+@keyframes pulse { from { box-shadow: 0 0 0 6px var(--accent-soft); } to { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .card.hit { animation: none; } }
+.chead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.cname { font-weight: 700; overflow-wrap: anywhere; line-height: 1.4; }
+.roles { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.role { border-radius: 5px; padding: 0 6px; line-height: 1.6; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+/* いまどこまで：二行ぶんの高さを取っておき、流れても高さがばたつかない */
+.cline { font-weight: 500; line-height: 1.5; min-height: 3em; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card.none .cline { color: var(--muted); font-weight: 400; }
+.prog { display: flex; gap: 3px; }
+.prog span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.prog .done { background: var(--back); }
+.prog .now { background: var(--accent); }
+.pstep { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.cyours { background: var(--you-soft); border-radius: 8px; padding: 6px 9px; font-size: 13.5px; line-height: 1.55; }
+.cyours b { display: block; font-size: 12px; color: var(--you); }
+.cpanel { border-top: 1px solid var(--line); padding-top: 8px; }
+/* カードの中のパネルは頭だけ。行は一行に切る（覗けば全部） */
+.cpanel .item span:first-child, .cpanel .tbl td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+.cpanel .item span:first-child { max-width: none; }
+.cpanel .tbl { table-layout: fixed; }
+.peekbtn { align-self: flex-start; background: none; border: 0; padding: 2px 0 0; font-size: 12.5px; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.tag { position: absolute; top: -9px; left: 10px; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--surface); border-radius: 999px; padding: 0 8px; line-height: 1.6; }
+.mark { position: absolute; top: -5px; right: -5px; width: 13px; height: 13px; border-radius: 50%; background: var(--you); border: 2px solid var(--surface); }
+
+/* パネル：一瞬でわかるもの。本体が描く view は summary・list・table・text・json */
+.panel { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 13px; }
+.panel h3 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); }
+.sum { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.sitem { display: flex; flex-direction: column; text-align: left; background: none; border: 0; padding: 0; min-width: 0; }
+.sitem b { font-size: 17px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.sitem span { font-size: 11.5px; color: var(--muted); }
+.items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.item { width: 100%; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; text-align: left; background: transparent; border: 0; border-radius: 6px; padding: 2px 6px; margin: 0 -6px; min-width: 0; }
+.item span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.v { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; border-bottom: 1px solid var(--line); padding: 2px 6px 2px 0; }
+.tbl td { padding: 2px 6px 2px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--sunk); }
+.ptext { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pjson { margin: 0; font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
+.more-rows { font-size: 11.5px; color: var(--muted); }
+[data-ref] { cursor: pointer; }
+dyve-peek [data-ref]:hover { background: var(--sunk); }
+
+/* 覗いた中身：左がそのセッションのやりとりとパネルに替わる */
+dyve-peek.zone { overflow: hidden; }
+.phead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.backbtn { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 13px; cursor: pointer; }
+.backbtn:hover { border-color: var(--accent); }
+.pwhat { font-size: 13px; color: var(--muted); flex-basis: 100%; }
+.pbody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: 14px; }
+.flow { position: relative; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 2px; }
+.msg { max-width: 92%; padding: 6px 10px; border-radius: 10px; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; transition: background .3s; }
+.msg.you { align-self: flex-end; background: var(--sunk); }
+.msg.you.later { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+.msg.ai { align-self: flex-start; padding-left: 2px; }
+.msg.tool { align-self: flex-start; font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding: 0 2px; }
+.msg.hl { background: var(--hl); padding-left: 10px; box-shadow: inset 3px 0 0 var(--you); }
+.pcol { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.pcol .panel { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.pcol .yours { background: var(--you-soft); border-color: transparent; }
+.pcol .yours h3 { color: var(--you); }
+.pcol .item[data-ref]:hover { background: var(--sunk); }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.steps li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; align-items: baseline; font-size: 13.5px; }
+.steps li::before { font-family: var(--font-mono); font-size: 12px; }
+.steps .done { color: var(--muted); }
+.steps .done::before { content: "✓"; color: var(--back); }
+.steps .now { font-weight: 700; }
+.steps .now::before { content: "●"; color: var(--accent); }
+.steps .todo { color: var(--muted); }
+.steps .todo::before { content: "○"; }
 
 /* チャット */
 .talk { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px; }
 .talk .empty { margin: auto 0 0; }
 .said { align-self: flex-end; max-width: 94%; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .said p { background: var(--sunk); border-radius: 10px; padding: 6px 10px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.said .chip { font-size: 12px; color: var(--accent); text-align: right; }
+.said .chip { font-size: 12px; color: var(--accent); text-align: right; background: none; border: 0; padding: 0; }
+.said button.chip { cursor: pointer; }
+.said button.chip:hover, .from:hover > span:nth-child(2) { text-decoration: underline; }
+.from { cursor: pointer; }
 .said .chip.quiet { color: var(--muted); }
 .said time { font-size: 11px; color: var(--muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .from { align-self: flex-start; max-width: 94%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: start; font-size: 14px; line-height: 1.6; }
@@ -75,23 +169,35 @@ dyve-chat.zone { border-left: 1px solid var(--line); }
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   dyve-chat.zone { border-left: 0; border-top: 1px solid var(--line); }
-  .cards { min-height: 64px; }
+  .noses { min-height: 64px; }
+  dyve-overview.zone { max-height: 46vh; }
+  /* 狭い幅では、覗いた中身はやりとり・パネルの順に縦に並べ、全体を一つのスクロールにする（やりとりだけは自分の高さで流れる） */
+  dyve-peek.zone { max-height: 62vh; overflow-y: auto; }
+  .pbody { display: flex; flex-direction: column; flex: none; }
+  .flow { max-height: 260px; flex: none; }
+  .pcol { overflow: visible; }
 }
 </style>
 
 <main class="app">
   <dyve-overview class="zone"></dyve-overview>
+  <dyve-peek class="zone" hidden></dyve-peek>
   <dyve-chat class="zone"></dyve-chat>
 </main>
 
 <script type="module">
 // 記録の当て方はサーバーと同じもの（state.js）を使う
-import { step } from "/state.js";
+import { step, stageOf, nowOf } from "/state.js";
 
 // 画面の言葉
 const L = {
   overview: "オーバービュー", overviewCap: "動いているセッションが全部。カードは動かない",
-  noSession: "セッションはまだない",
+  noSession: "セッションはまだない。チャットで頼むと、ここにカードが並ぶ",
+  stage: { run: "実行中", wait: "人待ち", back: "帰った" }, noResult: "帰った・結果なし",
+  roleLabel: "任せた先", ask: "人への問い", peekBtn: "中身を覗く", hit: "いま届いた", mark: "見てほしい",
+  stepAt: (i, n, t) => `${i}/${n}　${t}`, stepsDone: "済んだ",
+  peek: "中身", peekCap: "セッションのやりとりそのままと、そのパネル。行を押すと元のやりとりが光る",
+  backTo: "← オーバービュー", now: "いまどこまで", later: "次に渡す", rows: (n) => `ほか ${n} 行`,
   chat: "チャット", chatCap: "一つだけ。どのセッションにもここから喋る",
   emptyChat: "話すか書くと、ここに流れる。声は間があくと置かれ、打ったものは Enter で置かれる（改行は Shift+Enter）",
   placeholder: "宛先は選ばない。喋るだけ",
@@ -128,7 +234,7 @@ const dayOf = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDat
 function chipOf(s, state) {
   const x = s.session != null ? state.sessions.find((y) => y.id === s.session) : null;
   const again = s.resent?.length ? L.resent(s.resent.length) : "";
-  if (x) return { text: L.to(x.sym, x.name ?? x.role) + (x.asked[0] === s.id ? L.made(x.role) : "") + (again ? L.also(again) : "") };
+  if (x) return { go: x.id, text: L.to(x.sym, x.name ?? x.role) + (x.asked[0] === s.id ? L.made(x.role) : "") + (again ? L.also(again) : "") };
   if (again) return { text: again, quiet: true };
   if (s.aside) return { text: L.aside, quiet: true };
   if (s.miss) return { text: L.missed, quiet: true, title: s.miss };
@@ -138,9 +244,136 @@ const keyOf = (s, state) => JSON.stringify([s.fair, chipOf(s, state)]);
 // チャットに並ぶもの：発言と、セッションから帰った一行を、通し番号の順に
 const itemsOf = (state) => [...state.said.map((s) => ({ seq: s.id, at: s.at, said: s })), ...state.backs.map((b) => ({ seq: b.seq, at: b.at, back: b }))].sort((a, b) => a.seq - b.seq);
 
+// ── パネル：view の名前で描き手を選ぶ。データの形は kakari.js の panelOf で確かめたもの ──
+// full：覗いたとき（全部を出し、ref のある行は押せる）。そうでなければカードの中（頭だけ）
+const refAttr = (i, o) => (o.full && i.ref != null ? ` data-ref="${i.ref}"` : "");
+const rowTag = (i, o) => (o.full && i.ref != null ? "button" : "div");
+const head = (rows, o, n) => (o.full ? rows : rows.slice(0, n));
+const rest = (rows, o, n) => (!o.full && rows.length > n ? `<p class="more-rows">${esc(L.rows(rows.length - n))}</p>` : "");
+const VIEWS = {
+  summary: (d, o) => `<div class="sum">${head(d, o, 4).map((i) => `<${rowTag(i, o)} class="sitem"${refAttr(i, o)}><b>${esc(i.value)}</b><span>${esc(i.label)}</span></${rowTag(i, o)}>`).join("")}</div>${rest(d, o, 4)}`,
+  list: (d, o) => `<ul class="items">${head(d, o, 4).map((i) => `<li><${rowTag(i, o)} class="item"${refAttr(i, o)}><span>${esc(i.text)}</span>${i.value ? `<span class="v">${esc(i.value)}</span>` : ""}</${rowTag(i, o)}></li>`).join("")}</ul>${rest(d, o, 4)}`,
+  table: (d, o) => `<table class="tbl"><thead><tr>${d.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${head(d.rows, o, 3).map((r) => `<tr${refAttr(r, o)}>${r.cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>${rest(d.rows, o, 3)}`,
+  text: (d) => `<p class="ptext">${esc(d)}</p>`,
+  json: (d, o) => `<pre class="pjson">${esc(o.full ? JSON.stringify(d, null, 2) : JSON.stringify(d).slice(0, 160))}</pre>`,
+};
+const panelHtml = (p, o = {}) => `<div class="panel">${p.title ? `<h3>${esc(p.title)}</h3>` : ""}${(VIEWS[p.view] ?? VIEWS.json)(p.data, o)}</div>`;
+
+// ステートの札。結果なしはそれとわかるように
+function pillHtml(x) {
+  const g = stageOf(x);
+  return g.none ? `<span class="pill none" title="${esc(g.none)}">${esc(L.noResult)}</span>` : `<span class="pill ${g.stage}">${esc(L.stage[g.stage])}</span>`;
+}
+// 段取りの進み具合（なければ空）
+function progHtml(steps) {
+  if (!steps?.length) return "";
+  const at = steps.findIndex((t) => t.state === "now");
+  const label = at < 0 ? L.stepsDone : L.stepAt(at + 1, steps.length, steps[at].text);
+  return `<div class="prog">${steps.map((t) => `<span class="${t.state}"></span>`).join("")}</div><p class="pstep">${esc(label)}</p>`;
+}
+
+// 中身が変わった部分だけを書き換える（押そうとしていたもの・選んだ文字を、変わっていない部分では消さない）
+const drawn = new WeakMap();
+function put(el, html) {
+  if (drawn.get(el) === html) return;
+  drawn.set(el, html);
+  el.innerHTML = html;
+  el.hidden = !html;
+}
+
+// ── オーバービュー：セッションごとにカードが一枚。できた順に並び、動かない ──
 class Overview extends HTMLElement {
   connectedCallback() {
-    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}</p><div class="cards"><p class="empty">${L.noSession}</p></div>`;
+    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}</p><p class="noses empty">${L.noSession}</p><div class="cards"></div>`;
+    this.cards = this.querySelector(".cards");
+  }
+
+  render(state, ui) {
+    this.querySelector(".noses").hidden = state.sessions.length > 0;
+    for (const x of state.sessions) {
+      let c = this.cards.querySelector(`.card[data-go="${x.id}"]`);
+      if (!c) {
+        c = document.createElement("article");
+        c.className = "card";
+        c.dataset.go = x.id;
+        c.innerHTML = `<span class="tag">${L.hit}</span><span class="mark" title="${L.mark}"></span><div class="chead"></div><p class="roles"></p><p class="cline"></p><div class="cprog"></div><p class="cyours"></p><div class="cpanel"></div><button class="peekbtn" data-go="${x.id}">${L.peekBtn}</button>`;
+        this.cards.append(c); // 新しいカードはいつも後ろに。並びは変えない
+      }
+      const g = stageOf(x), wait = g.stage === "wait";
+      c.classList.toggle("hit", ui.hits.has(x.id));
+      c.classList.toggle("none", !!g.none);
+      c.querySelector(".tag").hidden = !ui.hits.has(x.id);
+      c.querySelector(".mark").hidden = !ui.marks.has(x.id);
+      put(c.querySelector(".chead"), `<span class="sym">${esc(x.sym)}</span><span class="cname">${esc(x.name ?? x.role)}</span>${pillHtml(x)}`);
+      put(c.querySelector(".roles"), `<span>${L.roleLabel}</span><span class="role">${esc(x.role)}</span>`);
+      const line = c.querySelector(".cline");
+      if (line.textContent !== nowOf(x)) line.textContent = nowOf(x);
+      put(c.querySelector(".cprog"), progHtml(x.card?.steps));
+      put(c.querySelector(".cyours"), wait ? `<b>${L.ask}</b>${esc(x.card.ask.text)}` : "");
+      put(c.querySelector(".cpanel"), x.card?.panels[0] ? panelHtml(x.card.panels[0]) : "");
+    }
+  }
+}
+
+// ── 覗く：左がそのセッションのやりとりとパネルに替わる。替えるのは人が覗くときだけ ──
+class Peek extends HTMLElement {
+  connectedCallback() {
+    this.innerHTML = `<p class="cap"><b>${L.peek}</b>${L.peekCap}</p>
+      <div class="phead"><button class="backbtn" data-back="1">${L.backTo}</button><span class="ph" style="display:contents"></span><p class="pwhat"></p></div>
+      <div class="pbody"><div class="flow"><div class="msgs"></div><div class="later"></div></div><div class="pcol"></div></div>`;
+    this.flow = this.querySelector(".flow");
+    this.msgs = this.querySelector(".msgs");
+    this.msgs.style.display = "contents";
+    this.laterEl = this.querySelector(".later");
+    this.laterEl.style.display = "contents";
+  }
+
+  // 別のセッションを覗いたら描き直し、やりとりはいちばん下から
+  show(state, id) {
+    this.sid = id;
+    this.shown = 0;
+    this.msgs.innerHTML = "";
+    for (const el of [this.querySelector(".ph"), this.querySelector(".pwhat"), this.laterEl, this.querySelector(".pcol")]) drawn.delete(el);
+    this.render(state);
+    this.flow.scrollTop = this.flow.scrollHeight;
+  }
+
+  render(state) {
+    const x = state.sessions.find((s) => s.id === this.sid);
+    if (!x) return;
+    const said = (n) => state.said.find((p) => p.id === n);
+    const text = (p) => p?.body ?? p?.fair ?? p?.text ?? "";
+    put(this.querySelector(".ph"), `<span class="sym">${esc(x.sym)}</span><span class="cname">${esc(x.name ?? x.role)}</span>${pillHtml(x)}<p class="roles"><span>${L.roleLabel}</span><span class="role">${esc(x.role)}</span></p>`);
+    put(this.querySelector(".pwhat"), esc(x.card?.what ?? ""));
+    // やりとりは足すだけ。いちばん下を見ているときだけ追いかける
+    const fresh = x.flow.slice(this.shown);
+    const follow = this.flow.scrollHeight - this.flow.scrollTop - this.flow.clientHeight < 40;
+    for (const f of fresh) {
+      const el = document.createElement("div");
+      el.className = `msg ${f.said ? "you" : f.tool ? "tool" : "ai"}`;
+      el.dataset.at = f.said ?? f.seq;
+      el.textContent = f.said ? text(said(f.said)) : f.tool ?? f.talk;
+      this.msgs.append(el);
+    }
+    this.shown = x.flow.length;
+    put(this.laterEl, x.pending.map((n) => `<div class="msg you later" data-at="${n}">${esc(text(said(n)))}<br><small>${L.later}</small></div>`).join(""));
+    if (fresh.length && follow) this.flow.scrollTop = this.flow.scrollHeight;
+    // パネル：人への問い、いまどこまで、カードのパネル全部
+    const g = stageOf(x), card = x.card;
+    const ask = g.stage === "wait" ? `<div class="panel yours"><h3>${L.ask}</h3><ul class="items"><li><${card.ask.ref != null ? `button data-ref="${card.ask.ref}"` : "div"} class="item"><span>${esc(card.ask.text)}</span></${card.ask.ref != null ? "button" : "div"}></li></ul></div>` : "";
+    const steps = card?.steps?.length && g.stage !== "run"
+      ? `<ol class="steps">${card.steps.map((t) => `<li class="${t.state}">${esc(t.text)}</li>`).join("")}</ol>`
+      : `<p>${esc(nowOf(x))}</p>`;
+    put(this.querySelector(".pcol"), ask + `<div class="panel"><h3>${L.now}</h3>${steps}</div>` + (card?.panels ?? []).map((p) => panelHtml(p, { full: true })).join(""));
+  }
+
+  // パネルの行を押したら、もとのやりとりを光らせ、そこが見えるところまでやりとりだけを動かす
+  light(ref) {
+    for (const el of this.flow.querySelectorAll(".hl")) el.classList.remove("hl");
+    const el = this.flow.querySelector(`[data-at="${ref}"]`);
+    if (!el) return;
+    el.classList.add("hl");
+    this.flow.scrollTop = Math.max(0, el.offsetTop - this.flow.offsetTop - 40);
   }
 }
 
@@ -237,6 +470,7 @@ class Chat extends HTMLElement {
       // セッションから帰った一行：記号と一行。結果を出さずに終わったものは、それとわかるように
       const b = it.back, x = state.sessions.find((y) => y.id === b.session);
       el.className = `from${b.kind === "fail" ? " none" : ""}`;
+      el.dataset.go = b.session;
       const text = b.kind === "fail" ? L.none(b.text) : b.text;
       el.innerHTML = `<span class="sym" title="${esc(x?.name ?? "")}">${esc(x?.sym ?? "?")}</span><span${b.reason ? ` title="${esc(b.reason)}"` : ""}>${esc(text)}</span>` +
         (time ? `<time datetime="${esc(it.at)}">${time}</time>` : "");
@@ -249,7 +483,7 @@ class Chat extends HTMLElement {
     const c = chipOf(s, state);
     el.dataset.key = keyOf(s, state);
     el.innerHTML = `<p${s.fair ? ` title="${esc(L.original(s.text))}"` : ""}>${esc(s.fair ?? s.text)}</p>` +
-      (c ? `<span class="chip${c.quiet ? " quiet" : ""}"${c.title ? ` title="${esc(c.title)}"` : ""}>${esc(c.text)}</span>` : "") +
+      (c ? (c.go != null ? `<button class="chip" data-go="${c.go}">${esc(c.text)}</button>` : `<span class="chip${c.quiet ? " quiet" : ""}"${c.title ? ` title="${esc(c.title)}"` : ""}>${esc(c.text)}</span>`) : "") +
       (el.dataset.time ? `<time datetime="${esc(s.at)}">${el.dataset.time}</time>` : "");
   }
 
@@ -311,24 +545,71 @@ class Chat extends HTMLElement {
 }
 
 customElements.define("dyve-overview", Overview);
+customElements.define("dyve-peek", Peek);
 customElements.define("dyve-chat", Chat);
 
 // つないだときにサーバーからいまの状態を受け取り、あとは増えた記録を、サーバーと同じ step で一件ずつ当てる
 const chat = document.querySelector("dyve-chat");
+const overview = document.querySelector("dyve-overview");
+const peekView = document.querySelector("dyve-peek");
+// 画面の中だけで持つもの（記録には持たない。開き直せば消えてよい）：
+// peek 覗いているセッション、marks 見てほしい印、hits いま届いた、seen 前に見たステートと渡した数
+const ui = { peek: null, marks: new Set(), hits: new Set(), seen: new Map() };
+const HIT_MS = 2500;
 let state = null;
+
+// 印：覗いていないあいだに人待ち・帰ったになったカードに付ける。発言が届いたカードは一瞬わかるように
+function notice(first) {
+  for (const x of state.sessions) {
+    const g = stageOf(x).stage, before = ui.seen.get(x.id);
+    ui.seen.set(x.id, { stage: g, asked: x.asked.length });
+    if (first) continue;
+    if (before && before.stage !== g && g !== "run" && ui.peek !== x.id) ui.marks.add(x.id);
+    if (!before || x.asked.length > before.asked) {
+      ui.hits.add(x.id);
+      setTimeout(() => { ui.hits.delete(x.id); overview.render(state, ui); }, HIT_MS);
+    }
+  }
+}
+function draw() {
+  overview.render(state, ui);
+  if (ui.peek != null) peekView.render(state);
+  chat.sync(state);
+}
 function reset(s) {
   state = s;
+  notice(true);
   chat.reset(state);
+  overview.render(state, ui);
+  if (ui.peek != null) peekView.show(state, ui.peek);
 }
 async function take(r) {
   if (!state || r.seq <= state.seq) return; // もう当てた
   if (r.seq !== state.seq + 1) return reset(await (await fetch("/api/state")).json()); // 抜けがあったら取り直す
   step(state, r);
-  chat.sync(state);
+  notice(false);
+  draw();
 }
+// 覗く・戻る：画面を替えるのは人が押したときだけ
+function peek(id) {
+  ui.peek = id;
+  if (id != null) ui.marks.delete(id);
+  overview.hidden = id != null;
+  peekView.hidden = id == null;
+  if (id != null) peekView.show(state, id);
+  overview.render(state, ui);
+}
+document.addEventListener("click", (e) => {
+  if (!state) return;
+  const t = e.target.closest("[data-back],[data-ref],[data-go]");
+  if (!t) return;
+  if (t.dataset.back) peek(null);
+  else if (t.dataset.ref && t.closest("dyve-peek")) peekView.light(t.dataset.ref);
+  else if (t.dataset.go && getSelection().isCollapsed) peek(Number(t.dataset.go));
+});
 async function say(text) {
   try {
-    const res = await fetch("/api/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    const res = await fetch("/api/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, ...(ui.peek != null ? { peek: ui.peek } : {}) }) });
     const r = await res.json();
     if (!r.ok) return null;
     await take(r.record);

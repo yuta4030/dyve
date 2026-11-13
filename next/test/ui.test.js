@@ -51,7 +51,7 @@ test("声は間があいたら置き、打ったものは Enter まで待つ", (
 });
 
 test("記録の当て方は state.js 一つ。画面はそれを読み、自分では当て方を書かない", () => {
-  assert.match(script, /^import \{ step \} from "\/state\.js";$/m);
+  assert.match(script, /^import \{ step(, \w+)* \} from "\/state\.js";$/m);
   assert.doesNotMatch(script, /\br\.kind\b/, "記録の種類で分けて当てない");
   const state = fs.readFileSync(new URL("../src/state.js", import.meta.url), "utf8");
   assert.doesNotMatch(state, /^\s*import\b|\brequire\(/m, "state.js は import を持たない");
@@ -69,6 +69,17 @@ test("届け先の印：続き・新しく起こした・届けていない・�
   assert.equal(chipOf({ id: 6, session: null, aside: false, miss: null }, state), null);
   assert.equal(chipOf({ id: 7, session: null, aside: true, resent: [4] }, state).text, "前の発言を届け直した");
   assert.equal(chipOf({ id: 8, session: 2, resent: [4, 5] }, state).text, "→ A 競合の値段・前の発言を届け直した（2 件）");
+});
+
+test("パネルは view の名前で描き手を選ぶ。本体が描くのは summary・list・table・text・json", () => {
+  const views = script.match(/^const VIEWS = \{([\s\S]*?)^\};/m)[1];
+  assert.deepEqual([...views.matchAll(/^  (\w+):/gm)].map((m) => m[1]), ["summary", "list", "table", "text", "json"]);
+  assert.match(script, /\(VIEWS\[p\.view\] \?\? VIEWS\.json\)/);
+});
+
+test("ステートといまどこまでは state.js のものを使う", () => {
+  assert.match(script, /^import \{ step, stageOf, nowOf \} from "\/state\.js";$/m);
+  assert.doesNotMatch(script, /function stageOf|function nowOf/);
 });
 
 test("ライトとダークの両方がある", () => {

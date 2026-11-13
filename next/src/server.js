@@ -45,7 +45,9 @@ export function createServer({ log }) {
       if (route === "GET /api/state") return json(200, log.state);
       if (route === "POST /api/say") {
         const body = await readJson(req);
-        const r = log.add("say", { text: body.text });
+        // peek：覗いていたセッション（あるものだけ）
+        const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;
+        const r = log.add("say", { text: body.text, peek });
         return json(r.ok ? 200 : 400, r);
       }
       if (route === "GET /api/events") {
