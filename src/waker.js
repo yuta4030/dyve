@@ -594,7 +594,7 @@ export function wordPrompt(task, p) {
 }
 
 // 担当の一覧の列と一行：誰（行の中の行は ↳ を付ける）・頼まれたこと・返したこと（200 字ほど）・かかった時間
-const RECORD_COLUMNS = ["誰", "頼まれたこと", "返したこと", "かかった"];
+const RECORD_COLUMNS = ["誰", "頼まれたこと", "返したこと", "時間"];
 const took = (ms) => (!ms ? "—" : ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}秒` : `${Math.round(ms / 60_000)}分`);
 function recordRow(t) {
   const said = t.report ? clip(t.report.replace(/\s+/g, " ").trim(), 200) : t.state === "done" ? "（報告なし）" : "（途中で終わった）";

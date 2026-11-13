@@ -252,7 +252,7 @@ test("担当の一覧：行の中で呼ばれたものがあれば、終わっ�
   assert.equal(recs().length, 1);
   const rec = recs()[0];
   assert.deepEqual([rec.by, rec.view, rec.data.record, RECORD], ["board", "table", "inside", "inside"]);
-  assert.deepEqual(rec.data.columns, ["誰", "頼まれたこと", "返したこと", "かかった"]);
+  assert.deepEqual(rec.data.columns, ["誰", "頼まれたこと", "返したこと", "時間"]);
   assert.deepEqual(rec.data.rows.map((r) => [r[0], r[1], r[3]]), [["調べ係", "下調べ", "4秒"], ["↳ 読み係", "読む", "1分"]]);
   assert.ok(rec.data.rows[0][2].startsWith("見つけた。") && rec.data.rows[0][2].length <= 201, "返したことは 200 字ほどに切る");
   assert.equal(rec.data.rows[1][2], "（報告なし）");
