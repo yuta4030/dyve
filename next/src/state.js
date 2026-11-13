@@ -37,8 +37,9 @@ export const KINDS = {
       return { text: text(t, "発言の text") };
     },
     apply(s, r) {
-      // fair：清書した文（なければ null。元の文 text は残る）。届け先は session か aside（どこにも届けない）。miss：係が届け先を決められなかった理由
-      s.said.push({ id: r.seq, at: r.at, text: r.text, fair: null, session: null, aside: false, miss: null });
+      // fair：清書した文（なければ null。元の文 text は残る）。届け先は session か aside（どこにも届けない）。miss：係が届け先を決められなかった理由。
+      // body：セッションに渡した文が違ったとき。resent：この発言で届け直した発言
+      s.said.push({ id: r.seq, at: r.at, text: r.text, fair: null, session: null, aside: false, miss: null, body: null, resent: [] });
     },
   },
 
@@ -64,6 +65,18 @@ export const KINDS = {
         p.aside = true;
         p.miss = null;
       }
+    },
+  },
+
+  // 届け直した：人が「それは A に送って」と言ったので、届けていなかった発言（says）を届けた。said はそう言った発言
+  resend: {
+    make({ said, says }) {
+      if (!Array.isArray(says) || !says.length) throw new Error("says がない");
+      return { said: id(said, "said"), says: says.map((x) => id(x, "says")) };
+    },
+    apply(s, r) {
+      const p = saidOf(s, r.said);
+      if (p) p.resent = [...(p.resent ?? []), ...r.says];
     },
   },
 
@@ -94,15 +107,18 @@ export const KINDS = {
   },
 
   // 発言を渡した（発言とセッションの対応）。渡すのは、そのセッションの次のターンのはじめ
+  // text：セッションに渡す文がその発言の文と違うとき（届け直しの指示がまじった発言から、頼みの中身だけを渡す）
   pass: {
-    make({ session, said }) {
-      return { session: id(session, "session"), said: id(said, "said") };
+    make({ session, said, text: t = null }) {
+      return { session: id(session, "session"), said: id(said, "said"), ...(t != null ? { text: text(t, "text") } : {}) };
     },
     apply(s, r) {
       const x = sessionOf(s, r), p = s.said.find((y) => y.id === r.said);
       if (p) {
         p.session = r.session;
         p.miss = null;
+        p.aside = false; // 届けていなかった発言を、あとから届け直したとき
+        if (r.text) p.body = r.text;
       }
       x?.asked.push(r.said);
       x?.pending.push(r.said);

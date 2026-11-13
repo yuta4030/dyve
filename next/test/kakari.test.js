@@ -111,7 +111,7 @@ test("読んでいるあいだに来た発言は、次の回にまとめて読�
   await tick(5);
   assert.equal(t.conv.asks.length, 2);
   assert.match(t.conv.asks[1].text, new RegExp(`新しい発言：\\n- ${b}：b\\n- ${c}：c$`));
-  assert.doesNotMatch(t.conv.asks[1].text, new RegExp(`- ${a}：a$`, "m"));
+  assert.doesNotMatch(t.conv.asks[1].text.split("新しい発言：")[1], new RegExp(`- ${a}：a$`, "m"));
 });
 
 test("係が失敗しても発言は残り、未定とわかる。自動ではやり直さず、次の発言のときに読み直す", async () => {
@@ -225,4 +225,73 @@ test("会話の起こし直し：死んだら・伸びたら・あいたら・�
   assert.equal(r.ok, false);
   assert.match(r.error, /返らなかった/);
   assert.equal(c.c.alive, false, "返らなかった会話は止める");
+});
+
+test("届けていない発言を、声で届け直す：新しく起こす。指示の発言はセッションに渡さず、届け直したと残る", async () => {
+  const t = setup();
+  const a = t.say("競合ってどれくらい取ってるんだろうな");
+  await tick();
+  t.conv.asks[0].reply({ says: [{ id: a, text: "競合ってどれくらい取ってるんだろうな", to: "none" }] });
+  await tick();
+  assert.equal(t.log.state.said[0].aside, true);
+  const b = t.say("それは新しく調べて");
+  await tick();
+  assert.match(t.conv.asks[1].text, new RegExp(`届けていない発言（届け直せる）：\\n- ${a}：競合ってどれくらい取ってるんだろうな`));
+  t.conv.asks[1].reply({ says: [
+    { id: a, text: "競合ってどれくらい取ってるんだろうな", to: "new", role: "調べもの", name: "競合の料金" },
+    { id: b, text: "それは新しく調べて", to: "none", resend: [a] },
+  ] });
+  await tick();
+  const s = t.log.state;
+  const [pa, pb] = s.said;
+  assert.equal(pa.session, s.sessions[0].id);
+  assert.equal(pa.aside, false);
+  assert.deepEqual([pb.session, pb.aside, pb.resent], [null, true, [a]]);
+  assert.deepEqual(s.sessions[0].asked, [a], "指示の発言はセッションに渡さない");
+  assert.equal(t.jobs[0].prompt, "競合ってどれくらい取ってるんだろうな");
+  const kinds = t.log.records.map((r) => r.kind);
+  assert.deepEqual(kinds.slice(kinds.indexOf("aside")), ["aside", "say", "open", "pass", "start", "aside", "resend"]);
+});
+
+test("届け直しの指示に頼みの中身が足されていたら、中身だけを同じセッションに渡す", async () => {
+  const t = setup();
+  const a = t.say("競合の値段を調べて");
+  await tick();
+  t.conv.asks[0].reply({ says: [{ id: a, text: "競合の値段を調べて", to: "new", role: "調べもの", name: "競合の値段" }] });
+  await tick();
+  const b = t.say("甲社のはけっこう高いらしい");
+  await tick();
+  t.conv.asks[1].reply({ says: [{ id: b, text: "甲社のはけっこう高いらしい", to: "none" }] });
+  await tick();
+  const c = t.say("さっきのは A に送って、あと年払いも見ておいて");
+  await tick();
+  t.conv.asks[2].reply({ says: [
+    { id: b, text: "甲社のはけっこう高いらしい", to: "session", session: "A" },
+    { id: c, text: "さっきのは A に送って。あと年払いも見ておいて。", to: "session", session: "A", body: "年払いも見ておいて。", resend: [b] },
+  ] });
+  await tick();
+  const s = t.log.state;
+  assert.deepEqual(s.sessions[0].pending, [b, c]);
+  assert.equal(s.said.find((p) => p.id === c).body, "年払いも見ておいて。");
+  assert.deepEqual(s.said.find((p) => p.id === c).resent, [b]);
+  assert.equal(t.log.records.find((r) => r.kind === "pass" && r.said === c).text, "年払いも見ておいて。");
+});
+
+test("届け直し：resend を書かなくても、この回のいちばん新しい発言が言ったことにする。言われていないものは届けないまま", async () => {
+  const t = setup();
+  const a = t.say("ひとりごと一"), b = t.say("ひとりごと二");
+  await tick();
+  t.conv.asks[0].reply({ says: [{ id: a, text: "ひとりごと一", to: "none" }, { id: b, text: "ひとりごと二", to: "none" }] });
+  await tick();
+  const c = t.say("一つめのは調べて");
+  await tick();
+  t.conv.asks[1].reply({ says: [{ id: a, text: "ひとりごと一", to: "new", role: "調べもの", name: "一" }, { id: b, text: "ひとりごと二", to: "none" }, { id: c, text: "一つめのは調べて", to: "none" }] });
+  await tick();
+  const s = t.log.state;
+  assert.deepEqual(s.said.map((p) => [p.session != null, p.aside]), [[true, false], [false, true], [false, true]]);
+  assert.deepEqual(s.said[2].resent, [a]);
+  // 届けた発言の付け替えは作らない
+  const d = t.say("一つめのは開発に回して");
+  await tick();
+  assert.doesNotMatch(t.conv.asks[2].text, new RegExp(`- ${a}：ひとりごと一\\n`), "届けたものは届け直せる一覧に出さない");
 });

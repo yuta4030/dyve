@@ -124,7 +124,8 @@ export class Sessions {
     this.running.clear();
   }
 
-  // 発言を、セッションへ渡す。to は { session: id }（続き）か { role: 名前, name? }（この役割で新しく起こす。name はセッションの名前）
+  // 発言を、セッションへ渡す。to は { session: id }（続き）か { role: 名前, name? }（この役割で新しく起こす。name はセッションの名前）。
+  // to.body があれば、発言の文の代わりにそれを渡す
   // 返すもの：{ ok: true, session } か { ok: false, code, message }
   ask(said, to = {}) {
     const st = this.log.state;
@@ -143,7 +144,7 @@ export class Sessions {
     } else {
       return fail("invalid", "to には session か role を書く");
     }
-    this.log.add("pass", { session, said });
+    this.log.add("pass", { session, said, ...(typeof to.body === "string" && to.body.trim() ? { text: to.body.trim() } : {}) });
     this._fill();
     return { ok: true, session };
   }
@@ -168,7 +169,7 @@ export class Sessions {
   _turn(id, fresh = false) {
     const x = this._session(id), role = this.roles[x.role];
     // 渡すのは清書した文（なければ元の文）
-    const text = (s) => { const p = this.log.state.said.find((q) => q.id === s); return p?.fair ?? p?.text ?? ""; };
+    const text = (s) => { const p = this.log.state.said.find((q) => q.id === s); return p?.body ?? p?.fair ?? p?.text ?? ""; };
     let says, prompt;
     if (fresh) {
       const now = this._lastStart(id) ?? [];

@@ -113,6 +113,9 @@ export class Conv {
 
 // ── 発言を読む口 ──
 
+// 届け直せるものとして見せる、届けていない発言の数（新しいほうから）
+const AGAIN = 5;
+
 export const SAID_SCHEMA = {
   type: "object",
   properties: {
@@ -127,6 +130,8 @@ export const SAID_SCHEMA = {
           session: { type: "string" },
           role: { type: "string" },
           name: { type: "string" },
+          body: { type: "string" },
+          resend: { type: "array", items: { type: "integer" } },
         },
         required: ["id", "text", "to"],
       },
@@ -146,7 +151,8 @@ const shown = (p) => p?.fair ?? p?.text ?? "";
 export const choosable = (roles) => Object.values(roles).filter((r) => r.place === "room");
 
 // 係に渡す一通。batch：届け先を決める発言。context：その前の、届け先が決まった発言をいくつ添えるか
-export function saidPrompt({ state, batch, roles, words = [], context = 5 }) {
+// again：届けていない発言のうち、届け直せるもの（人が「それは A に送って」と言ったときのため）
+export function saidPrompt({ state, batch, again = [], roles, words = [], context = 5 }) {
   const said = (n) => state.said.find((p) => p.id === n);
   const first = Math.min(...batch.map((p) => p.id));
   const before = state.said.filter((p) => p.id < first && (p.session != null || p.aside)).slice(-context);
@@ -170,6 +176,7 @@ export function saidPrompt({ state, batch, roles, words = [], context = 5 }) {
         })
       : ["（なし）"]),
     ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- ${p.id}（${p.aside ? "届けていない" : `→ ${symOf(p.session)}`}）：${oneLine(shown(p))}`)] : []),
+    ...(again.length ? ["", "届けていない発言（届け直せる）：", ...again.map((p) => `- ${p.id}：${oneLine(shown(p))}`)] : []),
     "",
     "新しい発言：",
     ...batch.map((p) => `- ${p.id}：${p.text}`),
@@ -220,16 +227,18 @@ export class SaidMouth {
     this.timer = null;
     const batch = this._undecided().slice(-this.most);
     if (this.stopped || !batch.length) return;
+    const first = batch[0].id;
+    const again = this.log.state.said.filter((p) => p.aside && p.session == null && p.id < first).slice(-AGAIN);
     this.busy = true;
     for (const p of batch) this.reading.add(p.id);
     let res;
     try {
-      res = await this.conv.send(saidPrompt({ state: this.log.state, batch, roles: this.roles, words: this.words?.list() ?? [] }));
+      res = await this.conv.send(saidPrompt({ state: this.log.state, batch, again, roles: this.roles, words: this.words?.list() ?? [] }));
     } catch (e) {
       res = { ok: false, error: e.message };
     }
     if (!this.stopped) {
-      if (res.ok) this._apply(batch, res.json);
+      if (res.ok) this._apply(batch, res.json, again);
       else this.log.add("miss", { says: batch.map((p) => p.id), reason: `係が読めなかった：${res.error}` });
     }
     for (const p of batch) this.reading.delete(p.id);
@@ -240,41 +249,57 @@ export class SaidMouth {
     }
   }
 
-  // 返ったものを記録に置く：清書（変わったときだけ）→ 届け先。読めないもの・ありもしない届け先は miss にして、未定のまま残す
-  _apply(batch, json) {
-    const mine = new Map(batch.map((p) => [p.id, p]));
-    const items = Array.isArray(json?.says) ? json.says.filter((x) => x && mine.has(x.id)).sort((a, b) => a.id - b.id) : [];
-    const done = new Set(), made = new Map(), missed = [];
+  // 返ったものを記録に置く：清書（変わったときだけ）→ 届け先。読めないもの・ありもしない届け先は miss にして、未定のまま残す。
+  // 届けていない発言（again）を届け直すように言われたら、それも届け、言った発言に resend を置く
+  _apply(batch, json, again = []) {
+    const mine = new Map(batch.map((p) => [p.id, p])), back = new Map(again.map((p) => [p.id, p]));
+    const items = Array.isArray(json?.says) ? json.says.filter((x) => x && (mine.has(x.id) || back.has(x.id))).sort((a, b) => a.id - b.id) : [];
+    const done = new Set(), made = new Map(), missed = [], resent = [];
     const choices = new Set(choosable(this.roles).map((r) => r.name));
     for (const it of items) {
       if (done.has(it.id)) continue;
       done.add(it.id);
-      const p = mine.get(it.id);
+      const old = back.has(it.id), p = old ? back.get(it.id) : mine.get(it.id);
+      // 届けていない発言は、届け直すときだけ扱う（届けないままなら何もしない）
+      if (old && it.to !== "session" && it.to !== "new") continue;
       const text = typeof it.text === "string" ? it.text.trim() : "";
-      if (text && text !== p.text && text !== p.fair) this.log.add("fair", { said: p.id, text });
+      if (!old && text && text !== p.text && text !== p.fair) this.log.add("fair", { said: p.id, text });
+      // 届け直しの指示と頼みの中身がまじった発言は、中身（body）だけをセッションに渡す
+      const body = !old && typeof it.body === "string" && it.body.trim() && it.body.trim() !== text ? { body: it.body.trim() } : {};
       let r = null;
       if (it.to === "none") {
         this.log.add("aside", { said: p.id });
         continue;
       } else if (it.to === "session") {
         const x = this.log.state.sessions.find((s) => s.sym === String(it.session ?? "").trim().toUpperCase());
-        r = x ? this.sessions.ask(p.id, { session: x.id }) : { ok: false, message: `ありもしないセッション「${it.session ?? ""}」を返した` };
+        r = x ? this.sessions.ask(p.id, { session: x.id, ...body }) : { ok: false, message: `ありもしないセッション「${it.session ?? ""}」を返した` };
       } else if (it.to === "new") {
-        const role = String(it.role ?? "").trim(), name = oneLine(it.name) || clip(oneLine(text || p.text), 20);
+        const role = String(it.role ?? "").trim(), name = oneLine(it.name) || clip(oneLine(text || p.fair || p.text), 20);
         const key = `${role}\n${name}`;
         if (!choices.has(role)) r = { ok: false, message: `選べない役割「${role}」を返した` };
-        else if (made.has(key)) r = this.sessions.ask(p.id, { session: made.get(key) });
+        else if (made.has(key)) r = this.sessions.ask(p.id, { session: made.get(key), ...body });
         else {
-          r = this.sessions.ask(p.id, { role, name });
+          r = this.sessions.ask(p.id, { role, name, ...body });
           if (r.ok) made.set(key, r.session);
         }
       } else {
         r = { ok: false, message: `届け先「${it.to}」がわからない` };
       }
+      if (old) {
+        if (r.ok) resent.push(p.id);
+        continue; // 届け直せなかったものは、届けていないまま
+      }
       if (!r.ok) missed.push([p.id, r.message]);
     }
     for (const p of batch) if (!done.has(p.id)) missed.push([p.id, "係が返さなかった"]);
     for (const [n, why] of missed) this.log.add("miss", { says: [n], reason: why });
+    // 届け直した発言を、どの発言が言ったか：返した resend から。書いていなければ、この回のいちばん新しい発言に
+    if (resent.length) {
+      const by = new Map();
+      for (const it of items) if (mine.has(it.id) && Array.isArray(it.resend)) for (const n of it.resend) if (resent.includes(n) && !by.has(n)) by.set(n, it.id);
+      for (const n of resent) if (!by.has(n)) by.set(n, batch.at(-1).id);
+      for (const who of new Set(by.values())) this.log.add("resend", { said: who, says: resent.filter((n) => by.get(n) === who) });
+    }
     for (const w of Array.isArray(json?.words) ? json.words : []) this.words?.add({ by: "係", heard: w?.heard, write: w?.write, when: w?.when });
   }
 }

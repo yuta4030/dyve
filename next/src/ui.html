@@ -105,6 +105,8 @@ const L = {
   aside: "どこにも届けていない",
   missed: "届け先が決まらなかった（次に話したとき読み直す）",
   none: (why) => `結果を出さずに終わった：${why}`,
+  also: (t) => `・${t}`,
+  resent: (n) => `前の発言を届け直した${n > 1 ? `（${n} 件）` : ""}`,
 };
 
 // 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
@@ -125,7 +127,9 @@ const dayOf = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDat
 // 届け先の印：続きなら記号と名前、新しく起こしたならそう添える。届けなかった・決まらなかったは小さく。まだなら出さない
 function chipOf(s, state) {
   const x = s.session != null ? state.sessions.find((y) => y.id === s.session) : null;
-  if (x) return { text: L.to(x.sym, x.name ?? x.role) + (x.asked[0] === s.id ? L.made(x.role) : "") };
+  const again = s.resent?.length ? L.resent(s.resent.length) : "";
+  if (x) return { text: L.to(x.sym, x.name ?? x.role) + (x.asked[0] === s.id ? L.made(x.role) : "") + (again ? L.also(again) : "") };
+  if (again) return { text: again, quiet: true };
   if (s.aside) return { text: L.aside, quiet: true };
   if (s.miss) return { text: L.missed, quiet: true, title: s.miss };
   return null;

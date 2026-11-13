@@ -67,6 +67,8 @@ test("届け先の印：続き・新しく起こした・届けていない・�
   assert.equal(chipOf({ id: 4, session: null, aside: true }, state).quiet, true);
   assert.equal(chipOf({ id: 5, session: null, aside: false, miss: "係が読めなかった" }, state).title, "係が読めなかった");
   assert.equal(chipOf({ id: 6, session: null, aside: false, miss: null }, state), null);
+  assert.equal(chipOf({ id: 7, session: null, aside: true, resent: [4] }, state).text, "前の発言を届け直した");
+  assert.equal(chipOf({ id: 8, session: 2, resent: [4, 5] }, state).text, "→ A 競合の値段・前の発言を届け直した（2 件）");
 });
 
 test("ライトとダークの両方がある", () => {
