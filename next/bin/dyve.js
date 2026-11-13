@@ -10,7 +10,7 @@ import { loadRoles } from "../src/roles.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
 import { readConfig } from "../src/config.js";
 import { Words } from "../src/words.js";
-import { Kakari, SaidMouth, SessionMouth, Conv, claudeConv, readDef, SAID_SCHEMA, CARD_SCHEMA } from "../src/kakari.js";
+import { Kakari, SaidMouth, SessionMouth, Folder, Conv, claudeConv, readDef, SAID_SCHEMA, CARD_SCHEMA } from "../src/kakari.js";
 
 const HOME = path.join(os.homedir(), ".dyve", "next");
 const USAGE = `使い方:
@@ -79,6 +79,7 @@ const conv = (def, schema) => new Conv({ open: () => claudeConv({ cmd: v.claude,
 const kakari = new Kakari([
   new SaidMouth({ log, sessions, roles, words, conv: conv("said", SAID_SCHEMA) }),
   new SessionMouth({ log, conv: conv("session", CARD_SCHEMA) }),
+  new Folder({ log }),
 ]).start();
 const server = createServer({ log });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));

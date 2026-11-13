@@ -54,7 +54,17 @@ dyve-overview.zone, dyve-peek.zone { overflow-y: auto; }
 .pill.run { background: var(--accent-soft); color: var(--accent); }
 .pill.wait { background: var(--you-soft); color: var(--you); }
 .pill.back { background: var(--back-soft); color: var(--back); }
-.pill.none { background: var(--sunk); color: var(--muted); }
+.pill.none, .pill.done { background: var(--sunk); color: var(--muted); }
+/* 済みの列：オーバービューの下。名前と最後の一行 */
+.shelf { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.drows { display: flex; flex-wrap: wrap; gap: 6px; }
+.drow { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; text-align: left; min-width: 0; max-width: 100%; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.drow:hover { border-color: var(--muted); }
+.drow b { color: var(--ink); font-weight: 500; }
+.drow span { overflow-wrap: anywhere; }
+.drow i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--back); }
+.shelfmore { align-self: flex-start; background: none; border: 0; padding: 0; font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.dname { font-size: 12px; color: var(--muted); padding-top: 3px; max-width: 9em; overflow-wrap: anywhere; line-height: 1.4; }
 .card {
   position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
   padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; min-width: 0;
@@ -193,7 +203,10 @@ import { step, stageOf, nowOf } from "/state.js";
 const L = {
   overview: "オーバービュー", overviewCap: "動いているセッションが全部。カードは動かない",
   noSession: "セッションはまだない。チャットで頼むと、ここにカードが並ぶ",
-  stage: { run: "実行中", wait: "人待ち", back: "帰った" }, noResult: "帰った・結果なし",
+  stage: { run: "実行中", wait: "人待ち", back: "帰った", done: "済み" }, noResult: "帰った・結果なし", doneNone: "済み・結果なし",
+  shelf: "済み", shelfCap: "終わったセッションはここに畳まれる。消えない。話しかければ戻る", justFolded: "いま畳んだ",
+  shelfMore: (n) => `ほか ${n} 件`, shelfLess: "新しいものだけ", noResultLine: (why) => `結果なし：${why}`,
+  toDone: (name) => `→ ${name}（済み）`,
   roleLabel: "任せた先", ask: "人への問い", peekBtn: "中身を覗く", hit: "いま届いた", mark: "見てほしい",
   stepAt: (i, n, t) => `${i}/${n}　${t}`, stepsDone: "済んだ",
   peek: "中身", peekCap: "セッションのやりとりそのままと、そのパネル。行を押すと元のやりとりが光る",
@@ -234,12 +247,15 @@ const dayOf = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDat
 function chipOf(s, state) {
   const x = s.session != null ? state.sessions.find((y) => y.id === s.session) : null;
   const again = s.resent?.length ? L.resent(s.resent.length) : "";
+  if (x?.folded) return { go: x.id, text: L.toDone(x.name ?? x.role) + (again ? L.also(again) : "") };
   if (x) return { go: x.id, text: L.to(x.sym, x.name ?? x.role) + (x.asked[0] === s.id ? L.made(x.role) : "") + (again ? L.also(again) : "") };
   if (again) return { text: again, quiet: true };
   if (s.aside) return { text: L.aside, quiet: true };
   if (s.miss) return { text: L.missed, quiet: true, title: s.miss };
   return null;
 }
+// 帰った一行の頭：出ていれば記号、済みなら記号なしで名前だけ（記号が別のセッションに振り直されても取り違えない）
+const fromHead = (x) => (x?.sym ? `<span class="sym" title="${esc(x.name ?? "")}">${esc(x.sym)}</span>` : `<span class="dname">${esc(x?.name ?? x?.role ?? "?")}</span>`);
 const keyOf = (s, state) => JSON.stringify([s.fair, chipOf(s, state)]);
 // チャットに並ぶもの：発言と、セッションから帰った一行を、通し番号の順に
 const itemsOf = (state) => [...state.said.map((s) => ({ seq: s.id, at: s.at, said: s })), ...state.backs.map((b) => ({ seq: b.seq, at: b.at, back: b }))].sort((a, b) => a.seq - b.seq);
@@ -262,7 +278,8 @@ const panelHtml = (p, o = {}) => `<div class="panel">${p.title ? `<h3>${esc(p.ti
 // ステートの札。結果なしはそれとわかるように
 function pillHtml(x) {
   const g = stageOf(x);
-  return g.none ? `<span class="pill none" title="${esc(g.none)}">${esc(L.noResult)}</span>` : `<span class="pill ${g.stage}">${esc(L.stage[g.stage])}</span>`;
+  if (g.none) return `<span class="pill none" title="${esc(g.none)}">${esc(g.stage === "done" ? L.doneNone : L.noResult)}</span>`;
+  return `<span class="pill ${g.stage}">${esc(L.stage[g.stage])}</span>`;
 }
 // 段取りの進み具合（なければ空）
 function progHtml(steps) {
@@ -284,13 +301,18 @@ function put(el, html) {
 // ── オーバービュー：セッションごとにカードが一枚。できた順に並び、動かない ──
 class Overview extends HTMLElement {
   connectedCallback() {
-    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}</p><p class="noses empty">${L.noSession}</p><div class="cards"></div>`;
+    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}</p><p class="noses empty">${L.noSession}</p><div class="cards"></div>
+      <div class="shelf"><p class="cap"><b>${L.shelf}</b>${L.shelfCap}</p><div class="drows"></div><button class="shelfmore" data-more="1"></button></div>`;
     this.cards = this.querySelector(".cards");
   }
 
   render(state, ui) {
-    this.querySelector(".noses").hidden = state.sessions.length > 0;
-    for (const x of state.sessions) {
+    const live = state.sessions.filter((x) => !x.folded).sort((a, b) => a.shown - b.shown);
+    this.querySelector(".noses").hidden = live.length > 0;
+    // 畳まれたカードは外す。残りの順は変えない
+    for (const c of this.cards.querySelectorAll(".card")) if (!live.some((x) => String(x.id) === c.dataset.go)) c.remove();
+    this.shelf(state, ui);
+    for (const x of live) {
       let c = this.cards.querySelector(`.card[data-go="${x.id}"]`);
       if (!c) {
         c = document.createElement("article");
@@ -313,7 +335,23 @@ class Overview extends HTMLElement {
       put(c.querySelector(".cpanel"), x.card?.panels[0] ? panelHtml(x.card.panels[0]) : "");
     }
   }
+
+  // 済みの列：新しく済んだほうから SHELF 件。残りは押せばたどれる
+  shelf(state, ui) {
+    const done = state.sessions.filter((x) => x.folded).sort((a, b) => b.folded.seq - a.folded.seq);
+    this.querySelector(".shelf").hidden = !done.length;
+    const shown = ui.allDone ? done : done.slice(0, SHELF);
+    put(this.querySelector(".drows"), shown.map((x) => {
+      const g = stageOf(x), line = g.none ? L.noResultLine(g.none) : nowOf(x);
+      return `<button class="drow" data-go="${x.id}">${ui.folded.has(x.id) ? `<i>${L.justFolded}</i>` : ""}<b>${esc(x.name ?? x.role)}</b><span>${esc(line)}</span></button>`;
+    }).join(""));
+    const more = this.querySelector(".shelfmore");
+    more.hidden = done.length <= SHELF;
+    more.textContent = ui.allDone ? L.shelfLess : L.shelfMore(done.length - SHELF);
+  }
 }
+// 済みの列に出す数
+const SHELF = 6;
 
 // ── 覗く：左がそのセッションのやりとりとパネルに替わる。替えるのは人が覗くときだけ ──
 class Peek extends HTMLElement {
@@ -433,6 +471,15 @@ class Chat extends HTMLElement {
         changed = true;
       }
     }
+    const byS = new Map(state.sessions.map((x) => [String(x.id), x]));
+    for (const el of t.querySelectorAll(".from")) {
+      const h = fromHead(byS.get(el.dataset.go));
+      if (el.dataset.head !== h) {
+        el.dataset.head = h;
+        el.firstElementChild.outerHTML = h;
+        changed = true;
+      }
+    }
     if (!changed) return;
     if (follow) t.scrollTop = t.scrollHeight;
     else if (anchor) t.scrollTop = anchor.offsetTop - before;
@@ -472,7 +519,8 @@ class Chat extends HTMLElement {
       el.className = `from${b.kind === "fail" ? " none" : ""}`;
       el.dataset.go = b.session;
       const text = b.kind === "fail" ? L.none(b.text) : b.text;
-      el.innerHTML = `<span class="sym" title="${esc(x?.name ?? "")}">${esc(x?.sym ?? "?")}</span><span${b.reason ? ` title="${esc(b.reason)}"` : ""}>${esc(text)}</span>` +
+      el.dataset.head = fromHead(x);
+      el.innerHTML = `${el.dataset.head}<span${b.reason ? ` title="${esc(b.reason)}"` : ""}>${esc(text)}</span>` +
         (time ? `<time datetime="${esc(it.at)}">${time}</time>` : "");
     }
     this.talk.append(el);
@@ -554,7 +602,9 @@ const overview = document.querySelector("dyve-overview");
 const peekView = document.querySelector("dyve-peek");
 // 画面の中だけで持つもの（記録には持たない。開き直せば消えてよい）：
 // peek 覗いているセッション、marks 見てほしい印、hits いま届いた、seen 前に見たステートと渡した数
-const ui = { peek: null, marks: new Set(), hits: new Set(), seen: new Map() };
+// folded いま畳んだ、allDone 済みを全部出すか
+const ui = { peek: null, marks: new Set(), hits: new Set(), seen: new Map(), folded: new Set(), allDone: false };
+const FOLDED_MS = 6000;
 const HIT_MS = 2500;
 let state = null;
 
@@ -564,7 +614,12 @@ function notice(first) {
     const g = stageOf(x).stage, before = ui.seen.get(x.id);
     ui.seen.set(x.id, { stage: g, asked: x.asked.length });
     if (first) continue;
-    if (before && before.stage !== g && g !== "run" && ui.peek !== x.id) ui.marks.add(x.id);
+    if (before && before.stage !== g && g !== "run" && g !== "done" && ui.peek !== x.id) ui.marks.add(x.id);
+    if (before && before.stage !== "done" && g === "done") {
+      ui.marks.delete(x.id);
+      ui.folded.add(x.id);
+      setTimeout(() => { ui.folded.delete(x.id); overview.render(state, ui); }, FOLDED_MS);
+    }
     if (!before || x.asked.length > before.asked) {
       ui.hits.add(x.id);
       setTimeout(() => { ui.hits.delete(x.id); overview.render(state, ui); }, HIT_MS);
@@ -601,9 +656,10 @@ function peek(id) {
 }
 document.addEventListener("click", (e) => {
   if (!state) return;
-  const t = e.target.closest("[data-back],[data-ref],[data-go]");
+  const t = e.target.closest("[data-back],[data-ref],[data-go],[data-more]");
   if (!t) return;
-  if (t.dataset.back) peek(null);
+  if (t.dataset.more) { ui.allDone = !ui.allDone; overview.render(state, ui); }
+  else if (t.dataset.back) peek(null);
   else if (t.dataset.ref && t.closest("dyve-peek")) peekView.light(t.dataset.ref);
   else if (t.dataset.go && getSelection().isCollapsed) peek(Number(t.dataset.go));
 });

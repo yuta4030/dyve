@@ -22,9 +22,10 @@ export function symbolOf(n) {
   for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) out = String.fromCharCode(65 + ((n - 1) % 26)) + out;
   return out;
 }
-// オーバービューに出ているセッションが使っていない、いちばん若い字（できたときに振り、出ているあいだは変えない）
+// オーバービューに出ているセッションが使っていない、いちばん若い字（できたとき・済みから戻ったときに振り、出ているあいだは変えない）。
+// 済みに畳んだら字を空ける（sym は null）
 function freeSymbol(s) {
-  const used = new Set(s.sessions.map((x) => x.sym));
+  const used = new Set(s.sessions.filter((x) => x.sym).map((x) => x.sym));
   let i = 0;
   while (used.has(symbolOf(i))) i++;
   return symbolOf(i);
@@ -100,10 +101,12 @@ export const KINDS = {
     make({ role, cwd, name = null }) {
       return { role: text(role, "役割"), cwd: text(cwd, "起きる場所"), name: name == null ? null : text(name, "name") };
     },
-    // sym：カードの記号（導く）。asked：渡した発言の id（順に）。turn：いちばん新しく終わったターン（end の通し番号）。
+    // sym：カードの記号（導く。済みなら null）。shown：オーバービューに並んだ通し番号（できたとき・戻ったとき。カードはこの順）。
+    // folded：済みに畳んだ記録（{ seq, at, by }。出ていれば null）。backAt：帰った（カード・読めなかった・結果なし）記録の通し番号。
+    // asked：渡した発言の id（順に）。turn：いちばん新しく終わったターン（end の通し番号）。
     // read：係が読んだターン（カードを書いたか、読めなかったか）。card：いちばん新しいカード
     apply(s, r) {
-      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage() });
+      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), shown: r.seq, folded: null, backAt: null, name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage() });
     },
   },
 
@@ -118,11 +121,32 @@ export const KINDS = {
       if (p) {
         p.session = r.session;
         p.miss = null;
-        p.aside = false; // 届けていなかった発言を、あとから届け直したとき
+        if (p.aside) p.again = true; // 届けていなかった発言を、あとから届け直した
+        p.aside = false;
         if (r.text) p.body = r.text;
       }
-      x?.asked.push(r.said);
-      x?.pending.push(r.said);
+      if (!x) return;
+      // 済みのセッションに発言が届いたら戻る：オーバービューの後ろに並び、空いている字を振り直す
+      if (x.folded) {
+        x.folded = null;
+        x.sym = freeSymbol(s);
+        x.shown = r.seq;
+      }
+      x.asked.push(r.said);
+      x.pending.push(r.said);
+    },
+  },
+
+  // 済みに畳んだ：帰ったあと、人が別の話へ進んだ。by はそのきっかけの発言（別のセッションに届いた発言）
+  fold: {
+    make({ session, by }) {
+      return { session: id(session, "session"), by: id(by, "by") };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (!x || x.folded) return;
+      x.folded = { seq: r.seq, at: r.at, by: r.by };
+      x.sym = null;
     },
   },
 
@@ -203,7 +227,9 @@ export const KINDS = {
       x.failed = r.reason;
       x.claude = r.claude ?? null;
       if (r.usage) for (const k of Object.keys(x.usage)) x.usage[k] += r.usage[k];
-      if (!r.retry) s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "fail", text: r.reason });
+      if (r.retry) return;
+      x.backAt = r.seq;
+      s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "fail", text: r.reason });
     },
   },
 
@@ -219,6 +245,7 @@ export const KINDS = {
       if (!x) return;
       x.card = { seq: r.seq, at: r.at, turn: r.turn, line: r.line, what: r.what, steps: r.steps, ask: r.ask, panels: r.panels };
       x.read = r.turn;
+      x.backAt = r.seq;
       s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "card", text: r.back });
     },
   },
@@ -232,6 +259,7 @@ export const KINDS = {
       const x = sessionOf(s, r);
       if (!x) return;
       x.read = r.turn;
+      x.backAt = r.seq;
       s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "nocard", text: headOf(x.last) || r.reason, reason: r.reason });
     },
   },
@@ -243,9 +271,10 @@ export function headOf(t) {
   return line.length > 80 ? line.slice(0, 79) + "…" : line;
 }
 
-// ステート：データに持たず導く。run（実行中）・wait（人待ち）・back（帰った）。none は結果を出さずに終わった理由
+// ステート：データに持たず導く。run（実行中）・wait（人待ち）・back（帰った）・done（済み）。none は結果を出さずに終わった理由
 // ターンが終わっても係がまだ読んでいないあいだは実行中のまま（帰った→人待ち のちらつきを避ける）。係が読めなかったら帰った
 export function stageOf(x) {
+  if (x.folded) return { stage: "done", none: x.failed ?? null };
   if (x.running) return { stage: "run", none: null };
   if (x.failed) return { stage: "back", none: x.failed };
   if (x.turn != null && x.read !== x.turn) return { stage: "run", none: null };
@@ -261,6 +290,9 @@ export function nowOf(x) {
   }
   return x.failed ?? x.card?.line ?? headOf(x.last);
 }
+
+// 係が指すときの呼び方：出ているものは記号、済みのものは #id
+export const callOf = (x) => x.sym ?? `#${x.id}`;
 
 // backs：セッションからチャットに帰った一行（card・nocard・fail）。発言と通し番号の順に並ぶ
 export const empty = () => ({ seq: 0, said: [], sessions: [], backs: [] });

@@ -68,6 +68,8 @@ test("届け先の印：続き・新しく起こした・届けていない・�
   assert.equal(chipOf({ id: 5, session: null, aside: false, miss: "係が読めなかった" }, state).title, "係が読めなかった");
   assert.equal(chipOf({ id: 6, session: null, aside: false, miss: null }, state), null);
   assert.equal(chipOf({ id: 7, session: null, aside: true, resent: [4] }, state).text, "前の発言を届け直した");
+  const done = { sessions: [{ id: 2, sym: null, folded: { seq: 9 }, name: "競合の値段", role: "調べもの", asked: [1] }] };
+  assert.equal(chipOf({ id: 1, session: 2 }, done).text, "→ 競合の値段（済み）", "済みのものは記号なしで名前だけ");
   assert.equal(chipOf({ id: 8, session: 2, resent: [4, 5] }, state).text, "→ A 競合の値段・前の発言を届け直した（2 件）");
 });
 

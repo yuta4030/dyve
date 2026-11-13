@@ -5,7 +5,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { wordLine } from "./words.js";
-import { stageOf, headOf } from "./state.js";
+import { stageOf, headOf, callOf } from "./state.js";
 
 export const DEFS = { said: fileURLToPath(new URL("../kakari/発言.md", import.meta.url)), session: fileURLToPath(new URL("../kakari/セッション.md", import.meta.url)) };
 export const readDef = (name) => fs.readFileSync(DEFS[name], "utf8").trim();
@@ -144,7 +144,9 @@ export const SAID_SCHEMA = {
   required: ["says"],
 };
 
-const STAGE = { run: "実行中", wait: "人待ち", back: "帰った" };
+const STAGE = { run: "実行中", wait: "人待ち", back: "帰った", done: "済み" };
+// 係に見せる済みのセッションの数（新しく済んだほうから）
+const DONE = 8;
 const stageWord = (x) => { const g = stageOf(x); return STAGE[g.stage] + (g.none ? "（結果なし）" : ""); };
 const shown = (p) => p?.fair ?? p?.text ?? "";
 // 新しく起こせる役割（起きる場所が用意できているもの）
@@ -156,8 +158,10 @@ export function saidPrompt({ state, batch, again = [], roles, words = [], contex
   const said = (n) => state.said.find((p) => p.id === n);
   const first = Math.min(...batch.map((p) => p.id));
   const before = state.said.filter((p) => p.id < first && (p.session != null || p.aside)).slice(-context);
-  const symOf = (sid) => state.sessions.find((x) => x.id === sid)?.sym ?? "?";
+  const symOf = (sid) => { const x = state.sessions.find((y) => y.id === sid); return x ? callOf(x) : "?"; };
   const lastWords = (x) => x.last ?? x.flow.filter((f) => f.talk).at(-1)?.talk ?? "";
+  const live = state.sessions.filter((x) => !x.folded);
+  const done = state.sessions.filter((x) => x.folded).sort((a, b) => b.folded.seq - a.folded.seq).slice(0, DONE);
   return [
     "選べる役割：",
     ...choosable(roles).map((r) => `- ${r.name}：${r.about}`),
@@ -166,8 +170,8 @@ export function saidPrompt({ state, batch, again = [], roles, words = [], contex
     ...(words.length ? words.map(wordLine) : ["（なし）"]),
     "",
     "いまのセッション：",
-    ...(state.sessions.length
-      ? state.sessions.map((x) => {
+    ...(live.length
+      ? live.map((x) => {
           const asked = x.asked.length ? clip(oneLine(shown(said(x.asked[0]))), 80) : "";
           const more = x.asked.length > 1 ? `（ほか ${x.asked.length - 1} 件。いちばん新しいもの：${clip(oneLine(shown(said(x.asked.at(-1)))), 60)}）` : "";
           const last = clip(oneLine(x.card?.line ?? headOf(lastWords(x))), 80);
@@ -175,6 +179,7 @@ export function saidPrompt({ state, batch, again = [], roles, words = [], contex
           return `- ${x.sym}「${x.name ?? x.role}」${x.role}・${stageWord(x)}。頼んだこと：${asked}${more}${last ? `　いまどこまで：${last}` : ""}${ask}`;
         })
       : ["（なし）"]),
+    ...(done.length ? ["", "済みのセッション（話しかけられたら戻せる。新しく済んだ順）：", ...done.map((x) => `- ${callOf(x)}「${x.name ?? x.role}」${x.role}。${x.card?.what ? `${clip(oneLine(x.card.what), 40)}。` : ""}最後：${clip(oneLine(x.failed ? `結果なし（${x.failed}）` : x.card?.line ?? headOf(lastWords(x))), 60)}`)] : []),
     ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- ${p.id}（${p.aside ? "届けていない" : `→ ${symOf(p.session)}`}）：${oneLine(shown(p))}`)] : []),
     ...(again.length ? ["", "届けていない発言（届け直せる）：", ...again.map((p) => `- ${p.id}：${oneLine(shown(p))}`)] : []),
     "",
@@ -271,7 +276,9 @@ export class SaidMouth {
         this.log.add("aside", { said: p.id });
         continue;
       } else if (it.to === "session") {
-        const x = this.log.state.sessions.find((s) => s.sym === String(it.session ?? "").trim().toUpperCase());
+        // 出ているものは記号で、済みのものは #id で指す（済みに届けば戻る）
+        const key = String(it.session ?? "").trim().toUpperCase();
+        const x = this.log.state.sessions.find((s) => (s.folded ? `#${s.id}` : s.sym) === key);
         r = x ? this.sessions.ask(p.id, { session: x.id, ...body }) : { ok: false, message: `ありもしないセッション「${it.session ?? ""}」を返した` };
       } else if (it.to === "new") {
         const role = String(it.role ?? "").trim(), name = oneLine(it.name) || clip(oneLine(text || p.fair || p.text), 20);
@@ -334,7 +341,7 @@ export function sessionPrompt(state, x) {
     f.said ? `- ${f.said} 人：${oneLine(shown(said(f.said)))}` : f.tool ? `- ${f.seq} 道具：${f.tool}` : `- ${f.seq} セッション：${clip(oneLine(f.talk), TALK)}`);
   const prev = x.card ? JSON.stringify({ line: x.card.line, what: x.card.what, steps: x.card.steps, ask: x.card.ask, panels: x.card.panels }) : "なし";
   return [
-    `セッション：${x.sym}「${x.name ?? x.role}」（役割：${x.role}）`,
+    `セッション：${callOf(x)}「${x.name ?? x.role}」（役割：${x.role}）`,
     "",
     "頼んだこと：",
     ...x.asked.map((n) => `- ${n}：${oneLine(shown(said(n)))}`),
@@ -459,6 +466,36 @@ export class SessionMouth {
     this.busy = false;
     this.again = false;
     this.kick(); // 読んでいるあいだに止まったほかのセッションを、順に
+  }
+}
+
+// ── 畳む ──
+// 決まり（仮）：帰ったセッションは、帰ったあとに置かれた発言が別のセッションに届いたら、済みに畳む。
+// 人待ち・実行中・待たせている発言があるものは畳まない。どこにも届けない発言、帰る前に置かれた発言、届け直された前の発言では畳まない。
+// いまの決まりは読まなくても決まるので、Claude Code を呼ばずにこの部品が畳み、記録に置く（あとで決まりを変えても、前に畳んだものは変わらない）
+export function toFold(state, pass) {
+  const p = state.said.find((q) => q.id === pass.said);
+  if (!p || p.again) return [];
+  return state.sessions.filter((x) => x.id !== pass.session && !x.folded && stageOf(x).stage === "back" && !x.pending.length && x.backAt != null && p.id > x.backAt);
+}
+
+export class Folder {
+  constructor({ log }) {
+    this.log = log;
+  }
+
+  start() {
+    // 渡したあとの続き（ターンの始まり）を先に置かせてから畳む
+    this.off = this.log.on((r) => r.kind === "pass" && queueMicrotask(() => {
+      if (this.stopped) return;
+      for (const x of toFold(this.log.state, r)) this.log.add("fold", { session: x.id, by: r.said });
+    }));
+    return this;
+  }
+
+  stop() {
+    this.stopped = true;
+    this.off?.();
   }
 }
 

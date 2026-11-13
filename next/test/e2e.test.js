@@ -55,23 +55,35 @@ test("通し：発言 → 係が届け先を決める → セッション → �
     assert.equal(stageOf(B).stage, "wait");
     assert.equal(B.card.ask.text, "候補は甲と乙です。どちらにしますか？");
 
-    // 記号で呼ぶ続きは、同じ会話を引き継ぐ
-    await say(base, "A は続きも見て");
+    // A が帰ったあとの発言が B に届いたので、A は済みに畳まれ、記号が空く
+    assert.equal(stageOf(s.sessions[0]).stage, "done");
+    assert.equal(s.sessions[0].sym, null);
+    assert.equal(s.sessions[1].sym, "B");
+
+    // 済みのものを名前で呼ぶと戻り、同じ会話を引き継ぐ。空いているいちばん若い字が振り直される
+    await say(base, "package.json の続きも見て");
     s = await until(base, (s) => s.backs.length === 3);
     assert.equal(s.sessions.length, 2);
     assert.equal(s.sessions[0].asked.length, 2);
+    assert.equal(s.sessions[0].sym, "A");
+    assert.equal(s.sessions[0].folded, null);
     assert.equal(s.sessions[0].claude, A.claude, "--resume で引き継いだ");
+    assert.equal(stageOf(s.sessions[1]).stage, "wait", "人待ちは畳まない");
 
     // B を覗いたまま曖昧な続き → B へ
     const r = await say(base, "それは甲で", B.id);
     assert.equal(r.record.peek, B.id);
     s = await until(base, (s) => s.backs.length === 4);
     assert.equal(s.said.at(-1).session, B.id);
+    assert.equal(stageOf(s.sessions[0]).stage, "done", "帰った A は、別のセッションへの発言でまた畳まれる");
 
     // 独り言は届けない
     await say(base, "うーん、どうしようかな");
     s = await until(base, (s) => s.said.at(-1).aside);
     assert.equal(s.sessions.length, 2);
+    await new Promise((r) => setTimeout(r, 100));
+    s = await state(base);
+    assert.equal(stageOf(s.sessions[1]).stage, "back", "どこにも届けない発言では畳まない");
   } finally {
     await stop();
   }

@@ -20,10 +20,12 @@ function routeSays(prompt) {
   const syms = [...prompt.matchAll(/^- ([A-Z]+)「/gm)].map((m) => m[1]);
   const block = prompt.split("新しい発言：\n")[1] ?? "";
   const says = [];
-  for (const m of block.matchAll(/^- (\d+)(?:（([A-Z]+) を覗いていた）)?：(.*)$/gm)) {
+  for (const m of block.matchAll(/^- (\d+)(?:（([A-Z]+|#\d+) を覗いていた）)?：(.*)$/gm)) {
     const id = Number(m[1]), peek = m[2], text = m[3];
     const named = text.match(/^([A-Z]+)\s*[はにへのも、]/)?.[1];
+    const done = [...prompt.matchAll(/^- (#\d+)「(.*?)」/gm)].find((m) => text.includes(m[2]))?.[1];
     if (/^(うーん|独り言)/.test(text)) says.push({ id, text, to: "none" });
+    else if (done) says.push({ id, text, to: "session", session: done });
     else if (named && syms.includes(named)) says.push({ id, text, to: "session", session: named });
     else if (peek && /続き|それ|あと/.test(text)) says.push({ id, text, to: "session", session: peek });
     else if (/続き/.test(text) && syms.length) says.push({ id, text, to: "session", session: syms.at(-1) });
