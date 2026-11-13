@@ -52,6 +52,11 @@ dyve-chat.zone { border-left: 1px solid var(--line); }
 .said .chip { font-size: 12px; color: var(--accent); text-align: right; }
 .said .chip.quiet { color: var(--muted); }
 .said time { font-size: 11px; color: var(--muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.from { align-self: flex-start; max-width: 94%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: start; font-size: 14px; line-height: 1.6; }
+.from > span:nth-child(2) { overflow-wrap: anywhere; padding-top: 1px; }
+.from time { grid-column: 2; font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+.from.none > span:nth-child(2) { color: var(--muted); }
+.sym { font-family: var(--font-mono); font-weight: 500; width: 24px; height: 24px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; }
 .day { align-self: center; font-size: 11.5px; color: var(--muted); }
 .more {
   align-self: center; background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 999px;
@@ -91,7 +96,7 @@ const L = {
   emptyChat: "話すか書くと、ここに流れる。声は間があくと置かれ、打ったものは Enter で置かれる（改行は Shift+Enter）",
   placeholder: "宛先は選ばない。喋るだけ",
   input: "発言",
-  more: "↓ 新しい発言",
+  more: "↓ 下に新しいもの",
   failed: "置けなかった。Enter でもう一度",
   offline: "つながっていない。つなぎ直している",
   original: (t) => `元の文：${t}`,
@@ -99,6 +104,7 @@ const L = {
   made: (role) => `（新しく起こした。${role}に任せた）`,
   aside: "どこにも届けていない",
   missed: "届け先が決まらなかった（次に話したとき読み直す）",
+  none: (why) => `結果を出さずに終わった：${why}`,
 };
 
 // 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
@@ -125,6 +131,8 @@ function chipOf(s, state) {
   return null;
 }
 const keyOf = (s, state) => JSON.stringify([s.fair, chipOf(s, state)]);
+// チャットに並ぶもの：発言と、セッションから帰った一行を、通し番号の順に
+const itemsOf = (state) => [...state.said.map((s) => ({ seq: s.id, at: s.at, said: s })), ...state.backs.map((b) => ({ seq: b.seq, at: b.at, back: b }))].sort((a, b) => a.seq - b.seq);
 
 class Overview extends HTMLElement {
   connectedCallback() {
@@ -146,31 +154,38 @@ class Chat extends HTMLElement {
     this.note = this.querySelector(".note");
     this.talk.addEventListener("scroll", () => { if (atBottom(this.talk)) this.querySelector(".more")?.remove(); });
     this.listen();
-    this.reset({ said: [], sessions: [] });
+    this.reset({ said: [], sessions: [], backs: [] });
   }
 
-  // つながったとき：発言を全部描き直す。いちばん下を見ていたら下のまま、上を読んでいたらそこのまま
+  // つながったとき：全部描き直す。いちばん下を見ていたら下のまま、上を読んでいたらそこのまま
   reset(state) {
     const follow = atBottom(this.talk), top = this.talk.scrollTop;
     this.lastDay = this.lastClock = null;
-    this.talk.innerHTML = state.said.length ? "" : `<p class="empty">${L.emptyChat}</p>`;
-    for (const s of state.said) this.talk.append(...this.bubble(s, state));
+    this.upto = 0;
+    const items = itemsOf(state);
+    this.talk.innerHTML = items.length ? "" : `<p class="empty">${L.emptyChat}</p>`;
+    for (const it of items) this.put(it, state);
     this.talk.scrollTop = follow ? this.talk.scrollHeight : top;
   }
 
-  add(s, state) {
-    const follow = atBottom(this.talk);
-    this.talk.querySelector(".empty")?.remove();
-    this.talk.querySelector(".more")?.remove();
-    this.talk.append(...this.bubble(s, state));
-    if (follow) this.talk.scrollTop = this.talk.scrollHeight;
-    else this.talk.append(this.moreButton());
+  // 記録を一件当てたあと：増えたもの（発言・帰った一行）を下に足し、あとから付いた清書と届け先を描き直す
+  sync(state) {
+    const fresh = itemsOf(state).filter((it) => it.seq > this.upto);
+    if (fresh.length) {
+      const follow = atBottom(this.talk);
+      this.talk.querySelector(".empty")?.remove();
+      this.talk.querySelector(".more")?.remove();
+      for (const it of fresh) this.put(it, state);
+      if (follow) this.talk.scrollTop = this.talk.scrollHeight;
+      else this.talk.append(this.moreButton());
+    }
+    this.mark(state);
   }
 
   // 清書と届け先があとから付いたら、その発言だけ描き直す。見ている位置は動かさない（下を見ていたら下のまま）
   mark(state) {
     const t = this.talk, follow = atBottom(t);
-    const anchor = [...t.querySelectorAll(".said")].find((el) => el.offsetTop + el.offsetHeight > t.scrollTop);
+    const anchor = [...t.querySelectorAll(".said, .from")].find((el) => el.offsetTop + el.offsetHeight > t.scrollTop);
     const before = anchor ? anchor.offsetTop - t.scrollTop : 0;
     let changed = false;
     const byId = new Map(state.said.map((s) => [String(s.id), s]));
@@ -195,25 +210,34 @@ class Chat extends HTMLElement {
     return b;
   }
 
-  // 発言一つ。日が変わったら、その前に日付を一行。時刻は前の発言と分が変わったときだけ
-  bubble(s, state) {
-    const d = new Date(s.at), out = [];
+  // 一つ置く。日が変わったら、その前に日付を一行。時刻は前のものと分が変わったときだけ
+  put(it, state) {
+    this.upto = Math.max(this.upto, it.seq);
+    const d = new Date(it.at);
     if (dayOf(d) !== this.lastDay) {
       const day = document.createElement("p");
       day.className = "day";
       day.textContent = this.lastDay = dayOf(d);
       this.lastClock = null;
-      out.push(day);
+      this.talk.append(day);
     }
-    const el = document.createElement("div");
-    el.className = "said";
-    el.dataset.id = s.id;
-    const t = clock(d);
-    el.dataset.time = t === this.lastClock ? "" : t;
+    const t = clock(d), time = t === this.lastClock ? "" : t;
     this.lastClock = t;
-    this.fill(el, s, state);
-    out.push(el);
-    return out;
+    const el = document.createElement("div");
+    el.dataset.time = time;
+    if (it.said) {
+      el.className = "said";
+      el.dataset.id = it.said.id;
+      this.fill(el, it.said, state);
+    } else {
+      // セッションから帰った一行：記号と一行。結果を出さずに終わったものは、それとわかるように
+      const b = it.back, x = state.sessions.find((y) => y.id === b.session);
+      el.className = `from${b.kind === "fail" ? " none" : ""}`;
+      const text = b.kind === "fail" ? L.none(b.text) : b.text;
+      el.innerHTML = `<span class="sym" title="${esc(x?.name ?? "")}">${esc(x?.sym ?? "?")}</span><span${b.reason ? ` title="${esc(b.reason)}"` : ""}>${esc(text)}</span>` +
+        (time ? `<time datetime="${esc(it.at)}">${time}</time>` : "");
+    }
+    this.talk.append(el);
   }
 
   // 清書した文（元の文は title に残す）、その下に届け先の印
@@ -295,10 +319,8 @@ function reset(s) {
 async function take(r) {
   if (!state || r.seq <= state.seq) return; // もう当てた
   if (r.seq !== state.seq + 1) return reset(await (await fetch("/api/state")).json()); // 抜けがあったら取り直す
-  const n = state.said.length;
   step(state, r);
-  if (state.said.length > n) chat.add(state.said.at(-1), state);
-  else chat.mark(state);
+  chat.sync(state);
 }
 async function say(text) {
   try {

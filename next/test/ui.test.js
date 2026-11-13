@@ -52,7 +52,7 @@ test("声は間があいたら置き、打ったものは Enter まで待つ", (
 
 test("記録の当て方は state.js 一つ。画面はそれを読み、自分では当て方を書かない", () => {
   assert.match(script, /^import \{ step \} from "\/state\.js";$/m);
-  assert.doesNotMatch(script, /\bkind === "say"|\.kind\s*===/);
+  assert.doesNotMatch(script, /\br\.kind\b/, "記録の種類で分けて当てない");
   const state = fs.readFileSync(new URL("../src/state.js", import.meta.url), "utf8");
   assert.doesNotMatch(state, /^\s*import\b|\brequire\(/m, "state.js は import を持たない");
 });

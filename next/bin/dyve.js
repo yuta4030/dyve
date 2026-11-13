@@ -10,7 +10,7 @@ import { loadRoles } from "../src/roles.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
 import { readConfig } from "../src/config.js";
 import { Words } from "../src/words.js";
-import { Kakari, SaidMouth, Conv, claudeConv, readDef, SAID_SCHEMA } from "../src/kakari.js";
+import { Kakari, SaidMouth, SessionMouth, Conv, claudeConv, readDef, SAID_SCHEMA, CARD_SCHEMA } from "../src/kakari.js";
 
 const HOME = path.join(os.homedir(), ".dyve", "next");
 const USAGE = `使い方:
@@ -74,11 +74,12 @@ const sessions = new Sessions({ log, roles, room, spawn: claudeSpawn(v.claude), 
 const kakariDir = path.join(place, "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
 const words = new Words(path.join(place, "words.jsonl"));
-const said = new SaidMouth({
-  log, sessions, roles, words,
-  conv: new Conv({ open: () => claudeConv({ cmd: v.claude, prompt: readDef("said"), schema: SAID_SCHEMA, model: conf.kakari.model ?? "haiku", cwd: kakariDir }) }),
-});
-const kakari = new Kakari([said]).start();
+// 口ごとに自分の会話を持つ（互いに待たせない）
+const conv = (def, schema) => new Conv({ open: () => claudeConv({ cmd: v.claude, prompt: readDef(def), schema, model: conf.kakari.model ?? "haiku", cwd: kakariDir }) });
+const kakari = new Kakari([
+  new SaidMouth({ log, sessions, roles, words, conv: conv("said", SAID_SCHEMA) }),
+  new SessionMouth({ log, conv: conv("session", CARD_SCHEMA) }),
+]).start();
 const server = createServer({ log });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {

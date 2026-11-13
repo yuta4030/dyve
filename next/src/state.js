@@ -86,9 +86,10 @@ export const KINDS = {
     make({ role, cwd, name = null }) {
       return { role: text(role, "役割"), cwd: text(cwd, "起きる場所"), name: name == null ? null : text(name, "name") };
     },
-    // sym：カードの記号（導く）。asked：渡した発言の id（順に）
+    // sym：カードの記号（導く）。asked：渡した発言の id（順に）。turn：いちばん新しく終わったターン（end の通し番号）。
+    // read：係が読んだターン（カードを書いたか、読めなかったか）。card：いちばん新しいカード
     apply(s, r) {
-      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, asked: [], pending: [], flow: [], last: null, failed: null, usage: usage() });
+      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage() });
     },
   },
 
@@ -166,6 +167,7 @@ export const KINDS = {
       x.running = false;
       x.claude = r.claude;
       x.last = r.last;
+      x.turn = r.seq;
       for (const k of Object.keys(x.usage)) x.usage[k] += r.usage[k];
     },
   },
@@ -173,8 +175,9 @@ export const KINDS = {
   // 結果を出さずに終わった：理由を残す。claude は続きに引き継げる Claude の session_id（途中で落ちても、わかっていれば）。
   // null なら引き継げるものがない（次はまっさらで起こす）
   fail: {
-    make({ session, reason, claude = null, usage: u = null }) {
-      return { session: id(session, "session"), reason: text(reason, "reason"), claude, ...(u ? { usage: usage(u) } : {}) };
+    // retry：引き継げなかったので、すぐまっさらで起こし直す（チャットには返さない）
+    make({ session, reason, claude = null, usage: u = null, retry = false }) {
+      return { session: id(session, "session"), reason: text(reason, "reason"), claude, ...(u ? { usage: usage(u) } : {}), ...(retry ? { retry: true } : {}) };
     },
     apply(s, r) {
       const x = sessionOf(s, r);
@@ -183,11 +186,67 @@ export const KINDS = {
       x.failed = r.reason;
       x.claude = r.claude ?? null;
       if (r.usage) for (const k of Object.keys(x.usage)) x.usage[k] += r.usage[k];
+      if (!r.retry) s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "fail", text: r.reason });
+    },
+  },
+
+  // カード：係が止まったセッションを読んで書いたもの。セッションごとに、止まるたびに書き直す（状態はいちばん新しいもの）。
+  // turn：読んだターン（end の通し番号）。back：チャットに帰る一行。ask：人への問い（{ text, ref }。なければ null）
+  card: {
+    make({ session, turn, line, back, what = null, steps = [], ask = null, panels = [] }) {
+      if (!Array.isArray(steps) || !Array.isArray(panels)) throw new Error("steps と panels は配列");
+      return { session: id(session, "session"), turn: id(turn, "turn"), line: text(line, "line"), back: text(back, "back"), what, steps, ask, panels };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (!x) return;
+      x.card = { seq: r.seq, at: r.at, turn: r.turn, line: r.line, what: r.what, steps: r.steps, ask: r.ask, panels: r.panels };
+      x.read = r.turn;
+      s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "card", text: r.back });
+    },
+  },
+
+  // 係がカードを書けなかった：カードは前のまま、チャットには最後の言葉の頭を返す
+  nocard: {
+    make({ session, turn, reason }) {
+      return { session: id(session, "session"), turn: id(turn, "turn"), reason: text(reason, "reason") };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (!x) return;
+      x.read = r.turn;
+      s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "nocard", text: headOf(x.last) || r.reason, reason: r.reason });
     },
   },
 };
 
-export const empty = () => ({ seq: 0, said: [], sessions: [] });
+// 最後の言葉の頭（はじめの空でない一行を 80 字まで）
+export function headOf(t) {
+  const line = String(t ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  return line.length > 80 ? line.slice(0, 79) + "…" : line;
+}
+
+// ステート：データに持たず導く。run（実行中）・wait（人待ち）・back（帰った）。none は結果を出さずに終わった理由
+// ターンが終わっても係がまだ読んでいないあいだは実行中のまま（帰った→人待ち のちらつきを避ける）。係が読めなかったら帰った
+export function stageOf(x) {
+  if (x.running) return { stage: "run", none: null };
+  if (x.failed) return { stage: "back", none: x.failed };
+  if (x.turn != null && x.read !== x.turn) return { stage: "run", none: null };
+  if (x.card?.ask && x.card.turn === x.turn) return { stage: "wait", none: null };
+  return { stage: "back", none: null };
+}
+
+// いまどこまで：動いているあいだは、いちばん新しい言ったこと・道具の一行（係を呼ばない）。止まっていればカードの一行
+export function nowOf(x) {
+  if (stageOf(x).stage === "run") {
+    const f = x.flow.findLast((e) => e.talk || e.tool);
+    return f ? headOf(f.talk ?? f.tool) : "";
+  }
+  return x.failed ?? x.card?.line ?? headOf(x.last);
+}
+
+// backs：セッションからチャットに帰った一行（card・nocard・fail）。発言と通し番号の順に並ぶ
+export const empty = () => ({ seq: 0, said: [], sessions: [], backs: [] });
 
 // 知らない種類は飛ばす（通し番号だけ進める）
 export function step(s, r) {

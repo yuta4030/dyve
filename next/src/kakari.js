@@ -5,8 +5,9 @@ import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { wordLine } from "./words.js";
+import { stageOf, headOf } from "./state.js";
 
-export const DEFS = { said: fileURLToPath(new URL("../kakari/発言.md", import.meta.url)) };
+export const DEFS = { said: fileURLToPath(new URL("../kakari/発言.md", import.meta.url)), session: fileURLToPath(new URL("../kakari/セッション.md", import.meta.url)) };
 export const readDef = (name) => fs.readFileSync(DEFS[name], "utf8").trim();
 
 // 起こし直す目安：渡した数と、あいた時間（前置きのキャッシュの持ちは 1 時間）。一回で返らなければ止めて起こし直す
@@ -138,7 +139,8 @@ export const SAID_SCHEMA = {
   required: ["says"],
 };
 
-const stateWord = (x) => (x.running ? "実行中" : x.failed ? "止まっている（結果なし）" : "止まっている");
+const STAGE = { run: "実行中", wait: "人待ち", back: "帰った" };
+const stageWord = (x) => { const g = stageOf(x); return STAGE[g.stage] + (g.none ? "（結果なし）" : ""); };
 const shown = (p) => p?.fair ?? p?.text ?? "";
 // 新しく起こせる役割（起きる場所が用意できているもの）
 export const choosable = (roles) => Object.values(roles).filter((r) => r.place === "room");
@@ -162,8 +164,9 @@ export function saidPrompt({ state, batch, roles, words = [], context = 5 }) {
       ? state.sessions.map((x) => {
           const asked = x.asked.length ? clip(oneLine(shown(said(x.asked[0]))), 80) : "";
           const more = x.asked.length > 1 ? `（ほか ${x.asked.length - 1} 件。いちばん新しいもの：${clip(oneLine(shown(said(x.asked.at(-1)))), 60)}）` : "";
-          const last = clip(oneLine(lastWords(x).split("\n").find((l) => l.trim()) ?? ""), 80);
-          return `- ${x.sym}「${x.name ?? x.role}」${x.role}・${stateWord(x)}。頼んだこと：${asked}${more}${last ? `　最後の言葉：${last}` : ""}`;
+          const last = clip(oneLine(x.card?.line ?? headOf(lastWords(x))), 80);
+          const ask = stageOf(x).stage === "wait" ? `　人への問い：${clip(oneLine(x.card.ask.text), 80)}` : "";
+          return `- ${x.sym}「${x.name ?? x.role}」${x.role}・${stageWord(x)}。頼んだこと：${asked}${more}${last ? `　いまどこまで：${last}` : ""}${ask}`;
         })
       : ["（なし）"]),
     ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- ${p.id}（${p.aside ? "届けていない" : `→ ${symOf(p.session)}`}）：${oneLine(shown(p))}`)] : []),
@@ -273,6 +276,164 @@ export class SaidMouth {
     for (const p of batch) if (!done.has(p.id)) missed.push([p.id, "係が返さなかった"]);
     for (const [n, why] of missed) this.log.add("miss", { says: [n], reason: why });
     for (const w of Array.isArray(json?.words) ? json.words : []) this.words?.add({ by: "係", heard: w?.heard, write: w?.write, when: w?.when });
+  }
+}
+
+// ── セッションを読む口 ──
+
+export const VIEWS = ["summary", "list", "table", "text", "json"];
+export const CARD_SCHEMA = {
+  type: "object",
+  properties: {
+    line: { type: "string" },
+    back: { type: "string" },
+    what: { type: "string" },
+    steps: { type: "array", items: { type: "object", properties: { text: { type: "string" }, state: { type: "string", enum: ["done", "now", "todo"] } }, required: ["text", "state"] } },
+    ask: { type: "object", properties: { text: { type: "string" }, ref: { type: "integer" } }, required: ["text"] },
+    panels: { type: "array", items: { type: "object", properties: { view: { type: "string", enum: VIEWS }, title: { type: "string" }, data: {} }, required: ["view", "data"] } },
+  },
+  required: ["line", "back"],
+};
+
+// 係に渡すやりとりの上限：一つの言葉の長さ、最後の言葉の長さ、並べる数
+const TALK = 600, LAST = 4000, FLOW = 60;
+
+// セッションの中で、行の ref に書ける通し番号：渡した発言の id と、言ったこと・道具の記録の通し番号
+export const refsOf = (x) => new Set([...x.asked, ...x.flow.filter((f) => f.talk || f.tool).map((f) => f.seq)]);
+
+// 係に渡す一通：セッション・頼んだこと・前のカード・前のカードのあとのやりとり・最後の言葉
+export function sessionPrompt(state, x) {
+  const said = (n) => state.said.find((p) => p.id === n);
+  const since = x.card?.turn ?? 0;
+  const flow = x.flow.filter((f) => f.seq > since).slice(-FLOW).map((f) =>
+    f.said ? `- ${f.said} 人：${oneLine(shown(said(f.said)))}` : f.tool ? `- ${f.seq} 道具：${f.tool}` : `- ${f.seq} セッション：${clip(oneLine(f.talk), TALK)}`);
+  const prev = x.card ? JSON.stringify({ line: x.card.line, what: x.card.what, steps: x.card.steps, ask: x.card.ask, panels: x.card.panels }) : "なし";
+  return [
+    `セッション：${x.sym}「${x.name ?? x.role}」（役割：${x.role}）`,
+    "",
+    "頼んだこと：",
+    ...x.asked.map((n) => `- ${n}：${oneLine(shown(said(n)))}`),
+    "",
+    `前のカード：${prev}`,
+    "",
+    "前のカードのあとのやりとり：",
+    ...(flow.length ? flow : ["（なし）"]),
+    "",
+    "最後の言葉：",
+    clip(String(x.last ?? "（なし）"), LAST),
+  ].join("\n");
+}
+
+const str = (v, n) => {
+  const t = typeof v === "number" ? String(v) : typeof v === "string" ? oneLine(v) : "";
+  return t ? clip(t, n) : "";
+};
+const arr = (v) => (Array.isArray(v) ? v : []);
+
+// パネル一枚を確かめる。知らない view は、文字列なら text、ほかは json に落とす。ありもしない ref は外す。中身がなければ null
+export function panelOf(p, refs) {
+  if (!p || typeof p !== "object") return null;
+  const ref = (r) => (Number.isInteger(r) && refs.has(r) ? { ref: r } : {});
+  const title = str(p.title, 40);
+  let view = VIEWS.includes(p.view) ? p.view : typeof p.data === "string" ? "text" : "json";
+  let data = null;
+  const d = p.data;
+  if (view === "text") data = typeof d === "string" && d.trim() ? clip(d.trim(), 300) : null;
+  if (view === "list") {
+    data = arr(d).map((i) => (typeof i === "string" ? { text: str(i, 80) } : { text: str(i?.text, 80), ...(str(i?.value, 40) ? { value: str(i.value, 40) } : {}), ...ref(i?.ref) })).filter((i) => i.text).slice(0, 12);
+  }
+  if (view === "summary") {
+    data = arr(d).map((i) => ({ label: str(i?.label, 40), value: str(i?.value, 40), ...ref(i?.ref) })).filter((i) => i.label && i.value).slice(0, 8);
+  }
+  if (view === "table") {
+    const columns = arr(d?.columns).map((c) => str(c, 30)).filter(Boolean).slice(0, 6);
+    const rows = arr(d?.rows).map((r) => (Array.isArray(r) ? { cells: r } : r)).map((r) => ({ cells: columns.map((_, k) => str(arr(r?.cells)[k], 40)), ...ref(r?.ref) })).filter((r) => r.cells.some(Boolean)).slice(0, 20);
+    data = columns.length && rows.length ? { columns, rows } : null;
+  }
+  if (view === "json") data = d != null && JSON.stringify(d).length <= 4000 ? d : null;
+  if (data == null || (Array.isArray(data) && !data.length)) return null;
+  return { view, ...(title ? { title } : {}), data };
+}
+
+// 返ったカードを確かめる。きびしすぎて全部を落とさない：直せるものは直し、一行がなければ読めなかったことにする（null）
+export function cardOf(json, x) {
+  if (!json || typeof json !== "object") return null;
+  const refs = refsOf(x);
+  let line = str(json.line, 80), back = str(json.back, 160);
+  line ||= back;
+  back ||= line;
+  if (!line) return null;
+  const steps = arr(json.steps).map((s) => ({ text: str(s?.text, 60), state: ["done", "now", "todo"].includes(s?.state) ? s.state : "todo" })).filter((s) => s.text).slice(0, 10);
+  const askText = str(json.ask?.text, 160);
+  const ask = askText ? { text: askText, ref: Number.isInteger(json.ask.ref) && refs.has(json.ask.ref) ? json.ask.ref : null } : null;
+  const panels = arr(json.panels).map((p) => panelOf(p, refs)).filter(Boolean).slice(0, 3);
+  return { line, back, what: str(json.what, 80) || x.card?.what || null, steps, ask, panels };
+}
+
+export class SessionMouth {
+  constructor({ log, conv }) {
+    Object.assign(this, { log, conv });
+    this.reading = new Set();
+    this.busy = false;
+    this.again = false;
+    this.timer = null;
+    this.stopped = false;
+  }
+
+  start() {
+    this.off = this.log.on((r) => r.kind === "end" && this.kick());
+    this.kick();
+    return this;
+  }
+
+  stop() {
+    this.stopped = true;
+    this.off?.();
+    clearTimeout(this.timer);
+    this.conv.kill?.();
+  }
+
+  // 読むもの：ターンが終わって止まっていて、まだ読んでいないセッション。終わった順に。
+  // すぐ次のターンが始まったもの（待たせていた発言があった）は読まず、次に止まったときにまとめて読む。結果なしは読まない
+  _due() {
+    return this.log.state.sessions
+      .filter((x) => !x.running && !x.failed && x.turn != null && x.read !== x.turn && !this.reading.has(x.id))
+      .sort((a, b) => a.turn - b.turn);
+  }
+
+  kick() {
+    if (this.stopped) return;
+    if (this.busy) {
+      this.again = true;
+      return;
+    }
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.read(), 0);
+  }
+
+  async read() {
+    this.timer = null;
+    const x = this._due()[0];
+    if (this.stopped || !x) return;
+    this.busy = true;
+    this.reading.add(x.id);
+    const turn = x.turn;
+    let res;
+    try {
+      res = await this.conv.send(sessionPrompt(this.log.state, x));
+    } catch (e) {
+      res = { ok: false, error: e.message };
+    }
+    if (!this.stopped) {
+      const cur = this.log.state.sessions.find((s) => s.id === x.id);
+      const card = res.ok ? cardOf(res.json, cur) : null;
+      if (card) this.log.add("card", { session: x.id, turn, ...card });
+      else this.log.add("nocard", { session: x.id, turn, reason: res.ok ? "係の返したカードが読めない" : `係が読めなかった：${res.error}` });
+    }
+    this.reading.delete(x.id);
+    this.busy = false;
+    this.again = false;
+    this.kick(); // 読んでいるあいだに止まったほかのセッションを、順に
   }
 }
 

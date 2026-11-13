@@ -195,7 +195,7 @@ export class Sessions {
       this.running.delete(id);
       // 引き継ぎが始まらずに終わった（init が来ない）：まっさらで起こし直す
       if (resume && !r.inited && !r.killed) {
-        this.log.add("fail", { session: id, reason: `前の会話を引き継げなかったので、まっさらで起こし直す（${exitError(code, r.result, stderr)}）`, claude: null });
+        this.log.add("fail", { session: id, reason: `前の会話を引き継げなかったので、まっさらで起こし直す（${exitError(code, r.result, stderr)}）`, claude: null, retry: true });
         this._turn(id, true);
         return;
       }
