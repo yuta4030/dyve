@@ -103,10 +103,11 @@ export const KINDS = {
     },
     // sym：カードの記号（導く。済みなら null）。shown：オーバービューに並んだ通し番号（できたとき・戻ったとき。カードはこの順）。
     // folded：済みに畳んだ記録（{ seq, at, by }。出ていれば null）。backAt：帰った（カード・読めなかった・結果なし）記録の通し番号。
+    // work：開発の作業場のありさま。merged：いちばん新しい取り込みの結果。accepted：受け入れたカードの通し番号。
     // asked：渡した発言の id（順に）。turn：いちばん新しく終わったターン（end の通し番号）。
     // read：係が読んだターン（カードを書いたか、読めなかったか）。card：いちばん新しいカード
     apply(s, r) {
-      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), shown: r.seq, folded: null, backAt: null, name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage() });
+      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), shown: r.seq, folded: null, backAt: null, name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, work: null, merged: null, accepted: null, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage() });
     },
   },
 
@@ -150,11 +151,12 @@ export const KINDS = {
     },
   },
 
-  // ターンが始まった：待っていた発言をまとめて渡した。resume は引き継いだ Claude の session_id（まっさらなら null）
+  // ターンが始まった：待っていた発言をまとめて渡した。resume は引き継いだ Claude の session_id（まっさらなら null）。
+  // accept：人がカードの伺いを受け入れて始めたターン（受け入れたカードの通し番号。発言は渡さない）
   start: {
-    make({ session, says, resume = null }) {
-      if (!Array.isArray(says) || !says.length) throw new Error("says がない");
-      return { session: id(session, "session"), says: says.map((x) => id(x, "says")), resume };
+    make({ session, says = [], resume = null, accept = null }) {
+      if (!Array.isArray(says) || (!says.length && accept == null)) throw new Error("says がない");
+      return { session: id(session, "session"), says: says.map((x) => id(x, "says")), resume, ...(accept != null ? { accept: id(accept, "accept") } : {}) };
     },
     apply(s, r) {
       const x = sessionOf(s, r);
@@ -163,6 +165,43 @@ export const KINDS = {
       x.failed = null;
       x.pending = x.pending.filter((p) => !r.says.includes(p));
       for (const said of r.says) if (!x.flow.some((f) => f.said === said)) x.flow.push({ seq: r.seq, at: r.at, said });
+      if (r.accept != null) x.flow.push({ seq: r.seq, at: r.at, accept: r.accept });
+    },
+  },
+
+  // 人がカードの伺い（外に届くこと・取り消せないことをしてよいか）を、画面で押して受け入れた。card は受け入れたカードの通し番号
+  accept: {
+    make({ session, card }) {
+      return { session: id(session, "session"), card: id(card, "card") };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (x) x.accepted = r.card;
+    },
+  },
+
+  // 開発の作業場のありさま（ターンが終わるたびに git から読む）：ブランチ・部屋のブランチ・何コミット進んだか・コミットしていない変更・変えたファイルの数・作業場がないか
+  work: {
+    make({ session, branch, base = null, ahead = 0, dirty = false, files = 0, gone = false }) {
+      return { session: id(session, "session"), branch: text(branch, "branch"), base, ahead, dirty, files, gone };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (x) x.work = { branch: r.branch, base: r.base, ahead: r.ahead, dirty: r.dirty, files: r.files, gone: r.gone };
+    },
+  },
+
+  // 取り込んだ結果（人が画面で押したとき）：merged・conflict・failed・dirty・nothing。チャットにも一行返す
+  merge: {
+    make({ session, branch, into = null, result, commit = null, reason = null }) {
+      if (!["merged", "conflict", "failed", "dirty", "nothing"].includes(result)) throw new Error("result が違う");
+      return { session: id(session, "session"), branch: text(branch, "branch"), into, result, ...(commit ? { commit } : {}), ...(reason ? { reason } : {}) };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (!x) return;
+      x.merged = { seq: r.seq, result: r.result, into: r.into, commit: r.commit ?? null, reason: r.reason ?? null };
+      s.backs.push({ seq: r.seq, at: r.at, session: x.id, kind: "merge", result: r.result, text: r.commit ?? r.reason ?? "", into: r.into });
     },
   },
 

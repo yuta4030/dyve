@@ -159,6 +159,11 @@ test("ほかのオリジンからは断る。書き込みも残らない", async
     assert.equal(own.status, 200);
     const lh = await request(port, { method: "POST", path: "/api/say", headers: { host: `localhost:${port}`, origin: `http://localhost:${port}`, "content-type": "application/json" }, body });
     assert.equal(lh.status, 200);
+    // 手元のほかのポートで動くページからは書けない
+    const before = log.state.seq;
+    const other = await request(port, { method: "POST", path: "/api/say", headers: { origin: `http://127.0.0.1:${port + 1}`, "content-type": "text/plain" }, body });
+    assert.equal(other.status, 403);
+    assert.equal(log.state.seq, before);
   } finally {
     server.closeAll();
   }

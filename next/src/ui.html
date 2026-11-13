@@ -88,6 +88,14 @@ dyve-overview.zone, dyve-peek.zone { overflow-y: auto; }
 .cyours { background: var(--you-soft); border-radius: 8px; padding: 6px 9px; font-size: 13.5px; line-height: 1.55; }
 .cyours b { display: block; font-size: 12px; color: var(--you); }
 .cpanel { border-top: 1px solid var(--line); padding-top: 8px; }
+/* 開発の作業場と、人が押して決めるボタン */
+.wline { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: 12.5px; color: var(--muted); }
+.wline code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); overflow-wrap: anywhere; }
+.wres { font-size: 12.5px; color: var(--back); }
+.wres.conflict, .wres.failed, .wres.dirty { color: var(--you); }
+.act { margin-top: 6px; background: var(--accent); color: var(--surface); border: 0; border-radius: 8px; padding: 3px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.act:disabled { opacity: .5; cursor: default; }
+.cyours .act { background: var(--you); }
 /* カードの中のパネルは頭だけ。行は一行に切る（覗けば全部） */
 .cpanel .item span:first-child, .cpanel .tbl td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
 .cpanel .item span:first-child { max-width: none; }
@@ -208,6 +216,18 @@ const L = {
   shelf: "済み", shelfCap: "終わったセッションはここに畳まれる。消えない。話しかければ戻る", justFolded: "いま畳んだ",
   shelfMore: (n) => `ほか ${n} 件`, shelfLess: "新しいものだけ", noResultLine: (why) => `結果なし：${why}`,
   viewFallback: (v) => `view「${v}」で描けなかったので、データをそのまま出す`,
+  work: "作業場", integrate: "取り込む", accept: "受け入れる", acceptedMsg: "（人が受け入れた。聞いた範囲で進めてよい）",
+  commits: (n) => `${n} コミット`, files: (n) => `${n} ファイル`, dirty: "コミットしていない変更あり",
+  mergeShort: {
+    merged: (c, into) => `取り込んだ（${into} に ${c}）`, conflict: () => "ぶつかったので取り込まなかった（元に戻した）",
+    failed: () => "取り込めなかった（元に戻した）",
+    dirty: () => "コミットしていない変更があるので取り込まなかった", nothing: () => "取り込むものがない",
+  },
+  merge: {
+    merged: (c, into) => `${into} に取り込んだ（${c}）`, conflict: (why) => `ぶつかったので取り込まなかった（元に戻した）：${why}`,
+    failed: (why) => `取り込めなかった（元に戻した）：${why}`,
+    dirty: () => "コミットしていない変更が残っているので、取り込まなかった", nothing: () => "取り込むものがなかった",
+  },
   toDone: (name) => `→ ${name}（済み）`,
   roleLabel: "任せた先", ask: "人への問い", peekBtn: "中身を覗く", hit: "いま届いた", mark: "見てほしい",
   stepAt: (i, n, t) => `${i}/${n}　${t}`, stepsDone: "済んだ",
@@ -234,6 +254,10 @@ const L = {
 const PAUSE = 2500;
 // いちばん下を見ているか（このくらいの差なら下にいるとみなす）
 const NEAR = 40;
+// 済みの列に出す数。「いま届いた」「いま畳んだ」を出しておく長さ（ミリ秒）
+const SHELF = 6;
+const HIT_MS = 2500;
+const FOLDED_MS = 6000;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const atBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < NEAR;
@@ -376,6 +400,23 @@ function put(el, html) {
   el.hidden = !html;
 }
 
+// 開発の作業場のありさまと「取り込む」。取り込んだあとは、取り込んだとわかる
+function workHtml(x) {
+  const w = x.work, m = x.merged;
+  if (!w && !m) return "";
+  const facts = w && !w.gone ? [L.commits(w.ahead), ...(w.files ? [L.files(w.files)] : []), ...(w.dirty ? [L.dirty] : [])] : [];
+  const can = w && !w.gone && w.ahead > 0 && stageOf(x).stage !== "run";
+  const result = m && !(w?.ahead > 0 && m.result === "merged") ? `<p class="wres ${m.result}">${esc(L.mergeShort[m.result](m.commit ?? m.reason ?? "", m.into))}</p>` : "";
+  return `<p class="wline"><code>${esc(w?.branch ?? "")}</code>${facts.map((f) => `<span>${esc(f)}</span>`).join("")}</p>${result}` +
+    (can ? `<button class="act" data-integrate="${x.id}"${ui.busy.has(`i${x.id}`) ? " disabled" : ""}>${L.integrate}</button>` : "");
+}
+// 外に届くこと・取り消せないことの伺いに「受け入れる」。チャットの発言では受け入れない
+function acceptHtml(x) {
+  const c = x.card;
+  if (!c?.ask?.outward || x.accepted === c.seq) return "";
+  return `<button class="act" data-accept="${x.id}" data-card="${c.seq}"${ui.busy.has(`a${x.id}`) ? " disabled" : ""}>${L.accept}</button>`;
+}
+
 // ── オーバービュー：セッションごとにカードが一枚。できた順に並び、動かない ──
 class Overview extends HTMLElement {
   connectedCallback() {
@@ -396,7 +437,7 @@ class Overview extends HTMLElement {
         c = document.createElement("article");
         c.className = "card";
         c.dataset.go = x.id;
-        c.innerHTML = `<span class="tag">${L.hit}</span><span class="mark" title="${L.mark}"></span><div class="chead"></div><p class="roles"></p><p class="cline"></p><div class="cprog"></div><p class="cyours"></p><div class="cpanel"></div><button class="peekbtn" data-go="${x.id}">${L.peekBtn}</button>`;
+        c.innerHTML = `<span class="tag">${L.hit}</span><span class="mark" title="${L.mark}"></span><div class="chead"></div><p class="roles"></p><p class="cline"></p><div class="cprog"></div><div class="cyours"></div><div class="cwork"></div><div class="cpanel"></div><button class="peekbtn" data-go="${x.id}">${L.peekBtn}</button>`;
         this.cards.append(c); // 新しいカードはいつも後ろに。並びは変えない
       }
       const g = stageOf(x), wait = g.stage === "wait";
@@ -409,7 +450,8 @@ class Overview extends HTMLElement {
       const line = c.querySelector(".cline");
       if (line.textContent !== nowOf(x)) line.textContent = nowOf(x);
       put(c.querySelector(".cprog"), progHtml(x.card?.steps));
-      put(c.querySelector(".cyours"), wait ? `<b>${L.ask}</b>${esc(x.card.ask.text)}` : "");
+      put(c.querySelector(".cyours"), wait ? `<b>${L.ask}</b>${esc(x.card.ask.text)}${acceptHtml(x)}` : "");
+      put(c.querySelector(".cwork"), workHtml(x));
       put(c.querySelector(".cpanel"), x.card?.panels[0] ? panelHtml(x.card.panels[0], { key: `${x.id}-${x.card.seq}-0-c`, session: x.id }) : "");
       hydrate(c);
     }
@@ -429,8 +471,7 @@ class Overview extends HTMLElement {
     more.textContent = ui.allDone ? L.shelfLess : L.shelfMore(done.length - SHELF);
   }
 }
-// 済みの列に出す数
-const SHELF = 6;
+
 
 // ── 覗く：左がそのセッションのやりとりとパネルに替わる。替えるのは人が覗くときだけ ──
 class Peek extends HTMLElement {
@@ -467,9 +508,9 @@ class Peek extends HTMLElement {
     const follow = this.flow.scrollHeight - this.flow.scrollTop - this.flow.clientHeight < 40;
     for (const f of fresh) {
       const el = document.createElement("div");
-      el.className = `msg ${f.said ? "you" : f.tool ? "tool" : "ai"}`;
+      el.className = `msg ${f.said || f.accept ? "you" : f.tool ? "tool" : "ai"}`;
       el.dataset.at = f.said ?? f.seq;
-      el.textContent = f.said ? text(said(f.said)) : f.tool ?? f.talk;
+      el.textContent = f.said ? text(said(f.said)) : f.accept ? L.acceptedMsg : f.tool ?? f.talk;
       this.msgs.append(el);
     }
     this.shown = x.flow.length;
@@ -477,11 +518,12 @@ class Peek extends HTMLElement {
     if (fresh.length && follow) this.flow.scrollTop = this.flow.scrollHeight;
     // パネル：人への問い、いまどこまで、カードのパネル全部
     const g = stageOf(x), card = x.card;
-    const ask = g.stage === "wait" ? `<div class="panel yours"><h3>${L.ask}</h3><ul class="items"><li><${card.ask.ref != null ? `button data-ref="${card.ask.ref}"` : "div"} class="item"><span>${esc(card.ask.text)}</span></${card.ask.ref != null ? "button" : "div"}></li></ul></div>` : "";
+    const ask = g.stage === "wait" ? `<div class="panel yours"><h3>${L.ask}</h3><ul class="items"><li><${card.ask.ref != null ? `button data-ref="${card.ask.ref}"` : "div"} class="item"><span>${esc(card.ask.text)}</span></${card.ask.ref != null ? "button" : "div"}></li></ul>${acceptHtml(x)}</div>` : "";
+    const work = workHtml(x);
     const steps = card?.steps?.length && g.stage !== "run"
       ? `<ol class="steps">${card.steps.map((t) => `<li class="${t.state}">${esc(t.text)}</li>`).join("")}</ol>`
       : `<p>${esc(nowOf(x))}</p>`;
-    put(this.querySelector(".pcol"), ask + `<div class="panel"><h3>${L.now}</h3>${steps}</div>` + (card?.panels ?? []).map((p, i) => panelHtml(p, { full: true, key: `${x.id}-${card.seq}-${i}-f`, session: x.id })).join(""));
+    put(this.querySelector(".pcol"), ask + (work ? `<div class="panel"><h3>${L.work}</h3>${work}</div>` : "") + `<div class="panel"><h3>${L.now}</h3>${steps}</div>` + (card?.panels ?? []).map((p, i) => panelHtml(p, { full: true, key: `${x.id}-${card.seq}-${i}-f`, session: x.id })).join(""));
     hydrate(this.querySelector(".pcol"));
   }
 
@@ -598,7 +640,7 @@ class Chat extends HTMLElement {
       const b = it.back, x = state.sessions.find((y) => y.id === b.session);
       el.className = `from${b.kind === "fail" ? " none" : ""}`;
       el.dataset.go = b.session;
-      const text = b.kind === "fail" ? L.none(b.text) : b.text;
+      const text = b.kind === "fail" ? L.none(b.text) : b.kind === "merge" ? L.merge[b.result](b.text, b.into) : b.text;
       el.dataset.head = fromHead(x);
       el.innerHTML = `${el.dataset.head}<span${b.reason ? ` title="${esc(b.reason)}"` : ""}>${esc(text)}</span>` +
         (time ? `<time datetime="${esc(it.at)}">${time}</time>` : "");
@@ -680,12 +722,10 @@ customElements.define("dyve-chat", Chat);
 const chat = document.querySelector("dyve-chat");
 const overview = document.querySelector("dyve-overview");
 const peekView = document.querySelector("dyve-peek");
-// 画面の中だけで持つもの（記録には持たない。開き直せば消えてよい）：
-// peek 覗いているセッション、marks 見てほしい印、hits いま届いた、seen 前に見たステートと渡した数
-// folded いま畳んだ、allDone 済みを全部出すか
-const ui = { peek: null, marks: new Set(), hits: new Set(), seen: new Map(), folded: new Set(), allDone: false };
-const FOLDED_MS = 6000;
-const HIT_MS = 2500;
+// 画面の中だけで持つもの（記録には持たない。開き直せば消えてよい）：peek 覗いているセッション、marks 見てほしい印、hits いま届いた、
+// seen 前に見たステートと渡した数、folded いま畳んだ、allDone 済みを全部出すか、busy 押した結果を待っている取り込む・受け入れる
+const ui = { peek: null, marks: new Set(), hits: new Set(), seen: new Map(), folded: new Set(), allDone: false, busy: new Set() };
+
 let state = null;
 
 // 印：覗いていないあいだに人待ち・帰ったになったカードに付ける。発言が届いたカードは一瞬わかるように
@@ -736,13 +776,26 @@ function peek(id) {
 }
 document.addEventListener("click", (e) => {
   if (!state) return;
-  const t = e.target.closest("[data-back],[data-ref],[data-go],[data-more]");
+  const t = e.target.closest("[data-back],[data-ref],[data-go],[data-more],[data-integrate],[data-accept]");
   if (!t) return;
-  if (t.dataset.more) { ui.allDone = !ui.allDone; overview.render(state, ui); }
+  if (t.dataset.integrate) act(`i${t.dataset.integrate}`, "/api/integrate", { session: Number(t.dataset.integrate) });
+  else if (t.dataset.accept) act(`a${t.dataset.accept}`, "/api/accept", { session: Number(t.dataset.accept), card: Number(t.dataset.card) });
+  else if (t.dataset.more) { ui.allDone = !ui.allDone; overview.render(state, ui); }
   else if (t.dataset.back) peek(null);
   else if (t.dataset.ref && t.closest("dyve-peek")) peekView.light(t.dataset.ref);
   else if (t.dataset.go && getSelection().isCollapsed) peek(Number(t.dataset.go));
 });
+// 取り込む・受け入れる：押すことが決めること（ダイアログで確かめ直さない）。結果が出るまで同じものは二度押せない
+async function act(key, url, body) {
+  if (ui.busy.has(key)) return;
+  ui.busy.add(key);
+  draw();
+  try {
+    await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch {}
+  ui.busy.delete(key);
+  draw();
+}
 async function say(text) {
   try {
     const res = await fetch("/api/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, ...(ui.peek != null ? { peek: ui.peek } : {}) }) });

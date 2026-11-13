@@ -107,7 +107,7 @@ test("返ったカードを記録に置き、状態に出す。問いがなけ�
   t.conv.asks[1].reply({ line: "年払いの比べ方を決めてほしい", back: "月払いと比べるか、総額で比べるか決めてほしい", ask: { text: "月払いと比べるか、総額で比べるか", ref: q.seq } });
   await tick();
   assert.equal(stageOf(t.x()).stage, "wait");
-  assert.deepEqual(t.x().card.ask, { text: "月払いと比べるか、総額で比べるか", ref: q.seq });
+  assert.deepEqual(t.x().card.ask, { text: "月払いと比べるか、総額で比べるか", ref: q.seq, outward: false });
   assert.equal(t.x().card.what, "競合の値段を調べる", "何のセッションかは、返さなければ前のまま");
   // 二枚目は、前のカードのあとのやりとりだけを渡す
   const p = t.conv.asks[1].text;
@@ -233,7 +233,7 @@ test("カードを確かめる：ありもしない ref は外し、知らない
   assert.equal(c.back, "一行", "チャットの一行がなければ、カードの一行");
   assert.equal(c.what, "前の what");
   assert.deepEqual(c.steps, [{ text: "a", state: "now" }, { text: "b", state: "todo" }]);
-  assert.deepEqual(c.ask, { text: "どちらにしますか", ref: null });
+  assert.deepEqual(c.ask, { text: "どちらにしますか", ref: null, outward: false });
   assert.equal(c.panels.length, 3, "三枚まで");
   assert.deepEqual(c.panels[0], { view: "table", title: "月額", data: { columns: ["会社", "月額"], rows: [{ cells: ["甲社", "980"], ref: 6 }, { cells: ["乙社", ""] }, { cells: ["丙社", "2,000 円"] }] } });
   assert.deepEqual(c.panels[1].data, [{ text: "a" }, { text: "b", value: "落ちる", ref: 5 }]);

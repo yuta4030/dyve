@@ -16,7 +16,8 @@ const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 const LOCAL_HOST = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 // panels：利用者のパネル置き場（なければ利用者の view はない）
-export function createServer({ log, panels = null }) {
+// works：開発の作業場（取り込む）。sessions：セッション（伺いを受け入れる）。どちらも画面の人が押したときだけの口
+export function createServer({ log, panels = null, works = null, sessions = null }) {
   const clients = new Set();
   const off = log.on((record) => {
     const chunk = `event: record\ndata: ${JSON.stringify(record)}\n\n`;
@@ -35,6 +36,9 @@ export function createServer({ log, panels = null }) {
 
     const { pathname } = new URL(req.url, "http://localhost");
     const route = `${req.method} ${pathname}`;
+    // 書く口は、この画面からだけ。手元のほかのポートで動くページ（セッションが作ったものかもしれない）からは書かせない
+    const own = origin ? origin.replace(/^https?:\/\//, "") === req.headers.host : null;
+    if (req.method === "POST" && own === false) return json(403, { ok: false, code: "forbidden", message: "この画面からだけ書ける" });
     try {
       if (route === "GET /") {
         res.writeHead(200, PAGE);
@@ -59,6 +63,18 @@ export function createServer({ log, panels = null }) {
         const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;
         const r = log.add("say", { text: body.text, peek });
         return json(r.ok ? 200 : 400, r);
+      }
+      // 取り込む・受け入れる：画面で押したときだけ（チャットの発言や係からは呼ばない）。押されたときに、いまのありさまを確かめ直す
+      if (route === "POST /api/integrate" || route === "POST /api/accept") {
+        // 人が画面で押したときだけの口。ブラウザは書くときに必ず Origin を付けるので、ないものは通さない
+        // （手元のプロセスが Origin を騙ることまでは防げない。セッションには道具の決まりと auto の判定がかかっている）
+        if (!own) return json(403, { ok: false, code: "forbidden", message: "画面から押したときだけ" });
+        const body = await readJson(req);
+        const sid = Number(body.session);
+        const r = route === "POST /api/integrate"
+          ? works ? works.integrate(sid) : { ok: false, code: "unavailable", message: "作業場がない" }
+          : sessions ? sessions.accept(sid, Number(body.card)) : { ok: false, code: "unavailable", message: "セッションがない" };
+        return json(r.ok ? 200 : r.code === "not_found" ? 404 : 409, r);
       }
       if (route === "GET /api/events") {
         // つないだときに、いまの状態をまるごと一度送る。あとは増えた記録を一件ずつ

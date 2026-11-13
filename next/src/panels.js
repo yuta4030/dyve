@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 // view の名前：英小文字・数字・-。本体が描く view（summary・list・table・text・json）と同じ名前なら、本体のほうを使う
-export const VIEW_NAME = /^[a-z][a-z0-9-]{0,40}$/;
+const VIEW_NAME = /^[a-z][a-z0-9-]{0,40}$/;
 
 const README = `# パネル置き場
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { wordLine } from "./words.js";
 import { stageOf, headOf, callOf } from "./state.js";
 
-export const DEFS = { said: fileURLToPath(new URL("../kakari/発言.md", import.meta.url)), session: fileURLToPath(new URL("../kakari/セッション.md", import.meta.url)) };
+const DEFS = { said: fileURLToPath(new URL("../kakari/発言.md", import.meta.url)), session: fileURLToPath(new URL("../kakari/セッション.md", import.meta.url)) };
 export const readDef = (name) => fs.readFileSync(DEFS[name], "utf8").trim();
 
 // 起こし直す目安：渡した数と、あいた時間（前置きのキャッシュの持ちは 1 時間）。一回で返らなければ止めて起こし直す
@@ -150,7 +150,7 @@ const DONE = 8;
 const stageWord = (x) => { const g = stageOf(x); return STAGE[g.stage] + (g.none ? "（結果なし）" : ""); };
 const shown = (p) => p?.fair ?? p?.text ?? "";
 // 新しく起こせる役割（起きる場所が用意できているもの）。can(role) が起きる場所を返す
-export const choosable = (roles, can = (r) => r.place === "room") => Object.values(roles).filter((r) => can(r));
+const choosable = (roles, can = (r) => r.place === "room") => Object.values(roles).filter((r) => can(r));
 
 // 係に渡す一通。batch：届け先を決める発言。context：その前の、届け先が決まった発言をいくつ添えるか
 // again：届けていない発言のうち、届け直せるもの（人が「それは A に送って」と言ったときのため）
@@ -323,7 +323,7 @@ export const CARD_SCHEMA = {
     back: { type: "string" },
     what: { type: "string" },
     steps: { type: "array", items: { type: "object", properties: { text: { type: "string" }, state: { type: "string", enum: ["done", "now", "todo"] } }, required: ["text", "state"] } },
-    ask: { type: "object", properties: { text: { type: "string" }, ref: { type: "integer" } }, required: ["text"] },
+    ask: { type: "object", properties: { text: { type: "string" }, ref: { type: "integer" }, outward: { type: "boolean" } }, required: ["text"] },
     // view は本体のもの（VIEWS）か、置き場の view の名前。置き場は変わるので、ここでは名前を絞らない（cardOf で確かめる）
     panels: { type: "array", items: { type: "object", properties: { view: { type: "string" }, title: { type: "string" }, data: {} }, required: ["view", "data"] } },
   },
@@ -334,7 +334,7 @@ export const CARD_SCHEMA = {
 const TALK = 600, LAST = 4000, FLOW = 60;
 
 // セッションの中で、行の ref に書ける通し番号：渡した発言の id と、言ったこと・道具の記録の通し番号
-export const refsOf = (x) => new Set([...x.asked, ...x.flow.filter((f) => f.talk || f.tool).map((f) => f.seq)]);
+const refsOf = (x) => new Set([...x.asked, ...x.flow.filter((f) => f.talk || f.tool).map((f) => f.seq)]);
 
 // 係に渡す一通：セッション・頼んだこと・前のカード・前のカードのあとのやりとり・最後の言葉
 // views：パネル置き場の view（listViews の結果）。合うときだけ選べるように見せる
@@ -407,7 +407,8 @@ export function cardOf(json, x, own = new Set()) {
   if (!line) return null;
   const steps = arr(json.steps).map((s) => ({ text: str(s?.text, 60), state: ["done", "now", "todo"].includes(s?.state) ? s.state : "todo" })).filter((s) => s.text).slice(0, 10);
   const askText = str(json.ask?.text, 160);
-  const ask = askText ? { text: askText, ref: Number.isInteger(json.ask.ref) && refs.has(json.ask.ref) ? json.ask.ref : null } : null;
+  // outward：外に届くこと・取り消せないことをしてよいかという伺い（カードに「受け入れる」が出る）
+  const ask = askText ? { text: askText, ref: Number.isInteger(json.ask.ref) && refs.has(json.ask.ref) ? json.ask.ref : null, outward: json.ask.outward === true } : null;
   const panels = arr(json.panels).map((p) => panelOf(p, refs, own)).filter(Boolean).slice(0, 3);
   return { line, back, what: str(json.what, 80) || x.card?.what || null, steps, ask, panels };
 }
@@ -511,7 +512,7 @@ export class Folder {
   }
 }
 
-// 係：口を並べて持つだけ。口どうしは互いに待たせない（それぞれ自分の会話を持つ）
+// 係：口（発言を読む・セッションを読む）と畳む部品を並べて持つだけ。口どうしは互いに待たせない（それぞれ自分の会話を持つ）
 export class Kakari {
   constructor(mouths) {
     this.mouths = mouths;

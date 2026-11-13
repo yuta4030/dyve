@@ -3,12 +3,18 @@
 // 走らせ方の決まり：同じセッションを同時に二つ走らせない（動いているあいだに届いた発言は、終わってからまとめて渡す）。
 // 同時に走るのは slots まで。ほかは空くまで待つ
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
+import { NEVER } from "./roles.js";
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const oneLine = (s) => String(s).replace(/\s+/g, " ").trim();
 
-// 起こすときの引数。頼む文は標準入力で渡す（- で始まる文が引数と取り違えられないように）
-export function claudeArgs(role, { resume = null } = {}) {
+// 人がカードの伺いを受け入れて始めるターンの文（セッションには、これだけを渡す）
+export const ACCEPTED = "人が受け入れました。聞いた範囲で進めてかまいません。";
+
+// 起こすときの引数。頼む文は標準入力で渡す（- で始まる文が引数と取り違えられないように）。
+// lift：人がカードの伺いを受け入れたターンだけ、外に届くことの禁止（NEVER）を外す（危ない操作は auto の判定に任せる）
+export function claudeArgs(role, { resume = null, lift = false } = {}) {
+  const deny = lift ? role.deny.filter((t) => !NEVER.includes(t)) : role.deny;
   return [
     "-p",
     "--output-format", "stream-json",
@@ -20,7 +26,7 @@ export function claudeArgs(role, { resume = null } = {}) {
     "--exclude-dynamic-system-prompt-sections",
     "--permission-mode", "auto",
     ...(role.tools.length ? ["--allowedTools", ...role.tools] : []),
-    ...(role.deny.length ? ["--disallowedTools", ...role.deny] : []),
+    ...(deny.length ? ["--disallowedTools", ...deny] : []),
   ];
 }
 
@@ -95,11 +101,12 @@ const fail = (code, message) => ({ ok: false, code, message });
 export class Sessions {
   // roles：loadRoles の結果。room：place が room の役割が起きる場所。panels：place が panels の役割が起きる場所（パネル置き場）。
   // spawn：claudeSpawn か、テストの偽物
-  constructor({ log, roles, room, panels = null, spawn, slots = 3 }) {
+  // works：開発の作業場（work.js の Works。place が worktree の役割はここで起きる）
+  constructor({ log, roles, room, panels = null, works = null, spawn, slots = 3 }) {
     this.log = log;
     this.roles = roles;
-    this.room = room;
-    this.places = { room, panels };
+    this.works = works;
+    this.places = { room, panels, worktree: works?.place() ?? null };
     this.spawn = spawn;
     this.slots = Math.max(1, slots);
     this.running = new Map(); // セッションの id -> { kill, claude }
@@ -141,8 +148,10 @@ export class Sessions {
     } else if (to.role != null) {
       const role = this.roles[to.role];
       if (!role) return fail("not_found", `役割「${to.role}」がない`);
-      const cwd = this.placeOf(role);
-      if (!cwd) return fail("unavailable", `役割「${to.role}」の起きる場所（${role.place}）はまだ用意していない`);
+      let cwd = this.placeOf(role);
+      if (!cwd) return fail("unavailable", `役割「${to.role}」の起きる場所（${role.place}）が用意できていない`);
+      // 開発はセッションごとの作業場で（切り出すのは、ターンを始めるとき）
+      if (role.place === "worktree") cwd = this.works.cwdFor(this.log.state.seq + 1);
       session = this.log.add("open", { role: to.role, cwd, name: typeof to.name === "string" && to.name.trim() ? to.name.trim() : null }).record.seq;
     } else {
       return fail("invalid", "to には session か role を書く");
@@ -174,7 +183,21 @@ export class Sessions {
   }
 
   // 一ターン。fresh：前の会話を引き継げなかったので、まっさらで起こし直す（それまでに渡した発言を全部渡し直す）
-  _turn(id, fresh = false) {
+  // 人がカードの伺いを受け入れた（画面で押したときだけ）。いちばん新しいカードの、まだ受け入れていない伺いだけ。
+  // 受け入れたことを置き、そのセッションの次のターンを ACCEPTED で始める。そのターンだけ NEVER を外す
+  accept(id, card) {
+    const x = this._session(id);
+    if (!x) return fail("not_found", `セッション ${id} がない`);
+    if (x.running || this.running.has(id) || x.pending.length) return fail("conflict", "動いているあいだは受け入れられない");
+    if (!x.card || x.card.seq !== card || x.card.turn !== x.turn) return fail("conflict", "いちばん新しいカードの伺いではない");
+    if (!x.card.ask?.outward) return fail("invalid", "そのカードに、受け入れる伺いはない");
+    if (x.accepted === card) return fail("conflict", "その伺いはもう受け入れた");
+    this.log.add("accept", { session: id, card });
+    this._turn(id, { accept: card });
+    return { ok: true, session: id };
+  }
+
+  _turn(id, { fresh = false, accept = null } = {}) {
     const x = this._session(id), role = this.roles[x.role];
     // 渡すのは清書した文（なければ元の文）
     const text = (s) => { const p = this.log.state.said.find((q) => q.id === s); return p?.body ?? p?.fair ?? p?.text ?? ""; };
@@ -184,6 +207,9 @@ export class Sessions {
       const before = x.flow.filter((f) => f.said && !now.includes(f.said)).map((f) => f.said);
       says = [...before, ...now];
       prompt = before.length ? [`（前の会話を引き継げなかったので、これまでに頼んだことを並べます）`, ...before.map((s) => `- ${oneLine(text(s))}`), "", "いまの頼み：", ...now.map(text)].join("\n") : now.map(text).join("\n\n");
+    } else if (accept != null) {
+      says = [];
+      prompt = ACCEPTED;
     } else {
       says = [...x.pending];
       prompt = says.map(text).join("\n\n");
@@ -194,9 +220,18 @@ export class Sessions {
       this.log.add("fail", { session: id, reason: `役割「${x.role}」がもうない（定義を消したか、名前を変えた）`, claude: x.claude });
       return;
     }
-    this.log.add("start", { session: id, says, resume });
+    this.log.add("start", { session: id, says, resume, ...(accept != null ? { accept } : {}) });
+    // 開発の作業場がなければ切り出す（片付けたあとの続きも、同じ場所で）。切り出せなければ結果なしで終わる
+    if (this.works?.mine(x)) {
+      try {
+        this.works.ensure(x);
+      } catch (e) {
+        this.log.add("fail", { session: id, reason: e.message, claude: x.claude });
+        return;
+      }
+    }
     const r = { claude: null, inited: false, result: null, killed: false };
-    const h = this.spawn({ args: claudeArgs(role, { resume }), cwd: x.cwd, prompt }, (j) => this._event(id, r, j));
+    const h = this.spawn({ args: claudeArgs(role, { resume, lift: accept != null }), cwd: x.cwd, prompt }, (j) => this._event(id, r, j));
     r.kill = () => { r.killed = true; h.kill(); };
     this.running.set(id, r);
     h.done.then(({ code, stderr }) => {
@@ -205,7 +240,7 @@ export class Sessions {
       // 引き継ぎが始まらずに終わった（init が来ない）：まっさらで起こし直す
       if (resume && !r.inited && !r.killed) {
         this.log.add("fail", { session: id, reason: `前の会話を引き継げなかったので、まっさらで起こし直す（${exitError(code, r.result, stderr)}）`, claude: null, retry: true });
-        this._turn(id, true);
+        this._turn(id, { fresh: true });
         return;
       }
       if (r.result && !r.result.is_error && r.claude) {

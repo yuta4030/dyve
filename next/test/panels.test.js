@@ -11,6 +11,10 @@ import { Sessions } from "../src/sessions.js";
 import { saidPrompt, sessionPrompt, cardOf } from "../src/kakari.js";
 import { createServer } from "../src/server.js";
 
+// 機械の git の設定（コミットの署名など）に頼らない。ここで決めた環境は、起こした子のプロセスにも引き継がれる
+process.env.GIT_CONFIG_GLOBAL = os.devNull;
+process.env.GIT_CONFIG_NOSYSTEM = "1";
+
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "dyve-next-panels-"));
 const roles = loadRoles();
 
@@ -68,7 +72,7 @@ test("サーバー：view の一覧と中身だけ。置き場の外は読ませ
   }
 });
 
-test("パネルの役割は置き場で起き、道具は 2 段目のまま（外に届くことは止める）。置き場がなければ選ばせない", () => {
+test("パネルの役割は置き場で起き、道具は役割の決まりのまま（外に届くことは止める）。置き場がなければ選ばせない", () => {
   const dir = path.join(tmp(), "panels");
   ensurePanels(dir);
   const log = new Log();

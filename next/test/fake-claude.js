@@ -3,6 +3,9 @@
 //   --version：版を出す
 //   --input-format stream-json：係の起こしっぱなしの会話。--json-schema の形で、発言を読む口かセッションを読む口かを見分ける
 //   それ以外：セッションの一ターン。頼む文は標準入力。「ゆっくり」を含むと、出来事のあいだを少しあける
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+
 const args = process.argv.slice(2);
 const after = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
 const out = (j) => process.stdout.write(JSON.stringify(j) + "\n");
@@ -28,7 +31,8 @@ function routeSays(prompt) {
     else if (done) says.push({ id, text, to: "session", session: done });
     else if (named && syms.includes(named)) says.push({ id, text, to: "session", session: named });
     else if (peek && /続き|それ|あと/.test(text)) says.push({ id, text, to: "session", session: peek });
-    else if (/続き/.test(text) && syms.length) says.push({ id, text, to: "session", session: syms.at(-1) });
+    else if (/続き|^いいよ/.test(text) && syms.length) says.push({ id, text, to: "session", session: syms.at(-1) });
+    else if (/足して|直して|push/.test(text) && /^- 開発：/m.test(prompt)) says.push({ id, text, to: "new", role: "開発", name: text.slice(0, 12) });
     else says.push({ id, text, to: "new", role: "調べもの", name: text.slice(0, 12) });
   }
   return { says, words: [] };
@@ -41,7 +45,7 @@ function writeCard(prompt) {
   const ref = talks.at(-1);
   const head = last.split("\n")[0];
   const card = { line: head.slice(0, 30), back: head.slice(0, 60), what: "頼まれたことを調べる", steps: [{ text: "読む", state: "done" }, { text: "答える", state: /？|ですか/.test(last) ? "now" : "done" }], panels: [] };
-  if (/？|ですか/.test(last)) card.ask = { text: head, ...(ref ? { ref } : {}) };
+  if (/？|ですか/.test(last)) card.ask = { text: head, ...(ref ? { ref } : {}), ...(/push してよいですか/.test(last) ? { outward: true } : {}) };
   if (/表/.test(prompt)) {
     card.panels.push({ view: "table", title: "数えたもの", data: { columns: ["名前", "数"], rows: Array.from({ length: 6 }, (_, i) => ({ cells: [`項目${i + 1}`, String(10 - i)], ...(ref ? { ref } : {}) })) } });
   }
@@ -87,7 +91,19 @@ async function turn() {
   await sleep(slow);
   say("README.md を読みました。");
   await sleep(slow);
-  const answer = /選ばせて|どちら/.test(prompt) ? "候補は甲と乙です。どちらにしますか？" : `「${prompt.split("\n")[0].slice(0, 30)}」の答えは 42 です。`;
+  let answer = /選ばせて|どちら/.test(prompt) ? "候補は甲と乙です。どちらにしますか？" : `「${prompt.split("\n")[0].slice(0, 30)}」の答えは 42 です。`;
+  // 開発の作業場（worktree なので .git はファイル）：頼まれたら書いてコミットし、push は聞いてから。push が止められているかを答えに書く
+  if (fs.statSync(".git", { throwIfNoEntry: false })?.isFile()) {
+    const pushOk = !(after("--disallowedTools") && args.slice(args.indexOf("--disallowedTools") + 1).includes("Bash(git push:*)"));
+    if (/足して/.test(prompt)) {
+      fs.appendFileSync("README.md", "足した一行\n");
+      execFileSync("git", ["add", "."]);
+      execFileSync("git", ["-c", "user.name=fake", "-c", "user.email=fake@localhost", "commit", "-q", "-m", "一行足す"]);
+      answer = "README.md に一行足してコミットしました。";
+    }
+    if (/push/.test(prompt) && !pushOk) answer = "push してよいですか？";
+    answer += pushOk ? "（push できる）" : "（push は止められている）";
+  }
   say(answer);
   out({ type: "result", subtype: "success", is_error: false, result: answer, session_id: id, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 1 } });
 }

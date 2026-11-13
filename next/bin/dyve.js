@@ -11,15 +11,23 @@ import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
 import { readConfig } from "../src/config.js";
 import { Words } from "../src/words.js";
 import { ensurePanels, listViews } from "../src/panels.js";
+import { Works } from "../src/work.js";
 import { Kakari, SaidMouth, SessionMouth, Folder, Conv, claudeConv, readDef, SAID_SCHEMA, CARD_SCHEMA } from "../src/kakari.js";
 
 const HOME = path.join(os.homedir(), ".dyve", "next");
 const USAGE = `使い方:
-  dyve serve [--port 4750] [--data FILE] [--room DIR] [--claude CMD] [--slots 3] [--config FILE] [--panels DIR]
-    --data    記録（既定：~/.dyve/next/record.jsonl）
-    --room    セッションが起きる場所（既定：いまの場所）
-    --config  利用者の設定（既定：~/.dyve/next/config.json。役割の定義はその隣の roles/<名前>.md、辞書は words.jsonl）
-    --panels  パネル置き場（既定：設定の隣の panels/。なければ作る）`;
+  dyve serve [オプション]   チャットとオーバービューの画面を立てる（127.0.0.1 だけで待つ）
+
+オプション:
+  --port N       待つポート（既定：4750。0 なら空いているもの）
+  --data FILE    記録（既定：~/.dyve/next/record.jsonl）
+  --room DIR     セッションが起きる場所（既定：いまの場所）。git のリポジトリなら、開発の作業場をここから切り出す
+  --config FILE  利用者の設定（既定：~/.dyve/next/config.json）。役割の定義はその隣の roles/<名前>.md、辞書は words.jsonl
+  --panels DIR   パネル置き場（既定：設定の隣の panels/。なければ作る）
+  --work DIR     開発の作業場を置くところ（既定：設定の隣の work/）
+  --claude CMD   Claude Code のコマンド（既定：claude）
+  --slots N      同時に走るセッションの数（既定：3）
+  -h, --help     この使い方を出す`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -39,10 +47,16 @@ try {
       slots: { type: "string", default: "3" },
       config: { type: "string", default: path.join(HOME, "config.json") },
       panels: { type: "string" },
+      work: { type: "string" },
+      help: { type: "boolean", short: "h", default: false },
     },
   });
 } catch (e) {
   die(`${e.message}\n${USAGE}`);
+}
+if (args.values.help) {
+  process.stdout.write(USAGE + "\n");
+  process.exit(0);
 }
 const [cmd, ...extra] = args.positionals;
 if (cmd !== "serve" || extra.length) die(USAGE);
@@ -81,7 +95,9 @@ try {
 } catch (e) {
   die(`パネル置き場を作れない：${e.message}`);
 }
-const sessions = new Sessions({ log, roles, room, panels, spawn: claudeSpawn(v.claude), slots }).start();
+// 開発の作業場：部屋が git のリポジトリのときだけ（そうでなければ開発は選べない）
+const works = new Works({ log, room, dir: path.resolve(v.work ?? path.join(place, "work")) }).start();
+const sessions = new Sessions({ log, roles, room, panels, works, spawn: claudeSpawn(v.claude), slots }).start();
 // 係：道具を持たない Claude Code。起きる場所は置き場の中の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(place, "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
@@ -93,13 +109,14 @@ const kakari = new Kakari([
   new SessionMouth({ log, conv: conv("session", CARD_SCHEMA), views: () => listViews(panels) }),
   new Folder({ log }),
 ]).start();
-const server = createServer({ log, panels });
+const server = createServer({ log, panels, works, sessions });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
   process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}（役割：${Object.keys(roles).join("・")}）\nパネル置き場：${panels}\n`);
 });
 const quit = () => {
   kakari.stop();
+  works.stop();
   sessions.stop();
   server.closeAll();
   process.exit(0);
