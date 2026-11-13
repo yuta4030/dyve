@@ -138,8 +138,12 @@ test("エージェントの起こし方：役割ごとの道具と、名乗り�
 test("エージェントの起こし方：前置きを固定してキャッシュを効かせる", () => {
   const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x");
   assert.ok(t.includes("--exclude-dynamic-system-prompt-sections"));
-  assert.equal(t[t.indexOf("--output-format") + 1], "json");
+  // 行のセッションは流れる形で起こし、指示は標準入力で渡す（引数に入れない）
+  assert.equal(t[t.indexOf("--output-format") + 1], "stream-json");
+  assert.equal(t[t.indexOf("--input-format") + 1], "stream-json");
+  assert.ok(!t.includes("やって"));
   const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
+  assert.equal(m[m.indexOf("--output-format") + 1], "json", "マネージャを一回ずつ起こすときは今までどおり");
   assert.ok(!m.includes("--exclude-dynamic-system-prompt-sections"));
   // 清書係は起こしっぱなしの会話で、発言を書き換える道具だけ
   const s = claudeArgs({ role: "scribe", name: "scribe" }, "http://x", { scribe: "haiku" }, { stream: true });
