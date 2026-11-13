@@ -6,7 +6,7 @@
 <title>ボード</title>
 <style>
 :root {
-  /* いつもダーク。強調色は彩度を落として目立たせすぎない（アリスの案 p1u） */
+  /* いつもダーク。強調色は彩度を落として目立たせすぎない */
   color-scheme: dark;
   --bg: #0f1113; --card: #181a1e; --ink: #d4d7dc; --mute: #7d838b; --line: #2a2e34;
   --accent: #6f86b3; --accent-soft: #1a2130; --warn: #d8995a; --warn-soft: #2e2318; --ok: #6fb38a;
@@ -110,6 +110,7 @@ a { color: var(--accent); }
 #floats .ava { width: auto; gap: 0; font-size: 0; }
 #floats .ava .ini { width: 24px; height: 24px; font-size: 11px; }
 #floats #doing { margin-top: 2px; max-height: 3.4em; overflow: hidden; font-size: 11px; line-height: 1.5; }
+#floats .runs { max-height: 9.5em; overflow-y: auto; }
 #floats .meter { margin-bottom: 4px; font-size: 11px; }
 #floats .meter:last-child { margin-bottom: 0; }
 #floats .meter .when { display: none; }
@@ -127,8 +128,8 @@ a { color: var(--accent); }
 #input { flex: none; border-top: 1px solid var(--line); padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 6px; }
 #input .say { display: flex; align-items: flex-end; gap: 6px; }
 #send { flex: none; width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-/* 宛先も知らせもないときは、下の行を出さない */
-#input .bar:not(:has(#to:not([hidden]))):not(:has(#err:not(:empty))) { display: none; }
+/* 知らせがないときは、下の行を出さない */
+#input .bar:not(:has(#err:not(:empty))) { display: none; }
 /* マイクはトークの見出しに。聞いているあいだは色で知らせる */
 .tile-head .ctl #mic { opacity: 1; }
 .tile-head .ctl #mic[hidden] { display: none; }
@@ -136,12 +137,14 @@ a { color: var(--accent); }
 #msg { flex: 1; min-width: 0; width: 100%; box-sizing: border-box; resize: none; min-height: 36px; max-height: 30vh; font: inherit; color: var(--ink); background: var(--card);
        border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
 #msg:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* 入力欄の薄い字（何を指して話すか）は一行に収める。欄の高さを変えず、はみ出すぶんは省く */
+#msg::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #input .bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mute); }
 #input .bar .grow { flex: 1; min-width: 0; }
 #input label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 #err { color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 状況：頭文字のアイコン。動いているあいだは輪が回る */
+/* 状況：清書係とマネージャは頭文字のアイコン（動いているあいだは輪が回る）。その下に、いま動いている行 */
 #status { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
 .ava { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 46px; min-height: 0; padding: 0;
        border: none; background: none; color: var(--mute); font-size: 11px; }
@@ -154,13 +157,18 @@ a { color: var(--accent); }
 .ava.busy .ini::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid transparent;
                         border-top-color: var(--accent); animation: spin .9s linear infinite; }
 .ava.wait .ini { border-style: dashed; border-color: var(--mute); }
-button.ava { cursor: pointer; }
-.ava.to { color: var(--accent); }
-.ava.to .ini { border-color: var(--accent); background: var(--accent-soft); }
-#to { border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-size: 12px; }
+/* 動いている行：記号・名前・行の中で動いている数。押すとその行へ */
+.runs { width: 100%; margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
+.runs button { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 22px; padding: 0 4px; border: none; background: none; text-align: left; font-size: 12px; color: var(--ink); }
+.runs button:hover { background: var(--accent-soft); }
+.runs .rk { flex: none; min-width: 1.6em; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.runs .rn { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.runs .rc { flex: none; color: var(--mute); font-size: 11px; font-variant-numeric: tabular-nums; }
+.runs .idle { color: var(--mute); padding: 0 4px; }
+/* 古い版の画面で役割を指した発言の小さな札（いまの画面からは付けない） */
 dv-panel .meta .to { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
 dv-panel .meta .to .ini { border-color: var(--accent); color: var(--accent); }
-/* トーク：宛てた相手の返事は、その発言のすぐ下に */
+/* トーク：発言から出たものの返事は、その発言のすぐ下に */
 .reply { display: flex; flex: none; align-items: flex-start; gap: 6px; width: 100%; min-height: 0; margin: -2px 0 0 14px; padding: 2px 4px; border: none; background: none;
          text-align: left; font-size: 13px; color: var(--ink); }
 .reply .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding-top: 1px; }
@@ -357,6 +365,18 @@ dv-panel .rows { display: grid; margin-top: 6px; border: 1px solid var(--line); 
 .rows .row.sub .t { color: var(--ink); }
 .rows .row.sub .t i { font-style: normal; color: var(--mute); }
 .rows .row.more-sub .t { color: var(--mute); }
+/* 行の中の枝：行のセッションが呼んだもの。深さで字下げし、動いている・済んだ・止まったを記号で。画面が導くだけで、行ではない */
+.rows .row.branch .t, .card .cx.br { color: var(--mute); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rows .row.branch .t { padding-left: calc((var(--depth, 1) - 1) * 1.1em); }
+.card .cx.br { padding-left: calc((var(--depth, 1) - 1) * 1.1em); }
+.br-m { display: inline-block; width: 1.1em; text-align: center; }
+.br-m .spin { width: 9px; height: 9px; vertical-align: -1px; }
+.br-done .br-m { color: var(--ok); }
+.br-failed .br-m { color: var(--warn); }
+.br-running .br-w { color: var(--ink); }
+.br-ty { margin-left: 6px; padding: 0 5px; border: 1px solid var(--line); border-radius: 999px; font-size: 10px; color: var(--mute); }
+/* 面の頭：行の中で動いている数と終わった数（静かな一行） */
+dv-panel .meta .inside-now { font-size: 11px; color: var(--mute); }
 .s-you .s { color: var(--warn); }
 .s-ok .s { color: var(--ok); }
 .s-ai .s { color: var(--accent); animation: turn-wait 1.6s ease-in-out infinite; }
@@ -441,7 +461,6 @@ dv-panel .meta .by { display: inline-flex; }
         </div>
         <div class="bar">
           <button id="mic" class="icon" aria-pressed="false" hidden></button>
-          <button id="to" hidden></button>
           <span class="grow"><span id="err" role="status"></span></span>
         </div>
       </div>
@@ -491,7 +510,7 @@ const L = {
   turnWord: { ai: "AI の番", you: "あなたの番", back: "帰った", ok: "決まった", wait: "待ち" }, turnCount: (w, n) => `${w}　${n} 件`,
   todo: "やること", lane: { you: "あなたの番", ai: "AI の番", back: "帰った", wait: "待ち", ok: "決まった" },
   kind: { text: "文", list: "箇条", table: "表", json: "データ", say: "発言", task: "仕事", topic: "話題", summary: "要点", proposal: "提案",
-    bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", detail: "詳細", md: "文書", diff: "差分" },
+    bars: "棒", cards: "札", change: "変更", tree: "一覧", days: "予定", detail: "詳細", md: "文書", diff: "差分", record: "担当の一覧" },
   refTitle: (k) => `${k} の結果`,
   move: "ドラッグで好きな場所へ。ダブルクリックでこのパネルに合わせる（もう一度で戻る）", size: "ドラッグで大きさを変える",
   smaller: "小さく", larger: "大きく", zoomSet: "大きさ（%）。打ち込んでも変えられる", options: "設定", zoomLabel: "大きさ",
@@ -506,8 +525,6 @@ const L = {
   landed: (k) => `→ ${k}`, notYet: "まだ", notYetTitle: "マネージャがまだ読んでいない発言", fromTitle: "押すと、元の発言へ",
   pinTile: "ピン留め（AI が動かさない・書き換えない）", putBack: "話題に戻す",
   replyWait: "受け取りました", replyBusy: "取りかかっています…", replyMore: (n) => `ほか ${n} 件`, replyLess: "まとめる",
-  toChip: (n) => `→ ${n}　✕`, toOff: "宛先を外す（Esc でも外れる）",
-  toAva: (n, what) => `${n}：${what}（押すと${n}に直接話しかける。もう一度押すと外れる）`, toPlaceholder: (n) => `${n}に話しかける（止まると置かれます）`,
   send: "置く", placeholder: "話すか書く（声は止まると置かれます）",
   micOn: "聞いています", micOff: "マイク", micTitle: "ブラウザの音声認識で話す（もう一度押すと止まる）",
   emptyTalk: "話すか書くと、ここに流れます。",
@@ -517,8 +534,17 @@ const L = {
   restart: "更新して再起動（取り込んだ変更を使っている dyve に反映する）", restartAsk: "使っている dyve を更新して立て直しますか（走っているエージェントは止まります）",
   restarting: "立て直しています…",
   idle: "待機中", scribeBusy: "直しています", managerBusy: "整えています", managerWait: "間があいたら整えます", working: "動いています",
-  // アイコンの字。状況・トーク・宛先のどこでも ini() を通して描く。差し替えるならここと ini() だけ
-  initial: { scribe: "清", manager: "M", "アリス": "A", "ボブ": "B", "キャロル": "C", "デイブ": "D", "エレン": "E", "フランク": "F" },
+  // 状況の動いている行：押すとその行へ。役割は title にだけ出す
+  runsIdle: "動いている行はありません", runCount: (n) => `${n} 本`,
+  runTitle: (name, role, run) => `${name}（${role}）${run ? `・中で ${run} 本動いている` : ""}。押すとその行へ`,
+  // 行の中の枝（行のセッションが呼んだもの）。表の 2 段目と面の札に出る
+  branchMark: { running: "", done: "✓", failed: "✕" }, branchState: { running: "動いている", done: "終わった", failed: "止まった" },
+  branchMore: (n, run) => `ほか ${n} 本${run ? `（${run} 本動いている）` : ""}`,
+  branchTitle: (b, st, tools, last) => `${b.what}\n${b.type}・${st}${tools ? `・道具 ${tools} 回` : ""}${last ? `・最後に ${last}` : ""}`,
+  inRow: (n) => `中で ${n} 本`,
+  insideNow: (run, done, failed) => `中で ${[run && `${run} 本動いている`, done && `${done} 本終わった`, failed && `${failed} 本止まった`].filter(Boolean).join("・")}`,
+  // アイコンの字。状況・トーク・面のどこでも ini() を通して描く。差し替えるならここと ini() だけ。役割の頭文字はボードが知らせる（S.initials）
+  initial: { scribe: "清", manager: "M", board: "ボ" },
   quota: { five_hour: "5 時間枠", seven_day: "週" },
   quotaLeft: (n) => `残り ${n}%`,
   quotaReset: (d) => `${d} にリセット`,
@@ -529,7 +555,7 @@ const L = {
   markShort: { notice: "●", untouched: "○", waiting: "◇" },
   state: { task: "仕事", proposal: "提案", done: "✓ 済み" },
   pin: "ピン留め", unpin: "ピン留めを外す", drop: "外す", dropAsk: "このパネルを外しますか（操作ログには残ります）",
-  accept: "受け入れる", orig: "元の文", origHide: "元の文を隠す", to: (n) => `宛先：${n}`, ask: "頼んだこと",
+  accept: "受け入れる", orig: "元の文", origHide: "元の文を隠す", role: (n) => `役割：${n}`, ask: "頼んだこと",
   refused: (m) => `できませんでした：${m}`,
   resetSize: "大きさを戻す", resetPos: "並べ直す", fold: "畳む", unfold: "開く", autoPos: "自動の並びに戻す",
   gone: "このパネルはもうありません",
@@ -614,10 +640,11 @@ const ICON = {
 const KIND_ICON = (() => {
   const svg = (d) => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   const doc = svg('<path d="M4 1.8h5.5L12.5 5v9.2H4z"/><path d="M9.5 1.8V5h3M6 8h4.5M6 10.5h4.5"/>');
+  const table = svg('<rect x="2" y="2.5" width="12" height="11" rx="1"/><path d="M2 6.5h12M2 10h12M6.5 2.5v11"/>');
   return {
     any: svg('<rect x="2.5" y="2.5" width="11" height="11" rx="2"/>'), text: doc, md: doc,
     list: svg('<path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.8" cy="4" r=".6"/><circle cx="2.8" cy="8" r=".6"/><circle cx="2.8" cy="12" r=".6"/>'),
-    table: svg('<rect x="2" y="2.5" width="12" height="11" rx="1"/><path d="M2 6.5h12M2 10h12M6.5 2.5v11"/>'),
+    table, record: table,
     proposal: svg('<path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/>'),
     cards: svg('<rect x="2" y="2" width="5" height="12" rx="1"/><rect x="9" y="2" width="5" height="7" rx="1"/>'),
     change: svg('<circle cx="4" cy="3.5" r="1.7"/><circle cx="4" cy="12.5" r="1.7"/><circle cx="12" cy="8" r="1.7"/><path d="M4 5.2v5.6M5.7 3.5H9a3 3 0 0 1 3 2.8"/>'),
@@ -631,7 +658,7 @@ const KIND_ICON = (() => {
 // 画面の調整（dyve 設定の「調整」）。サーバーから来るまでは既定
 const TUNE_DEF = { pointHoldMs: 250, pointKeepSec: 45, readPerCharMs: 25, readMinMs: 1200, readMaxMs: 6000, readZoomPct: 50 };
 const tu = (k) => S.tune?.values?.[k] ?? TUNE_DEF[k];
-const S = { to: null, panels: [], marks: {}, live: null, names: [], initials: {}, calls: {}, title: "", seen: {}, feeds: {}, views: new Map() };
+const S = { panels: [], marks: {}, live: null, initials: {}, calls: {}, title: "", seen: {}, feeds: {}, views: new Map() };
 // 見る人ごとのもの（見た位置）はブラウザに。並びはボードの view layout のパネルに持つ
 const keep = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const put = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -641,12 +668,17 @@ const TPOS = {}; // 話題の中のパネルの置き場所：id -> { x, y, w, h
 // 見た印はボードごとに覚える（id はボードごとに p1 から振られるため）
 const saveSeen = () => { put(`seen:${S.name || ""}`, S.seen); sendFocus(); };
 const isPerson = (by) => by === "human";
-// 控室の人はログに名前（id。チームの人は「名前@チーム」）で残る。画面には呼び名で出す
+// 役割はログに名前（id。チームの役割は「名前@チーム」）で残る。画面には呼び名で出す
 const callOf = (id) => S.calls?.[id] || id;
 const who = (by) => isPerson(by) ? L.you : by === "manager" ? L.manager : by === "scribe" ? L.scribe : by === "board" ? L.board : callOf(by);
 const isWorking = (id) => !!S.live?.agents?.some((a) => a.task === id);
+// 行の中：その行のセッションが呼んだものの一覧（状況の agents[].inside）。動いているあいだだけあり、操作ログには持たない
+const insideOf = (id) => { const a = S.live?.agents?.find((x) => x.task === id); return Array.isArray(a?.inside) ? a.inside : []; };
+// 担当の一覧：ボードが行に置く、行の中の記録。ボードの isRecord（src/board.js）と同じ決まり。記録なので、答えにも知らせにも数えない
+const RECORD = "inside";
+const isRecord = (p) => p?.by === "board" && p.view === "table" && p.data?.record === RECORD;
 const textOf = (d) => typeof d === "string" ? d : d?.text ?? JSON.stringify(d);
-// アイコン：ここだけで描く。絵に差し替えるときもここを直せば、状況・トーク・宛先がそろって変わる
+// アイコン：ここだけで描く。絵に差し替えるときもここを直せば、状況・トーク・面がそろって変わる
 const iniOf = (key) => S.initials?.[key] || L.initial[key] || [...String(key)][0] || "?";
 const ini = (key, size = "") => `<span class="ini${size ? ` ${size}` : ""}" aria-hidden="true">${esc(iniOf(key))}</span>`;
 // 既定の大きさ（パネルの管理で決める。ピクセル）
@@ -672,10 +704,11 @@ function lineOf(d, words = null) {
 const nameOf = (p) => (p.view === "topic" ? topicTitle(p) : lineOf(dataOf(p))) || `${who(p.by)}・${p.view}`;
 // 指したものの名前：表の行なら記号と行の名前（「C 次にやること整理」）
 const ptName = (p, n) => (p.view === "task" && p.key ? `${p.key} ${clipText(lineOf(p.data?.title ?? textOf(p.data)), n)}` : clipText(nameOf(p), n));
-// 仕事の結果の一行目（控室は結論から書く）。直接話しかけた仕事は、最初の短い返事を飛ばす
+// 仕事の結果の一行目（タスクエージェントは結論から書く）。担当の一覧は結果ではない。
+// 古い版の、アイコンで宛てた発言の直接の仕事（data.direct）は、最初の短い返事を飛ばす
 const STAFF = ["scribe", "manager", "board"];
 function resultLine(task) {
-  const all = S.panels.filter((x) => x.about === task.id && !isPerson(x.by) && x.view !== "task");
+  const all = S.panels.filter((x) => x.about === task.id && !isPerson(x.by) && x.view !== "task" && !isRecord(x));
   const own = all.filter((x) => !STAFF.includes(x.by));
   let list = own.length ? own : all;
   if (task.data?.direct && list.length > 1) list = list.slice(1);
@@ -718,8 +751,8 @@ function rowText(t) {
   const prop = S.panels.find((q) => q.about === t.id && q.state === "proposal");
   return t.line || (prop ? L.rowAsk : "");
 }
-// 面を開けるか：行について AI が置いたもの（詳しい結果・問い）か、行の中の行がある
-const openable = (t) => S.panels.some((q) => q.about === t.id && !isPerson(q.by) && q.by !== "board");
+// 面を開けるか：行について AI が置いたもの（詳しい結果・問い）か、行の中の行か、担当の一覧がある
+const openable = (t) => S.panels.some((q) => q.about === t.id && !isPerson(q.by) && (q.by !== "board" || isRecord(q)));
 const faceOpen = (id) => (LAYOUT.out || []).includes(id);
 // 行の 2 段目：その行の下（どの深さでも）にある提案と、AI の番の仕事（受け入れて動いているものも）。箇条書きの 2 段目の感覚で、数本まで。
 // 済んだものは出さない（行の一行に畳む）。表だけ見て、受け入れ待ちと動いているものがわかり、面を開かずに受け入れられる
@@ -745,15 +778,72 @@ function subEl(q) {
   const d = document.createElement("div"), work = q.state === "task";
   d.className = `row sub s-${work ? "ai" : "you"}`;
   d.dataset.row = q.id;
-  const tail = work ? (q.line || (isWorking(q.id) ? L.rowWorking : L.rowNotYet)) : "";
+  const run = work ? insideOf(q.id).filter((b) => b.state === "running").length : 0;
+  const tail = work ? `${q.line || (isWorking(q.id) ? L.rowWorking : L.rowNotYet)}${run ? `（${L.inRow(run)}）` : ""}` : "";
   d.innerHTML = `<span></span><span class="t" title="${esc(textOf(q.data))}">・${linkify(subText(q))}${tail ? ` <i>${esc(tail)}</i>` : ""}</span>` +
     `<span class="s" aria-label="${esc(L.turn[work ? "ai" : "you"])}">${work ? (isWorking(q.id) ? '<span class="spin" aria-hidden="true"></span>' : esc(L.turnSym.ai)) : ""}</span>` +
     `<span class="a">${work ? "" : `<button data-act="accept-row" data-id="${esc(q.id)}" data-rev="${q.rev}">${esc(L.accept)}</button>`}</span>`;
   return d;
 }
-// 表の一行と、その 2 段目
+// 行の中の枝：行のセッションが呼んだもの（inside）を、行の 2 段目に一本ずつ。数本まで出し、残りは「ほか N 本」に畳む。
+// 出すものは動いているもの → 止まったもの → 終わったものの順に選び、呼んだ順の木（呼んだものの下に、呼ばれたもの）に並べ直す。
+// 終わったものも、行のセッションが動いているあいだは残る。セッションが終わると状況から消え、枝も消える
+// inside：[{ id, type, what, depth, parent, state }]。返す：{ shown: [{ ...枝, depth }], more, moreRunning }
+const BRANCH_MAX = 4;
+function branchesOf(inside, max = BRANCH_MAX) {
+  const list = (Array.isArray(inside) ? inside : []).filter((b) => b && typeof b.id === "string");
+  const rank = (b) => (b.state === "running" ? 0 : b.state === "failed" ? 1 : 2);
+  const room = list.length > max ? Math.max(1, max - 1) : max;
+  const pick = new Set(list.map((b, i) => ({ b, i })).sort((x, y) => rank(x.b) - rank(y.b) || x.i - y.i).slice(0, room).map((x) => x.b.id));
+  // 呼んだ順の木：親（いなければ根）の下に、呼んだ順
+  const ids = new Set(list.map((b) => b.id)), order = [], seen = new Set();
+  const walk = (b) => {
+    if (seen.has(b.id)) return;
+    seen.add(b.id);
+    order.push(b);
+    for (const c of list) if (c.parent === b.id) walk(c);
+  };
+  for (const b of list) if (!b.parent || !ids.has(b.parent)) walk(b);
+  for (const b of list) walk(b);
+  const shown = order.filter((b) => pick.has(b.id)).map((b) => ({ ...b, depth: Math.min(4, Math.max(1, Number.isInteger(b.depth) ? b.depth : 1)) }));
+  const rest = list.filter((b) => !pick.has(b.id));
+  return { shown, more: rest.length, moreRunning: rest.filter((b) => b.state === "running").length };
+}
+// 枝の一本の中身：記号（動いている・済んだ・止まった）、頼まれたこと、種類の小さな札
+const branchMark = (b) => (b.state === "running" ? '<span class="spin" aria-hidden="true"></span>' : esc(L.branchMark[b.state] ?? L.branchMark.done));
+function branchInner(b) {
+  const st = L.branchState[b.state] ?? L.branchState.done;
+  return `<span class="br-m" role="img" aria-label="${esc(st)}">${branchMark(b)}</span><span class="br-w">${esc(clipText(String(b.what || b.type || ""), 80))}</span>` +
+    `${b.type ? `<span class="br-ty">${esc(b.type)}</span>` : ""}`;
+}
+const branchTitle = (b) => L.branchTitle(b, L.branchState[b.state] ?? L.branchState.done, b.tools, b.last);
+// 表の 2 段目の枝（行ではないので data-row を持たない。押しても指しても行の扱いにならない）
+function branchEls(id) {
+  const { shown, more, moreRunning } = branchesOf(insideOf(id));
+  const els = shown.map((b) => {
+    const d = document.createElement("div");
+    d.className = `row sub branch br-${b.state === "running" || b.state === "failed" ? b.state : "done"}`;
+    d.style.setProperty("--depth", b.depth);
+    d.innerHTML = `<span></span><span class="t" title="${esc(branchTitle(b))}">${branchInner(b)}</span><span class="s"></span><span class="a"></span>`;
+    return d;
+  });
+  if (more) {
+    const d = document.createElement("div");
+    d.className = "row sub branch more-sub";
+    d.innerHTML = `<span></span><span class="t">${esc(L.branchMore(more, moreRunning))}</span>`;
+    els.push(d);
+  }
+  return els;
+}
+// 面の札の 2 段目の枝（行の中の行が動いているとき）
+function branchCx(id) {
+  const { shown, more, moreRunning } = branchesOf(insideOf(id));
+  return shown.map((b) => `<div class="cx br br-${b.state === "running" || b.state === "failed" ? b.state : "done"}" style="--depth:${b.depth}" title="${esc(branchTitle(b))}">${branchInner(b)}</div>`).join("") +
+    (more ? `<div class="cx br"><i>${esc(L.branchMore(more, moreRunning))}</i></div>` : "");
+}
+// 表の一行と、その 2 段目（行の中の枝が先、そのあとに行の下の提案と仕事）
 function rowEls(t) {
-  const subs = subOf(t), shown = subs.slice(0, SUB_MAX), els = [rowEl(t), ...shown.map(subEl)];
+  const subs = subOf(t), shown = subs.slice(0, SUB_MAX), els = [rowEl(t), ...branchEls(t.id), ...shown.map(subEl)];
   if (subs.length > shown.length) {
     const more = document.createElement("div");
     more.className = "row sub more-sub";
@@ -783,7 +873,8 @@ function rowEl(t) {
 // ── トークの返事：発言のすぐ下に、その発言から出たものの結末を一行ずつ出す。データに持たず、ボードから導く ──
 // 対象：その発言を元に持つ（data.from のいちばん後ろ。合流した発言は先頭に読み替える）仕事と AI の text、その発言に about した AI の text、
 // その発言を元にした書き換え（panel_edit の from。ボードが heard に導く：決めたこと・話題のいまどこまで）。
-// 行は帰った一行（まだなら、いまどこまで）、行でない仕事は受けた人が最初に置いた短い文、text はその文、伝言は宛てた仕事のその後。
+// 行は帰った一行（まだなら、いまどこまで）、行でない仕事は受けたものが最初に置いた短い文、text はその文、行への言葉はその仕事のその後。
+// ボードが置いたもの（担当の一覧・止まった知らせ）は返事にしない
 // 新しい順に返す：[{ id, who, text, wait }]
 // say：発言。panels：ボードの全部。head(id)：合流先。person(by)：人か。working(id)：動いているか。words：{ busy, wait }
 function repliesOf(say, panels, { head = (id) => id, person = (by) => by === "human", working = () => false, words = { busy: "", wait: "" } } = {}) {
@@ -798,7 +889,7 @@ function repliesOf(say, panels, { head = (id) => id, person = (by) => by === "hu
     const text = fresh ? t.line : pending(t);
     return text ? { id: t.id, who: (fresh && t.lineBy) || t.data?.to || t.by, text, wait: !fresh || t.state === "task", seq: (fresh && t.lineSeq) || since || t.seq || 0 } : null;
   };
-  // 行でない仕事（宛てた発言の直接の仕事など）：受けた人が since より後に最初に置いた短い文
+  // 行でない仕事（受け入れた提案の仕事、古い版の直接の仕事 data.direct など）：受けたものが since より後に最初に置いた短い文
   const taskNow = (t, since) => {
     const ans = panels.find((q) => q.about === t.id && q.view === "text" && ai(q) && !q.data?.to && (q.seq || 0) >= since && str(q.data));
     const text = ans ? str(ans.data) : pending(t);
@@ -816,7 +907,7 @@ function repliesOf(say, panels, { head = (id) => id, person = (by) => by === "hu
       // 同じ発言への書き換え（決めた）と同じ一言を二度出さない
       if (r && !(h && r.text === h.text)) out.push(r);
     } else if (x.view === "text" && ai(x) && x.data?.to) {
-      // 伝言：宛てた仕事の、そのあとのこと
+      // 行への言葉：その仕事の、そのあとのこと
       const t = panels.find((q) => q.id === x.about);
       const r = t?.view === "task" ? (t.key ? rowNow(t, x.seq || 0) : taskNow(t, x.seq || 0)) : null;
       if (r) out.push({ ...r, seq: Math.max(r.seq, x.seq || 0) });
@@ -824,7 +915,7 @@ function repliesOf(say, panels, { head = (id) => id, person = (by) => by === "hu
       const r = taskNow(x, 0);
       if (r) out.push(r);
     } else if (x.view === "text" && ai(x) && !x.data?.to && str(x.data)) {
-      // 答えの text（伝言は数えない）
+      // 答えの text（行への言葉は数えない）
       out.push({ id: x.id, who: x.by, text: str(x.data), wait: false, seq: x.seq || 0 });
     }
   }
@@ -867,12 +958,14 @@ function benchPlan(row, panels, kids, turn, { placed = () => false, marked = () 
   const free = all.filter((x) => !own(x)).sort((a, b) => age(b) - age(a));
   // 主役：AI が置いたいちばん新しい結果（提案より結果を先に）。なければいちばん新しいもの
   const ai = (x) => !person(x.p.by) && x.p.by !== "board";
-  // 伝言（控室の人への、data.to 付きの text）は結果ではない。主役にせず、残りのいちばん後ろに一行に畳んで並べる（消さない。押すと開く）
+  // 行への言葉（data.to 付きの text）は結果ではない。主役にせず、残りの後ろに一行に畳んで並べる（消さない。押すと開く）
   const msg = (x) => x.p.view === "text" && typeof x.p.data?.to === "string" && !!x.p.data.to && ai(x);
-  const res = free.filter((x) => !msg(x));
+  // 担当の一覧（ボードが置く行の中の記録）も結果ではない。主役にせず、畳まずに残りのいちばん後ろに
+  const rec = (x) => isRecord(x.p);
+  const res = free.filter((x) => !msg(x) && !rec(x));
   const main = res.find((x) => ai(x) && x.p.state !== "proposal") || res.find(ai) || res[0] || null;
-  const shown = res.filter((x) => x !== main), msgs = free.filter(msg);
-  const rest = [...shown, ...msgs];
+  const shown = res.filter((x) => x !== main), msgs = free.filter(msg), recs = free.filter(rec);
+  const rest = [...shown, ...msgs, ...recs];
   const fold = new Set([...shown.slice(REST_OPEN).filter((x) => !marked(x.p.id)), ...msgs].map((x) => x.p.id));
   return { lanes, main, rest, placed: all.filter(own), fold };
 }
@@ -923,7 +1016,7 @@ function cardHtml(q) {
     if (q.state === "proposal") acts += `<button data-act="accept-row" data-id="${esc(q.id)}" data-rev="${q.rev}">${esc(L.accept)}</button>`;
     if (openable(q) || faceOpen(q.id)) more = `<button class="icon more" data-face="${esc(q.id)}" aria-expanded="${faceOpen(q.id)}" title="${esc(faceOpen(q.id) ? L.faceClose : L.face)}">${faceOpen(q.id) ? "◂" : "▸"}</button>`;
     const all = subOf(q);
-    subs = all.slice(0, SUB_MAX).map((s) => {
+    subs = branchCx(q.id) + all.slice(0, SUB_MAX).map((s) => {
       const work = s.state === "task", tail = work ? (s.line || (isWorking(s.id) ? L.rowWorking : L.rowNotYet)) : "";
       return `<div class="cx">・${linkify(subText(s))}${tail ? ` <i>${esc(tail)}</i>` : ""}${work ? "" : ` <button data-act="accept-row" data-id="${esc(s.id)}" data-rev="${s.rev}">${esc(L.accept)}</button>`}</div>`;
     }).join("") + (all.length > SUB_MAX ? `<div class="cx"><i>${esc(L.subMore(all.length - SUB_MAX))}</i></div>` : "");
@@ -1004,7 +1097,7 @@ const PREV = new Map(); // パネル id -> { key, data }。key はいまの rev 
 // 人が最後に見たときの中身。差を出さないもの・まだ読めていないものは undefined
 function prevOf(p) {
   const seen = S.seen[p.id] || 0;
-  if (!seen || SHOT || p.source || isPerson(p.by) || !DIFFABLE.includes(p.view) || !(p.aiSeq > seen)) return undefined;
+  if (!seen || SHOT || p.source || isPerson(p.by) || isRecord(p) || !DIFFABLE.includes(p.view) || !(p.aiSeq > seen)) return undefined;
   const key = `${p.rev}:${seen}`;
   if (PREV.get(p.id)?.key === key) return PREV.get(p.id).data;
   PREV.set(p.id, { key, data: undefined });
@@ -1042,7 +1135,7 @@ class TaskView extends View {
   render(v) {
     const id = this.panel?.id, t = this.panel;
     const head = isRow(t) ? `<div class="rowline s-${turnOf(t) || "none"}"><span class="s">${esc(L.turnSym[turnOf(t)] || "")}</span><span class="t">${linkify(rowText(t))}</span></div>` : "";
-    this.innerHTML = head + `<details class="ask"${ASK_OPEN.has(id) ? " open" : ""}><summary>${esc(L.ask)}${v?.to ? `<span class="task-to">${esc(L.to(v.to))}</span>` : ""}</summary><div class="body">${linkify(textOf(v))}</div></details>`;
+    this.innerHTML = head + `<details class="ask"${ASK_OPEN.has(id) ? " open" : ""}><summary>${esc(L.ask)}${typeof v?.to === "string" && v.to ? `<span class="task-to">${esc(L.role(callOf(v.to)))}</span>` : ""}</summary><div class="body">${linkify(textOf(v))}</div></details>`;
     $("details", this).addEventListener("toggle", (e) => { if (e.target.open) ASK_OPEN.add(id); else ASK_OPEN.delete(id); });
   }
 }
@@ -1259,7 +1352,8 @@ customElements.define("dv-panel", PanelEl);
 
 function markOf(p) {
   if (S.marks[p.id]) return S.marks[p.id];
-  if (!isPerson(p.by) && p.aiSeq && p.aiSeq > (S.seen[p.id] || 0)) return "notice";
+  // 担当の一覧は記録なので、置かれても書き足されても知らせにしない
+  if (!isPerson(p.by) && !isRecord(p) && p.aiSeq && p.aiSeq > (S.seen[p.id] || 0)) return "notice";
   return null;
 }
 
@@ -1285,6 +1379,9 @@ function panelEl(p, kids, { root = false, face = false, cell = false, ref = null
   if (face) {
     const tn = turnOf(p), n = plan.lanes.you.length;
     if (tn) tags.push(`<span class="turnchip t-${tn}" title="${esc(L.turn[tn])}">${esc(tn === "you" && n ? L.turnCount(L.turnWord[tn], n) : L.turnWord[tn])}</span>`);
+    // 行のセッションが動いていて中で何かを呼んでいれば、その数だけ静かに（終わると状況から消え、この一行も消える）
+    const ins = insideOf(p.id), run = ins.filter((b) => b.state === "running").length, fail = ins.filter((b) => b.state === "failed").length;
+    if (ins.length) tags.push(`<span class="inside-now">${esc(L.insideNow(run, ins.length - run - fail, fail))}</span>`);
   }
   if (mark && !face) tags.push(`<span class="mark ${mark}">${L.mark[mark]}</span>`);
   if (p.to) tags.push(`<span class="to">→ ${ini(p.to, "sm")}${esc(callOf(p.to))}</span>`);
@@ -1299,14 +1396,14 @@ function panelEl(p, kids, { root = false, face = false, cell = false, ref = null
   const feed = S.feeds[p.id];
   const data = feed?.data !== undefined ? feed.data : p.data;
   if (p.source && feed?.running) tags.push(`<span class="spin" role="img" aria-label="${esc(L.running)}"></span>`);
-  const kind = p.state === "proposal" ? "proposal" : p.view;
+  const kind = isRecord(p) ? "record" : p.state === "proposal" ? "proposal" : p.view;
   const head = cell
     ? `<span class="kind">${KIND_ICON[kind] || KIND_ICON.any}${esc(L.kind[kind] ?? p.view)}</span>${ref ? `<span class="ref" title="${esc(L.refTitle(ref))}">${esc(ref)}</span>` : ""}`
     : isRow(p)
     ? `<span class="topic-title">${esc(p.key)}　${esc(rowName(p))}</span>`
     : p.view === "topic"
     ? `<span class="topic-title" title="${esc(`${topicTitle(p)}（${who(p.by)}）`)}">${esc(topicTitle(p))}</span>`
-    : `<span class="who">${esc(who(p.by))}</span>`;
+    : `<span class="who">${esc(isRecord(p) ? L.kind.record : who(p.by))}</span>`;
   el.innerHTML = `<div class="meta">${head}${tags.join("")}
     ${p.state === "proposal" ? `<button data-act="accept">${L.accept}</button>` : ""}
     ${cmp && !picked ? `<button data-act="pick" title="${esc(L.pickTitle)}">${esc(L.pick)}</button>` : ""}
@@ -1645,7 +1742,7 @@ function render() {
   const landed = landedOf(sumNow?.data, headOf), readTo = S.live?.read;
   for (const p of said) {
     const el = panelEl(p, () => []);
-    const d = desc(p.id);
+    const d = desc(p.id).filter((x) => !isRecord(x));
     if (d.length) {
       const ms = d.map(markOf);
       const m = ms.includes("waiting") ? "waiting" : ms.includes("notice") ? "notice" : null;
@@ -1673,10 +1770,8 @@ function render() {
       $(".meta .who", el).after(r);
     }
     tl.append(el);
-    // 返事：その発言から出たものの結末を、すぐ下に（アイコンで宛てたかどうかを問わない）。押すと、そのパネルへ
+    // 返事：その発言から出たものの結末を、すぐ下に。押すと、そのパネルへ（何も出ていなければ出さない）
     const rs = repliesOf(p, S.panels, { head: headOf, person: isPerson, working: isWorking, words: { busy: L.replyBusy, wait: L.replyWait } });
-    // 宛てた発言は、相手の仕事がまだ立っていなくても「受け取りました」を出す
-    if (!rs.length && p.to && !S.panels.some((x) => x.view === "task" && fromOf(x).map(headOf).includes(p.id))) rs.push({ id: null, who: p.to, text: L.replyWait, wait: true });
     for (const r of REPLY_OPEN.has(p.id) ? rs : rs.slice(0, 1)) {
       const b = document.createElement("button");
       b.className = `reply${r.wait ? " wait" : ""}`;
@@ -1702,7 +1797,8 @@ function render() {
     if (!isSay(p)) groups.push({ key: p.id, src: null, items: [p] });
     else if (kids(p.id).length) groups.push({ key: p.id, src: p, items: kids(p.id) });
   }
-  const lastOf = (g) => Math.max(...g.items.flatMap((p) => [p, ...desc(p.id)]).map((p) => p.rev || 0), g.src?.rev || 0);
+  // 新しさに担当の一覧は数えない（記録が書き足されただけで、まとまりを前に出さない）
+  const lastOf = (g) => Math.max(...g.items.flatMap((p) => [p, ...desc(p.id)]).filter((p) => !isRecord(p)).map((p) => p.rev || 0), g.src?.rev || 0);
   groups.sort((a, b) => lastOf(b) - lastOf(a));
   const keys = groups.map((g) => g.key);
   let changed = false;
@@ -1745,7 +1841,7 @@ function render() {
     // 畳んでも、いまどこまで来たかが一行でわかるように（話題は note、なければいちばん新しい結果の頭）
     const inside = g.items.flatMap((p) => [p, ...desc(p.id)]);
     const note = !g.src && root.view === "topic" ? lineOf(root.data?.note) : "";
-    const results = inside.filter((p) => !isPerson(p.by) && !["task", "topic"].includes(p.view)).sort((a, b) => b.rev - a.rev);
+    const results = inside.filter((p) => !isPerson(p.by) && !isRecord(p) && !["task", "topic"].includes(p.view)).sort((a, b) => b.rev - a.rev);
     const line = note || [...results.filter((p) => !STAFF.includes(p.by)), ...results].map((p) => lineOf(dataOf(p), L)).find(Boolean) || "";
     const gs = $(".tile-head .gist", t);
     gs.textContent = line;
@@ -1802,23 +1898,29 @@ function talkingKeys(keys) {
   return out.slice(0, 3);
 }
 
-// 状況：清書係・マネージャ・控室の全員を頭文字で並べ、動いている人の輪を回す
+// 状況：清書係とマネージャを頭文字で並べ（動いていれば輪が回る）、その下に、いま動いている行を並べる
+// 行：記号（なければ名前だけ）・短い名前・動いている印・行の中で動いている数。役割は title にだけ出す。押すとその行へ
+function runsOf(agents, byId) {
+  return (Array.isArray(agents) ? agents : []).filter((a) => a && typeof a.task === "string").slice().sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0)).map((a) => {
+    const t = byId(a.task), inside = Array.isArray(a.inside) ? a.inside : [];
+    return { id: a.task, key: t?.key || "", name: t ? (t.key ? rowName(t) : clipText(subText(t), 28)) : a.task, role: a.name, run: inside.filter((b) => b.state === "running").length };
+  });
+}
 function renderLive() {
   const lv = S.live || {};
-  const busy = new Map((lv.agents || []).map((a) => [a.name, a]));
-  const people = [
+  const staff = [
     { key: "scribe", name: L.scribe, on: !!lv.scribe, what: lv.scribe ? L.scribeBusy : "" },
     { key: "manager", name: L.manager, on: !!lv.manager, wait: !lv.manager && lv.waitingManager, what: lv.manager ? L.managerBusy : lv.waitingManager ? L.managerWait : "" },
-    ...(S.names || []).map((n) => {
-      const a = busy.get(n), t = a && S.panels.find((p) => p.id === a.task);
-      return { key: n, id: n, name: callOf(n), on: !!a, task: a?.task, what: t ? textOf(t.data) : "", agent: true };
-    }),
   ];
-  // 控室のエージェントは押すとその人が宛先になる。清書係とマネージャは押せない
-  const ava = (x) => `<${x.agent ? `button data-to="${esc(x.id)}"${x.task ? ` data-task="${esc(x.task)}"` : ""} aria-pressed="${S.to === x.id}"` : "span"} class="ava${x.on ? " busy" : x.wait ? " wait" : ""}${x.agent && S.to === x.id ? " to" : ""}" title="${esc(x.agent ? L.toAva(x.name, x.what || L.idle) : `${x.name}：${x.what || L.idle}`)}">` +
-    `${ini(x.key)}${esc(x.name)}</${x.agent ? "button" : "span"}>`;
-  const doing = people.filter((x) => x.what).map((x) => `<li>${esc(iniOf(x.key))}：${esc(x.what)}</li>`).join("");
-  $("#status").innerHTML = people.map(ava).join("") + (doing ? `<ul id="doing">${doing}</ul>` : "");
+  const ava = (x) => `<span class="ava${x.on ? " busy" : x.wait ? " wait" : ""}" title="${esc(`${x.name}：${x.what || L.idle}`)}">${ini(x.key)}${esc(x.name)}</span>`;
+  const doing = staff.filter((x) => x.what).map((x) => `<li>${esc(iniOf(x.key))}：${esc(x.what)}</li>`).join("");
+  const runs = runsOf(lv.agents, panelById);
+  const rows = runs.length
+    ? runs.map((r) => `<li><button data-runrow="${esc(r.id)}" title="${esc(L.runTitle(r.key ? `${r.key} ${r.name}` : r.name, callOf(r.role), r.run))}">` +
+      `<span class="spin" role="img" aria-label="${esc(L.working)}"></span>${r.key ? `<b class="rk">${esc(r.key)}</b>` : ""}<span class="rn">${esc(r.name)}</span>` +
+      `${r.run ? `<span class="rc">${esc(L.runCount(r.run))}</span>` : ""}</button></li>`).join("")
+    : `<li class="idle">${esc(L.runsIdle)}</li>`;
+  $("#status").innerHTML = staff.map(ava).join("") + (doing ? `<ul id="doing">${doing}</ul>` : "") + `<ul class="runs">${rows}</ul>`;
 
   // 残量：claude が流してくる利用枠から
   const q = lv.quota;
@@ -1839,6 +1941,11 @@ function renderLive() {
 function flash(el) {
   el.classList.add("hl");
   setTimeout(() => el.classList.remove("hl"), 1600);
+}
+// 動いている行へ：表の行か面の札（見えているもの）を見せる。描かれていなければ、その行の入っている枠を見せる。面は開かない
+function goRow(id) {
+  const el = $$(".row[data-row]").find((x) => x.dataset.row === id && x.getClientRects().length) || panelOf(id);
+  reveal(el || tileOf(topOfId(id)?.id || id));
 }
 function reveal(el) {
   if (!el) return;
@@ -2872,7 +2979,7 @@ async function load() {
   }
   if (b.name !== S.name) S.seen = keep(`seen:${b.name || ""}`, b.name ? {} : keep("seen", {}));
   mergeSeen(b.seen, false);
-  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, names: b.names, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet, tune: b.tune || S.tune });
+  Object.assign(S, { panels: b.panels, marks: b.marks, live: b.live, initials: b.initials || {}, calls: b.calls || {}, title: b.title, name: b.name, feeds: b.feeds || {}, panelSet: b.panelSet, tune: b.tune || S.tune });
   drawTune();
   const adopted = adoptLayout(b.layout);
   // 並びのないボード（新しいボード）は、ブラウザに覚えた組み込みのパネルの並びだけを下敷きにする（id はボードごとに振られるため）
@@ -2992,12 +3099,9 @@ movePop.addEventListener("submit", (e) => {
 
 // ── 操作 ──
 const onClick = async (e) => {
-  const ta = e.target.closest("[data-to]");
-  if (ta) {
-    setTo(S.to === ta.dataset.to ? null : ta.dataset.to);
-    if (S.to && ta.dataset.task) reveal(panelOf(ta.dataset.task));
-    return;
-  }
+  // 状況の動いている行：その行へ（面は開かない）
+  const rr = e.target.closest("[data-runrow]");
+  if (rr) return goRow(rr.dataset.runrow);
   // 要点（summary）の行：元の発言へ（押したので、要点は見たことにする）
   const li = e.target.closest("li[data-from]");
   if (li && !e.target.closest("a")) {
@@ -3030,7 +3134,7 @@ const onClick = async (e) => {
     return render();
   }
   const gb = e.target.closest("[data-goto]"), go = gb?.dataset.goto;
-  // まとまりの見出しはトークの発言へ、状況のアイコンはその仕事へ、発言の印は指したパネル・拾われた要点の行へ、トークの返事はその答えへ
+  // まとまりの見出しはトークの発言へ、発言の印は指したパネル・拾われた要点の行へ、トークの返事はその答えへ
   if (go) {
     showPanel(go);
     if (gb.dataset.item) for (const x of $$(`dv-summary li[data-from~="${CSS.escape(gb.dataset.item)}"]`)) flash(x);
@@ -3149,7 +3253,7 @@ async function send() {
   FOCUS.input = t0; // 話しているなら、いる
   // 話しはじめたときに指していたパネルを付ける（手がかり。人の操作として発言に残る）
   const pt = PT.cur !== undefined ? PT.cur : pointNow();
-  const r = await op("add", { view: "say", data: text, ...(S.to ? { to: S.to } : {}), ...(pt ? { point: pt } : {}) });
+  const r = await op("add", { view: "say", data: text, ...(pt ? { point: pt } : {}) });
   sending = false;
   if (!r) return;
   // 送っているあいだに足された分は残す
@@ -3172,18 +3276,6 @@ msg.addEventListener("input", () => {
 msg.addEventListener("compositionstart", () => { composing = true; });
 msg.addEventListener("compositionend", () => { composing = false; if (!byKey() && !typed) arm(); });
 // Enter で置く。改行は Shift+Enter
-// 宛先：状況のアイコンを押すと決まり、もう一度押すか ✕ か Esc で外れる。外すまで続く
-function setTo(name) {
-  S.to = name;
-  const b = $("#to");
-  b.hidden = !name;
-  if (name) { b.textContent = L.toChip(callOf(name)); b.title = L.toOff; }
-  msg.placeholder = name ? L.toPlaceholder(callOf(name)) : L.placeholder;
-  showPoint();
-  renderLive();
-}
-$("#to").onclick = () => setTo(null);
-msg.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.to) setTo(null); });
 msg.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); clearTimeout(timer); send(); } });
 $("#send").onclick = () => { clearTimeout(timer); send(); };
 
@@ -3304,7 +3396,6 @@ function notePoint() {
 }
 // いま話すと何が付くかは、入力欄の薄い字で知らせる（場所を取らず、何も動かさない）
 function showPoint() {
-  if (S.to) return;
   const p = panelById(pointNow()?.id);
   const next = p ? L.ptPlaceholder(ptName(p, 16)) : L.placeholder;
   if (msg.placeholder !== next) msg.placeholder = next;
@@ -3342,7 +3433,7 @@ function dwellCands() {
   const g = stage.getBoundingClientRect(), out = [];
   for (const el of $$("#grid dv-panel")) {
     const p = panelById(el.dataset.id);
-    if (!p || isPerson(p.by) || !p.aiSeq || p.aiSeq <= (S.seen[p.id] || 0)) continue;
+    if (!p || isPerson(p.by) || isRecord(p) || !p.aiSeq || p.aiSeq <= (S.seen[p.id] || 0)) continue;
     const r = el.getBoundingClientRect();
     // 縮めすぎて読めない大きさのものは、映っていても見たことにしない
     if (!r.width || r.width / (el.offsetWidth || r.width) < tu("readZoomPct") / 100) continue;
