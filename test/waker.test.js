@@ -176,16 +176,21 @@ test("終わった行に置かれた行への言葉（to 付きの text）：行
   w.stop();
 });
 
-test("伝言：動いている仕事なら起こさない（相手が途中で拾う）。帰したあと終わるまでのあいだに置かれたら、終わってから起こし直す", async () => {
+test("行への言葉：動いている行には押し込んで起こし直さない。帰したあと終わるまでのあいだに置かれて渡せなかったものは、終わってから起こし直す", async () => {
   const store = new Store();
   const f = fakeSpawn();
-  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  let open = true;
+  const said = [];
+  const spawn = (job) => ({ ...f.spawn(job), say: (text) => open && said.push(text) > 0 });
+  const w = new Waker({ store, spawn, pause: 1e6 }).start();
   const t = store.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", data: { text: "調べる" } }, reason: "x" }).op.panel.id;
   const jobs = () => f.jobs.filter((j) => j.taskId === t);
   store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "途中の言葉" } }, reason: "伝える" });
   assert.equal(jobs().length, 1, "二重に走らせない");
-  // 行を帰したが、まだ終わっていない（1 秒の行き違い）
+  assert.match(said[0], /途中の言葉/);
+  // 行を帰し、標準入力も閉じたが、まだ終わっていない（1 秒の行き違い）
   store.apply({ by: "アリス", type: "edit", panel: { id: t, state: "done", line: "済んだ" }, reason: "結果" });
+  open = false;
   store.apply({ by: "manager", type: "add", panel: { view: "text", about: t, data: { to: "アリス", text: "もう一つ" } }, reason: "伝える" });
   assert.equal(store.board.get(t).state, "done");
   assert.equal(jobs().length, 1);
@@ -194,7 +199,7 @@ test("伝言：動いている仕事なら起こさない（相手が途中で�
   assert.equal(store.board.get(t).state, "task");
   assert.equal(jobs().length, 2);
   assert.match(jobs()[1].prompt, /もう一つ/);
-  assert.doesNotMatch(jobs()[1].prompt, /途中の言葉/, "前に拾った言葉は渡し直さない");
+  assert.doesNotMatch(jobs()[1].prompt, /途中の言葉/, "渡した言葉は渡し直さない");
   w.stop();
 });
 

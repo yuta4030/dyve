@@ -214,10 +214,12 @@ export function createServer({ store, waker = null, feeds = null, title = "ボ�
           return res.end();
         }
         const as = url.searchParams.get("as") || "guest";
+        // 行のセッションは、どの行かも名乗る（?row=<仕事の id>）。起こし係が行どうしを見分けるのに使い、操作ログには書かない
+        const row = url.searchParams.get("row") || null;
         const body = await readJson(req);
         // 使える利用者の view と、その頭のコメント（データの形）。「使わない」にしたものは出さない
         const views = panels ? () => describeViews(panels).filter((v) => !offView(v.name)) : null;
-        const rpc = { offView, words, shoot, focus: cur.focus, views };
+        const rpc = { offView, words, shoot, focus: cur.focus, views, row };
         const out = Array.isArray(body)
           ? (await Promise.all(body.map((m) => handleRpc(cur.store, cur.waker, as, m, rpc)))).filter(Boolean)
           : await handleRpc(cur.store, cur.waker, as, body, rpc);

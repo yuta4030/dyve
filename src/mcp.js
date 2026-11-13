@@ -106,7 +106,8 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - 話題の data.note は「いまどこまで来たか」の一行。話が進んだら書き換える
 - 行の状態は誰の番かで、ボードが導く（turn）：AI の番（state task）、人の番（問いの行・提案・止まった・待ちが明けた）、帰った（back。仕事として投げた行に結果の line が帰った。読むだけで、人のやることはない。下に提案や問いの行があれば人の番）、決まった（decided）、待ち（wait）。帰った行を「読むだけ」と decided に書いて消さない。同じ行で何往復もする。決まったあとも、実行に移れば state を task に戻す（AI の番）
 - 仕事の data.to は、その行を受け持つ役割（得意なこと・働く場所・モデル・指示の一組。人ではない）。一つの役割で何本でも行が並んで動く。文脈を持つのは行で、同じ行の続きは同じ行のセッションに帰る
-- 行への言葉：任せた仕事に言いたいことは、その仕事に about して text（data { to: 行の役割, text, from?: [元の発言の id] }）で置く。from を付けると、トークのその発言の下に、その仕事のそのあと（受け取った・帰った一行）が出る。動いていれば途中で拾う。もう終えていれば、ボードが行を AI の番に戻して起こし直し、答えは同じ行に帰る。行の役割は変わらない。to のない text は誰も起こさない
+- 行への言葉：任せた仕事に言いたいことは、その仕事に about して text（data { to: 行の役割, text, from?: [元の発言の id] }）で置く。from を付けると、トークのその発言の下に、その仕事のそのあと（受け取った・帰った一行）が出る。動いていれば、ボードがその行のセッションの会話に届ける（読みに行かなくてよい）。もう終えていれば、ボードが行を AI の番に戻して起こし直し、答えは同じ行に帰る。行の役割は変わらない。to のない text は誰も起こさない
+- 担当の一覧：行の中でサブエージェントを呼んだ行が終わると、ボードが誰が何を頼まれ何と返したかの表（view table、data.record "inside"）を行に一枚置き、次の回からはそこに書き足す。ボードのもので、行の答えではないので、書き換えない
 - 人が行で決めたこと（「今日やる」「見送り」）は decided に書く。条件つきの待ち（「明日まで」「B のあと」）は wait { text, until?, after? }。条件が満たされると、ボードが人の番で帰す
 - 人が声で提案を受け入れたら（「それでいいよ」）、マネージャがその発言を from に付けて、提案の state を done にする
 - 人の発言は view say・by human。書き換えるのは清書係だけ
@@ -200,7 +201,8 @@ const BUILTIN_VIEWS = [
   { name: "say", about: "文字列（人の発言）" },
 ];
 
-function call(store, waker, as, name, args = {}, offView, words, focus, views) {
+// row：行のセッションの口（?row=<仕事の id>）から来たときの行の id。操作に添えて起こし係に渡し、操作ログには書かない
+function call(store, waker, as, name, args = {}, offView, words, focus, views, row = null) {
   const { reason: why, ...rest } = args;
   switch (name) {
     case "board_read":
@@ -220,7 +222,7 @@ function call(store, waker, as, name, args = {}, offView, words, focus, views) {
       if ("data" in rest) rest.data = unwrapData(rest.data);
       if (name !== "panel_drop" && rest.view && offView?.(rest.view)) return { ok: false, code: "invalid", message: `view ${rest.view} は人が「使わない」にしている。text や list など別の view で置く` };
       const { from, ...panel } = rest;
-      const r = store.apply({ by: as, type: name.slice(6), panel, reason: why, ...(name === "panel_edit" && from != null ? { from } : {}) });
+      const r = store.apply({ by: as, type: name.slice(6), panel, reason: why, ...(name === "panel_edit" && from != null ? { from } : {}) }, row ? { row } : {});
       return r.ok ? { ok: true, seq: r.op.seq, id: r.op.panel.id } : r;
     }
     default:
@@ -267,7 +269,7 @@ async function panelPicture(store, id, shoot) {
   return { content: [asText({ ok: true, picture: false, message: "ブラウザがないので絵は撮れない", panel })] };
 }
 
-export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus = waker?.focus, views } = {}) {
+export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus = waker?.focus, views, row = null } = {}) {
   const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
   const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return fail(-32600, "Invalid Request");
@@ -293,7 +295,7 @@ export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus 
       if (msg.params?.name === "board_view") return boardPicture(store, focus, msg.params?.arguments?.real, shoot).then(reply);
       if (msg.params?.name === "panel_view") return panelPicture(store, msg.params?.arguments?.id, shoot).then(reply);
       try {
-        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView, words, focus, views);
+        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView, words, focus, views, row);
         return reply({ content: [{ type: "text", text: JSON.stringify(out) }], isError: out?.ok === false });
       } catch (e) {
         return e.rpc ? fail(e.rpc, e.message) : reply({ content: [{ type: "text", text: e.message }], isError: true });

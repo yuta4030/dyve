@@ -205,6 +205,15 @@ test("約束：MCP の口。道具の名前と引数、返事の形", async () =
     assert.deepEqual(views.user, []);
     // MCP から人として書けない
     assert.equal((await call("human", "panel_add", { view: "text", reason: "x" })).code, "forbidden");
+    // 行のセッションは ?as=<役割>&row=<仕事の id> でつなぐ。by は役割の名前のままで、row は操作ログに書かない
+    const metas = [];
+    const off = store.onOp((op, meta) => metas.push(meta));
+    const res = await (await fetch(`${base}/mcp?as=${encodeURIComponent("アリス")}&row=p9`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "panel_add", arguments: { view: "text", data: "行から", reason: "x" } } }) })).json();
+    off();
+    const rowAdded = JSON.parse(res.result.content[0].text);
+    assert.equal(store.board.get(rowAdded.id).by, "アリス");
+    assert.equal(metas.at(-1).row, "p9");
+    assert.deepEqual(Object.keys(store.board.log.at(-1)).filter((k) => !["seq", "at", "by", "type", "panel", "reason", "from"].includes(k)), []);
   });
   assert.equal(handleRpc(new Store(), null, "アリス", { jsonrpc: "2.0", method: "notifications/initialized" }), null);
 });

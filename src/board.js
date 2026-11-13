@@ -417,6 +417,11 @@ export function marks(board, { running = [] } = {}) {
   return out;
 }
 
+// 担当の一覧：行が終わったとき、行の中で呼ばれたものが誰で、何を頼まれ何と返したかを、ボードが行に一枚だけ置く表（view table）。
+// data.record が "inside" のもので見分ける。ボードが置くので、行の答えには数えない
+export const RECORD = "inside";
+export const isRecord = (p) => p?.by === "board" && p.view === "table" && p.data?.record === RECORD;
+
 // 結果が付いたか：人でも清書係でもマネージャでもボード自身でもない者（タスクエージェント）が about に置いたか
 export const STAFF = new Set(["scribe", "manager", "board"]);
 // 行は同じ行で何往復もするので、数えるのは最後に仕事（state task）になったあとの答えだけ。答え＝about して置いたか、行に一行を帰したか
