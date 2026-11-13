@@ -5,7 +5,7 @@ import fs from "node:fs";
 
 const html = fs.readFileSync(new URL("../src/ui.html", import.meta.url), "utf8");
 const take = (re) => html.match(re)[0];
-const src = [take(/^const REST_OPEN = .*$/m), take(/^function benchPlan\([\s\S]*?^}$/m), take(/^const BENCH_PX = .*$/m), take(/^function benchBands\([\s\S]*?^}$/m), take(/^const benchRank = .*$/m)].join("\n");
+const src = [take(/^const RECORD = .*$/m), take(/^const isRecord = .*$/m), take(/^const REST_OPEN = .*$/m), take(/^function benchPlan\([\s\S]*?^}$/m), take(/^const BENCH_PX = .*$/m), take(/^function benchBands\([\s\S]*?^}$/m), take(/^const benchRank = .*$/m)].join("\n");
 const { benchPlan, benchBands, benchRank } = new Function(`${src}; return { benchPlan, benchBands, benchRank };`)();
 
 // 画面の上の子（tree と同じ：記号のない仕事について置かれたものは、記号のある親の下に出る）
@@ -92,7 +92,7 @@ test("面の頭は番の一語。済み・知らせの印は並べない。受�
   assert.doesNotMatch(take(/^function benchBox\([\s\S]*?^}$/m), /takeOut|LAYOUT\.out/);
 });
 
-test("面：控室の人への伝言（data.to 付きの text）は主役にせず、残りのいちばん後ろに畳む", () => {
+test("面：行への言葉（data.to 付きの text）は主役にせず、残りの後ろに畳む", () => {
   const ps = [
     { id: "c", view: "task", key: "C", seq: 1 },
     { id: "cal", view: "days", about: "c", by: "アリス", seq: 2 },
@@ -101,16 +101,16 @@ test("面：控室の人への伝言（data.to 付きの text）は主役にせ�
     { id: "m2", view: "text", about: "c", by: "manager", data: { to: "アリス", text: "まだ？" }, seq: 5 },
     { id: "h", view: "text", about: "c", by: "human", data: "送った入力", seq: 6 },
   ];
-  // 印が付いていても、伝言は畳む（人が読むものではない。開けばいつでも読める）
+  // 印が付いていても、行への言葉は畳む（人が読むものではない。開けばいつでも読める）
   const plan = benchPlan(ps[0], ps, kidsOf(ps), turn, { marked: () => true });
-  assert.equal(plan.main.p.id, "tbl", "いちばん新しくても、伝言は主役にしない");
-  assert.deepEqual(plan.rest.map((x) => x.p.id), ["h", "cal", "m2", "m1"], "結果が先、伝言は後ろ");
+  assert.equal(plan.main.p.id, "tbl", "いちばん新しくても、行への言葉は主役にしない");
+  assert.deepEqual(plan.rest.map((x) => x.p.id), ["h", "cal", "m2", "m1"], "結果が先、行への言葉は後ろ");
   assert.deepEqual([...plan.fold], ["m2", "m1"]);
-  // 伝言しかなければ主役はない（どれも消さずに並べる）
+  // 行への言葉しかなければ主役はない（どれも消さずに並べる）
   const only = benchPlan(ps[0], [ps[0], ps[3], ps[4]], kidsOf([ps[0], ps[3], ps[4]]), turn);
   assert.equal(only.main, null);
   assert.deepEqual(only.rest.map((x) => x.p.id), ["m2", "m1"]);
-  // 伝言が開いておく数（新しい 3 つ）を使わない
+  // 行への言葉が開いておく数（新しい 3 つ）を使わない
   const many = [ps[0], ...["r1", "r2", "r3", "r4"].map((id, i) => ({ id, view: "list", about: "c", by: "アリス", seq: 10 + i })), ...["n1", "n2", "n3"].map((id, i) => ({ id, view: "text", about: "c", by: "manager", data: { to: "アリス", text: "x" }, seq: 20 + i }))];
   const p2 = benchPlan(many[0], many, kidsOf(many), turn);
   assert.equal(p2.main.p.id, "r4");

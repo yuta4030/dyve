@@ -2,7 +2,7 @@
 // 操作ログには積まない（ボードを変える操作ではない）。最新だけをメモリに持ち、これで誰かを起こすことはしない。
 // 読むのは、別の理由で起きたエージェントだけ（マネージャを起こす文・控室の最初の文・board_read）。
 // ボードは、決まった行の面を人が離れてから畳むために、変わったことを聞く（onChange）
-import { isPerson } from "./board.js";
+import { isPerson, isRecord } from "./board.js";
 
 export const GONE = 2 * 60 * 1000; // 画面からこれだけ便りがなければ、人はいない
 const ids = (v, n) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.length <= 40).slice(0, n) : []);
@@ -60,9 +60,9 @@ export class Focus {
     return live[0];
   }
 
-  // 人がまだ見ていない、AI が置いた・変えたもの（画面の「知らせ」と同じ決まり）
+  // 人がまだ見ていない、AI が置いた・変えたもの（画面の「知らせ」と同じ決まり。担当の一覧は記録なので数えない）
   unseen(board) {
-    return board.list().filter((p) => p.view !== "layout" && !isPerson(p.by) && p.aiSeq && p.aiSeq > (this.seen[p.id] || 0)).map((p) => p.id);
+    return board.list().filter((p) => p.view !== "layout" && !isPerson(p.by) && !isRecord(p) && p.aiSeq && p.aiSeq > (this.seen[p.id] || 0)).map((p) => p.id);
   }
 
   // board_read に付けるもの

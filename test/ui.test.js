@@ -284,7 +284,7 @@ test("トークの返事：発言を元に持つ行・AI の text と、発言�
     { id: "ans", view: "text", about: "row", by: "manager", data: { text: "13 日と 14 日です", from: ["s1"] }, seq: 7 },
     // 発言に about した答え
     { id: "ans2", view: "text", about: "s2", by: "manager", data: "待ちは 1 件", seq: 8 },
-    // 数えないもの：伝言・人が置いた text・ボードが置いたもの・from のいちばん後ろが別の発言
+    // 数えないもの：行への言葉・人が置いた text・ボードが置いたもの・from のいちばん後ろが別の発言
     { id: "msg", view: "text", about: "s2", by: "manager", data: { to: "アリス", text: "続き" }, seq: 9 },
     { id: "sent", view: "text", about: "s2", by: "human", data: "送った", seq: 10 },
     { id: "brd", view: "text", about: "s2", by: "board", data: "止まりました", seq: 11 },
@@ -298,7 +298,7 @@ test("トークの返事：発言を元に持つ行・AI の text と、発言�
   assert.deepEqual(repliesOf(s3, [row("busy", "task")], opts).map((r) => [r.who, r.text, r.wait]), [["ボブ", "取りかかっています…", true]]);
   assert.deepEqual(repliesOf(s3, [row("idle", "task")], opts).map((r) => r.text), ["受け取りました"]);
   assert.deepEqual(repliesOf(s3, [row("gone", "done")], opts), []);
-  // 宛てた発言の直接の仕事（行でない）：相手が最初に置いた短い文へ
+  // 古い版の、アイコンで宛てた発言の直接の仕事（data.direct。行でない）：受けたものが最初に置いた短い文へ
   const direct = [
     { id: "d", view: "task", about: "s3", by: "board", state: "task", data: { text: "やって", to: "アリス", direct: true, from: ["s3"] }, seq: 2 },
     { id: "d1", view: "text", about: "d", by: "アリス", data: "わかりました", seq: 3 },
@@ -308,9 +308,10 @@ test("トークの返事：発言を元に持つ行・AI の text と、発言�
   assert.deepEqual(repliesOf(s3, direct.slice(0, 1), opts).map((r) => [r.id, r.text, r.wait]), [["d", "受け取りました", true]]);
 });
 
-test("トークの返事：アイコンで宛てたかを問わずに出し、押すと閉じた面の中まで開いて見せる。溢れても潰れない", () => {
+test("トークの返事：発言から出たものだけを出し、押すと閉じた面の中まで開いて見せる。溢れても潰れない", () => {
   assert.match(html, /const rs = repliesOf\(p, S\.panels,/);
-  assert.doesNotMatch(html, /if \(p\.to\) \{\s*const t = S\.panels\.find/, "宛てた発言だけに限らない");
+  // 古い版の、to の付いた発言にも「受け取りました」を足さない（何も出ていなければ出さない）
+  assert.doesNotMatch(html, /p\.to && !S\.panels\.some|text: L\.replyWait/);
   // 返事が複数あれば、新しいもの一行と「ほか N 件」
   assert.match(html, /REPLY_OPEN\.has\(p\.id\) \? rs : rs\.slice\(0, 1\)/);
   assert.match(html, /replyMore: \(n\) => `ほか \$\{n\} 件`/);
@@ -350,7 +351,7 @@ test("選ぶ：利用者の view で選んだものは、同じものについ�
   assert.match(html, /m\.dyve === "select"/);
 });
 
-test("トークの返事：発言を元にした書き換え（決めたこと・いまどこまで）、伝言を宛てた仕事のそのあと。頼み直した行は前の一行を返事にしない", () => {
+test("トークの返事：発言を元にした書き換え（決めたこと・いまどこまで）、行への言葉を置いた行のそのあと。頼み直した行は前の一行を返事にしない", () => {
   const repliesOf = fnOf("repliesOf")();
   const opts = { working: (id) => id === "busy", words: { busy: "取りかかっています…", wait: "受け取りました" } };
   const say = (id) => ({ id, view: "say", by: "human", seq: 1 });
@@ -370,10 +371,10 @@ test("トークの返事：発言を元にした書き換え（決めたこと�
   assert.deepEqual(got("s5", [again("idle", 10)]), [["idle", "ボブ", "受け取りました", true]]);
   assert.deepEqual(got("s5", [again("busy", 10)]), [["busy", "ボブ", "取りかかっています…", true]]);
   assert.deepEqual(got("s5", [again("busy", 22)]), [["busy", "ボブ", "前の答え", true]], "頼み直したあとの一行は、途中の一行");
-  // 伝言：宛てた行のそのあと。伝言より前の一行は返事にしない
+  // 行への言葉：その行のそのあと。言葉より前の一行は返事にしない
   const msg = { id: "m", view: "text", about: "r", by: "manager", data: { to: "アリス", text: "続きを作って", from: ["s6"] }, seq: 30 };
   const r = (state, lineSeq) => ({ id: "r", view: "task", key: "D", about: "t", by: "manager", state, data: { text: "x", from: ["s1"], to: "アリス" }, line: "できました", lineBy: "アリス", lineSeq, seq: 3 });
   assert.deepEqual(got("s6", [r("task", 8), msg]), [["r", "アリス", "受け取りました", true]]);
   assert.deepEqual(got("s6", [r("done", 33), msg]), [["r", "アリス", "できました", false]]);
-  assert.deepEqual(got("s6", [r("done", 8), msg]), [], "宛てた相手が何も返さずに終えたら、出さない");
+  assert.deepEqual(got("s6", [r("done", 8), msg]), [], "行が何も返さずに終えたら、出さない");
 });

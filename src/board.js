@@ -15,7 +15,7 @@ export const CODES = {
 const FIELDS = ["view", "data", "about", "state", "pinned", "source", "send", "to", "into", "rel", "point", "line", "decided", "wait"];
 // into：清書係が一つの考えにまとめた発言の合流先。元の発言は消さず、印を外せば分け直せる
 // view layout：画面の並びを持つパネル。ボードに一枚だけで、並びのピン留め（pinned）は人だけが決める
-// to：人が状況のアイコンで宛てた相手（控室のエージェントの名前）。宛てた発言はボードがそのまま相手に渡す
+// to：人が状況のアイコンで選んだ役割の名前。どの役割の話かの手がかりで、マネージャが読む
 const badTo = (to) => (to == null || (typeof to === "string" && to.trim() && to.length <= 40) ? null : "to は相手の名前");
 // rel：置く人が付ける、ほかのパネルとの関係。compare（比べる）・sequence（順番。並びは置いた順）。画面は組を横に並べる。
 // with は同じものについてのパネル（about が同じ）だけ
@@ -416,6 +416,11 @@ export function marks(board, { running = [] } = {}) {
   }
   return out;
 }
+
+// 担当の一覧：行が終わったとき、行の中で呼ばれたものが誰で、何を頼まれ何と返したかを、ボードが行に一枚だけ置く表（view table）。
+// data.record が "inside" のもので見分ける。ボードが置くので、行の答えには数えない
+export const RECORD = "inside";
+export const isRecord = (p) => p?.by === "board" && p.view === "table" && p.data?.record === RECORD;
 
 // 結果が付いたか：人でも清書係でもマネージャでもボード自身でもない者（タスクエージェント）が about に置いたか
 export const STAFF = new Set(["scribe", "manager", "board"]);

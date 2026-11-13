@@ -148,10 +148,10 @@ test("声で受け入れる：マネージャが、提案のあとの人の発�
   assert.equal(b.apply({ by: "manager", type: "edit", panel: { id: pr, data: "x" }, from: "p1", reason: "x" }).code, "invalid");
 });
 
-test("起こし係：声で受け入れた提案は、提案を置いた人に仕事として戻る", async (t) => {
+test("起こし係：声で受け入れた提案は、提案を置いた役割に仕事として戻る", async (t) => {
   const store = new Store();
   const f = fakeSpawn();
-  const w = new Waker({ store, spawn: f.spawn, pause: 1e6 }).start();
+  const w = new Waker({ store, spawn: f.spawn, pause: 1e6, slots: 5, names: ["backroom", "ボブ"] }).start();
   t.after(() => w.stop());
   const { ap, row } = morning(store);
   const apply = (o) => { const r = store.apply(o); assert.ok(r.ok, JSON.stringify(r)); return r.op.panel.id; };
@@ -170,6 +170,13 @@ test("起こし係：声で受け入れた提案は、提案を置いた人に�
   const act2 = store.board.list().find((p) => p.data?.accepted === pr2);
   assert.equal(act2.data.text, "- PR #16 をマージする（gh pr merge 16 --merge）\n- タグは CI が作る");
   assert.equal(act2.data.title, "PR #16 をマージする（gh pr …");
+  // 役割でない名前（前の版のログのアリスなど）が置いた提案は、既定の役割で
+  const pr3 = apply({ by: "アリス", type: "add", panel: { view: "text", about: e, state: "proposal", data: "送る" }, reason: "提案" });
+  const yes3 = apply({ by: "human", type: "add", panel: { view: "say", data: "送って" } });
+  apply({ by: "manager", type: "edit", panel: { id: pr3, state: "done" }, from: [yes3], reason: "声で受け入れた" });
+  const act3 = store.board.list().find((p) => p.data?.accepted === pr3);
+  assert.equal(act3.data.to, undefined);
+  assert.equal(f.jobs.find((j) => j.taskId === act3.id).name, "backroom");
   void ap;
   w.stop();
 });

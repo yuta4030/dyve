@@ -1,16 +1,20 @@
-// 配役：エージェントの名前・起きる場所・モデル・指示を、利用者が自分好みに変える。
-//   ~/.dyve/config.json：個人の設定（serve のオプション、清書係・マネージャ・控室、入っているチーム）
-//   <チームのリポジトリ>/.dyve/config.json：チームの設定（チームで育てる控室の顔ぶれと指示）
-//   ~/.dyve/agents/<名前>.md：個人の指示の本文（scribe.md・manager.md・控室の名前.md）
+// 配役：役割（タスクエージェントの得意なこと・起きる場所・モデル・指示の一組）と、清書係・マネージャの指示を、利用者が自分好みに変える。
+//   ~/.dyve/config.json：個人の設定（serve のオプション、清書係・マネージャ・役割、入っているチーム）
+//   <チームのリポジトリ>/.dyve/config.json：チームの設定（チームで育てる役割と指示）
+//   ~/.dyve/agents/<名前>.md：個人の指示の本文（scribe.md・manager.md・役割の名前.md）
+// 役割は人ではない。一つの役割で何本でも行が並んで動く
 // 依存を持たないので、設定は JSON（JSON.parse）、指示はただの Markdown。
 // どれが勝つか：コマンド > 個人 > チーム > 既定。チームの設定はほかの人が書くので、書ける項目と場所を絞る
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const NAMES = ["アリス", "ボブ", "キャロル", "デイブ", "エレン", "フランク"];
-const INITIALS = { "アリス": "A", "ボブ": "B", "キャロル": "C", "デイブ": "D", "エレン": "E", "フランク": "F" };
-// 控室の名前に使えないもの（ボードの立場の名前）
+// 既定の役割：設定の team も --names もないときの一つだけ
+export const DEFAULT = "backroom";
+export const NAMES = [DEFAULT];
+const CALLS = { [DEFAULT]: "控室" };
+const INITIALS = { [DEFAULT]: "控" };
+// 役割の名前に使えないもの（ボードの立場の名前）
 export const RESERVED = new Set(["human", "scribe", "manager", "board"]);
 const TEAM_NAME = /^[A-Za-z0-9][\w.-]{0,39}$/;
 
@@ -20,14 +24,14 @@ const PERSONAL = {
   top: { port: "number", data: "path", room: "path", claude: "string", browser: "string", slots: "number", agents: "path", task: "object", scribe: "object", manager: "object", team: "array", teams: "array" },
   task: { model: "string", prompt: "paths" },
   staff: { model: "string", pause: "number", cwd: "path", mode: "mode", prompt: "paths" },
-  member: { name: "string", initial: "string", model: "string", room: "path", mode: "mode", prompt: "paths" },
+  member: { name: "string", description: "string", initial: "string", model: "string", room: "path", mode: "mode", prompt: "paths" },
 };
 // チーム：自分のエージェントへの指示と、チームのリポジトリの中の場所だけ。コマンドや置き場、指示の差し替えは書けない
 const TEAM = {
   top: { name: "string", room: "path", task: "object", scribe: "object", manager: "object", team: "array" },
   task: { model: "string", prompt: "paths" },
   staff: { prompt: "paths" },
-  member: { name: "string", initial: "string", model: "string", room: "path", prompt: "paths" },
+  member: { name: "string", description: "string", initial: "string", model: "string", room: "path", prompt: "paths" },
 };
 const JOIN = { path: "string", rename: "object", model: "string" };
 
@@ -103,7 +107,7 @@ function parse(raw, S, ctx) {
     });
     const seen = new Set();
     for (const a of c.team) {
-      if (seen.has(a.name)) throw new Error(`team に ${a.name} が二人いる`);
+      if (seen.has(a.name)) throw new Error(`team に ${a.name} が二つある`);
       seen.add(a.name);
     }
   }
@@ -161,7 +165,7 @@ function readBodies(dir) {
 const join = (files = [], ...own) => [...files.map((f) => fs.readFileSync(f, "utf8").trim()), ...own].filter(Boolean).join("\n\n");
 
 // 配役をそろえる。
-// members：控室の一人ずつ { id, name, call, team, initial, model, room, mode, body }
+// members：役割一つずつ { id, name, call, description, team, initial, model, room, mode, body }
 //   id はログ・MCP に残る名前で、変えない（チームの人は「名前@チーム」）。call は画面と声で呼ぶ名前
 // teams：{ name, root, room, manager（マネージャに渡すチームの指示）}
 // scribe・manager：{ model, pause, cwd, mode, body }（どれもなければ null）
@@ -183,15 +187,16 @@ export function loadCrew({ config = null, agents = null, fallback = null } = {})
 
   const members = [];
   for (const m of team ?? []) {
-    members.push({ id: m.name, name: m.name, team: null, initial: m.initial ?? null, model: m.model ?? null, room: m.room ?? null, mode: m.mode ?? "append", body: join([...common, ...(m.prompt ?? [])], own[m.name]) });
+    members.push({ id: m.name, name: m.name, description: m.description ?? null, team: null, initial: m.initial ?? null, model: m.model ?? null, room: m.room ?? null, mode: m.mode ?? "append", body: join([...common, ...(m.prompt ?? [])], own[m.name]) });
   }
   for (const t of teams) {
-    if (!t.team?.length) warnings.push(`チーム ${t.name} には控室の人がいない（${t.file} の team）`);
+    if (!t.team?.length) warnings.push(`チーム ${t.name} には役割がない（${t.file} の team）`);
     for (const m of t.team ?? []) {
       const id = `${m.name}@${t.name}`;
       members.push({
         id,
         name: t.join.rename[m.name] ?? m.name,
+        description: m.description ?? null,
         team: t.name,
         initial: m.initial ?? null,
         model: t.join.model ?? m.model ?? t.task?.model ?? null,
@@ -201,7 +206,7 @@ export function loadCrew({ config = null, agents = null, fallback = null } = {})
         body: join([...(t.task?.prompt ?? []), ...(m.prompt ?? []), ...common], own[id]),
       });
     }
-    for (const from of Object.keys(t.join.rename)) if (!t.team?.some((m) => m.name === from)) warnings.push(`teams の ${t.name} の rename：${from} はそのチームにいない`);
+    for (const from of Object.keys(t.join.rename)) if (!t.team?.some((m) => m.name === from)) warnings.push(`teams の ${t.name} の rename：${from} はそのチームにない`);
   }
   // 呼び名：ぶつからなければ名前のまま。ぶつかったら、チームの人だけ「チーム の 名前」と呼び分ける
   const count = new Map();
@@ -209,7 +214,7 @@ export function loadCrew({ config = null, agents = null, fallback = null } = {})
   for (const [name, n] of count) {
     if (n < 2) continue;
     const who = members.filter((m) => m.name === name);
-    warnings.push(`${who.map((m) => m.team ?? "自分の控室").join(" と ")} の両方に ${name} がいる。${who.map((m) => (m.team ? `${m.team} の ${name}` : name)).join("・")} と呼び分ける（消すには、個人の設定の teams の rename で呼び名を変える）`);
+    warnings.push(`${who.map((m) => m.team ?? "自分の設定").join(" と ")} の両方に ${name} がある。${who.map((m) => (m.team ? `${m.team} の ${name}` : name)).join("・")} と呼び分ける（消すには、個人の設定の teams の rename で呼び名を変える）`);
   }
   for (const m of members) {
     const clash = count.get(m.name) > 1 && m.team;
@@ -238,25 +243,25 @@ export function loadCrew({ config = null, agents = null, fallback = null } = {})
   };
 }
 
-// 控室の名前（id）：--names があればそれ、なければ設定の顔ぶれ、どちらもなければ既定の六人
+// 役割の名前（id）：--names があればそれ、なければ設定の役割、どちらもなければ既定の役割（backroom）。最初のものが既定
 export function namesOf(crew, cli = null) {
   if (cli?.length) return cli;
   return crew?.members?.length ? crew.members.map((m) => m.id) : NAMES;
 }
 
-// 控室の一人（id で）。設定の顔ぶれになければ（既定の六人や --names）、個人の task.prompt と置き場の <名前>.md だけを持つ人（どちらもなければ null）
+// 役割（id で）。設定になければ（既定の役割や --names）、個人の task.prompt と置き場の <名前>.md だけを持つもの（どちらもなければ null）
 export function agentOf(crew, id) {
   const m = crew?.members?.find((x) => x.id === id);
   if (m) return m;
   const body = [crew?.common, crew?.own?.[id]].filter(Boolean).join("\n\n");
-  return body ? { id, name: id, call: id, team: null, mode: "append", body } : null;
+  return body ? { id, name: id, call: CALLS[id] ?? id, team: null, mode: "append", body } : null;
 }
 
-export const callOf = (crew, id) => agentOf(crew, id)?.call ?? id;
+export const callOf = (crew, id) => agentOf(crew, id)?.call ?? CALLS[id] ?? id;
 export const callsOf = (crew, names) => Object.fromEntries(names.map((n) => [n, callOf(crew, n)]));
 export const teamsOf = (crew, names) => Object.fromEntries(names.map((n) => [n, agentOf(crew, n)?.team ?? null]));
 
-// 頭文字：設定の initial、既定の六人の頭文字、なければ名前の一文字目（呼び分けるときはチームの一文字を添える）
+// 頭文字：設定の initial、既定の役割の頭文字、なければ名前の一文字目（呼び分けるときはチームの一文字を添える）
 export function initialsOf(crew, names) {
   return Object.fromEntries(names.map((n) => [n, agentOf(crew, n)?.initial || INITIALS[n] || [...n][0]]));
 }
@@ -268,10 +273,10 @@ dyve のエージェントの指示を自分好みにするところ。設定は
 
 ## 指示（このディレクトリ）
 
-- \`scribe.md\`：清書係、\`manager.md\`：マネージャ、\`<名前>.md\`：控室のその人（例：\`アリス.md\`、チームの人は \`マイ@algr.md\`）
+- \`scribe.md\`：清書係、\`manager.md\`：マネージャ、\`<名前>.md\`：その役割で働くタスクエージェント（例：既定の役割は \`backroom.md\`、チームの役割は \`マイ@algr.md\`）
 - config.json の \`prompt\` に、ほかの場所のファイル（育てている CLAUDE.md など）を書くと、その中身も指示になる。順は prompt のファイル、そのあとにここのファイル
 - 中身はそのまま指示として、dyve の既定の指示の後ろに足される（config.json の mode が "replace" なら差し替える）
-- \`{{names}}\` と書くと、控室のエージェントの呼び名の並び（アリス、ボブ…）に置き換わる
+- \`{{names}}\` と書くと、役割の呼び名の並び（既定なら「控室」）に置き換わる
 
 ## 設定（~/.dyve/config.json）
 
@@ -283,20 +288,20 @@ dyve のエージェントの指示を自分好みにするところ。設定は
   "scribe":  { "model": "haiku", "pause": 1000, "prompt": ["~/notes/CLAUDE.md", "~/notes/words.md"] },
   "manager": { "model": "sonnet", "pause": 4000, "cwd": "~/.dyve/staff" },
   "team": [
-    { "name": "マイ", "initial": "M", "model": "opus", "room": "~/code/docs" },
+    { "name": "マイ", "description": "文書を書く・直す", "initial": "M", "model": "opus", "room": "~/code/docs" },
     { "name": "ケン" }
   ],
-  "teams": ["~/code/algr", { "path": "~/code/k2down", "rename": { "アリス": "アリサ" } }]
+  "teams": ["~/code/algr", { "path": "~/code/k2down", "rename": { "マイ": "マイコ" } }]
 }
 \`\`\`
 
 - 上の段：\`port\`・\`data\`・\`room\`・\`claude\`・\`slots\`・\`agents\`（この置き場）はコマンドのオプションと同じ。コマンドで渡したほうが勝つ
-- \`task\`：控室の全員。\`model\`、\`prompt\`（全員に読ませるファイル）
+- \`task\`：どの役割にも。\`model\`、\`prompt\`（どの役割のタスクエージェントにも読ませるファイル）
 - \`scribe\`・\`manager\`：\`model\`、\`pause\`（ミリ秒。清書係は発言から渡すまで、マネージャは最後の発言から起こすまで）、\`cwd\`（起きるディレクトリ）、\`mode\`（"append" か "replace"）、\`prompt\`
-- \`team\`：自分の控室の顔ぶれ。並んだ順に仕事を受ける。team も teams もなければ既定の六人
-  - \`name\`（要る）、\`initial\`（アイコンの頭文字）、\`model\`、\`room\`（働くディレクトリ。開発の仕事はここから worktree を切り出す）、\`mode\`、\`prompt\`
+- \`team\`：自分の役割。最初のものが既定で、マネージャが役割を選ばなかった仕事を受ける。team も teams もなければ既定の役割 \`backroom\`（呼び名「控室」）一つ。一つの役割で何本でも並んで動き、同時に動く数は \`slots\` だけで決まる
+  - \`name\`（要る）、\`description\`（得意なこと。マネージャはこれを読んで役割を選ぶ）、\`initial\`（アイコンの頭文字）、\`model\`、\`room\`（働くディレクトリ。開発の仕事はここから worktree を切り出す）、\`mode\`、\`prompt\`
 - \`teams\`：入っているチームのリポジトリ。そのリポジトリの \`.dyve/config.json\` を取り込む
-  - 文字列ならパスだけ。\`{ "path", "rename", "model" }\` で、呼び名を変えたり、そのチームの人のモデルを決めたりできる
+  - 文字列ならパスだけ。\`{ "path", "rename", "model" }\` で、呼び名を変えたり、そのチームの役割のモデルを決めたりできる
 - パスの \`~\` はホーム、相対パスは config.json のあるところから
 
 ## チームの設定（<チームのリポジトリ>/.dyve/config.json）
@@ -309,14 +314,14 @@ dyve のエージェントの指示を自分好みにするところ。設定は
   "task":    { "model": "sonnet", "prompt": "conventions.md" },
   "scribe":  { "prompt": "words.md" },
   "manager": { "prompt": "triage.md" },
-  "team": [{ "name": "マイ" }, { "name": "ケン", "model": "opus" }]
+  "team": [{ "name": "マイ", "description": "バグを調べる" }, { "name": "ケン", "model": "opus" }]
 }
 \`\`\`
 
 - \`name\`：チームの名前（なければリポジトリのディレクトリ名）。ボードには \`マイ@algr\` のように残る。変えると過去のボードとつながらなくなる
 - 書けるのは \`name\`・\`room\`・\`task\`・\`scribe\`（prompt だけ）・\`manager\`（prompt だけ）・\`team\`。パスは .dyve からの相対で、リポジトリの中だけ
-- 清書係にはチームの指示を足し、マネージャにはチームごとの節（指示・顔ぶれ・リポジトリ）を渡す。控室のチームの人は、チームの指示、そのあとに個人の指示を読む
-- 名前がほかのチームや自分の控室とぶつかったら、立てるときに知らせ、チームの人を「algr の マイ」のように呼び分ける
+- 清書係にはチームの指示を足し、マネージャにはチームごとの節（指示・役割・リポジトリ）を渡す。チームの役割で働くタスクエージェントは、チームの指示、そのあとに個人の指示を読む
+- 名前がほかのチームや自分の役割とぶつかったら、立てるときに知らせ、チームの役割を「algr の マイ」のように呼び分ける
 `;
 
 // 置き場がなければ作り、README だけ置く

@@ -11,7 +11,7 @@ const panelFields = {
   view: { type: "string", description: "描き方：本体の say（発言）, text, list, table, task（仕事）, topic（話題。仕事を束ねる）, summary（要点の三つの欄）, json。ほかに利用者のパネル置き場（~/.dyve/panels/views/<名前>.js）の view を名前で使える（使えるものとデータの形は view_list）。人が「使わない」にした view は断られるので、そのときは text や list で置く" },
   data: {
     type: ["string", "array", "object", "number", "boolean", "null"],
-    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・md は文字列、text は文字列か {text, from: [元の発言の id]}（人の問いへの答えは from を付ける）、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}、topic は {title, note?}、summary は {points, decided, open}（項目は文字列か {text, from: [元の発言の id]}）",
+    description: "中身。JSON の値をそのまま渡す（文字列を引用符でくるんで二重にしない）。形は view ごと：say・md は文字列、text は文字列か {text, from: [元の発言の id]}（人の問いへの答えは from を付ける）、list・checklist は文字列の配列、table は {columns, rows}、task は {text, from?, to?, team?, write?}（to は行を受け持つ役割、team はチーム。どちらもなければ既定の役割）、topic は {title, note?}、summary は {points, decided, open}（項目は文字列か {text, from: [元の発言の id]}）",
   },
   about: { type: "string", description: "どのパネルについてのものか（関係する場所に置く）" },
   state: { type: "string", enum: ["task", "proposal", "done"], description: "仕事・提案・済み" },
@@ -105,7 +105,9 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - まだ決まっていない問い（人が迷っていること・案のまま決めていないこと）は、話題の表の人の番の行にする（view task・state done・line に問いの一行）。人は行の記号で「E は見送り」と決める
 - 話題の data.note は「いまどこまで来たか」の一行。話が進んだら書き換える
 - 行の状態は誰の番かで、ボードが導く（turn）：AI の番（state task）、人の番（問いの行・提案・止まった・待ちが明けた）、帰った（back。仕事として投げた行に結果の line が帰った。読むだけで、人のやることはない。下に提案や問いの行があれば人の番）、決まった（decided）、待ち（wait）。帰った行を「読むだけ」と decided に書いて消さない。同じ行で何往復もする。決まったあとも、実行に移れば state を task に戻す（AI の番）
-- 控室の人への言葉は、その仕事に about して text（data { to: 名前, text, from?: [元の発言の id] }）で置く。from を付けると、トークのその発言の下に、その仕事のそのあと（受け取った・帰った一行）が出る。働いていれば途中で拾う。もう終えていれば、ボードが行を AI の番に戻してその人を起こし、答えは同じ行に帰る。to のない text は誰も起こさない
+- 仕事の data.to は、その行を受け持つ役割（得意なこと・働く場所・モデル・指示の一組。人ではない）。一つの役割で何本でも行が並んで動く。文脈を持つのは行で、同じ行の続きは同じ行のセッションに帰る
+- 行への言葉：任せた仕事に言いたいことは、その仕事に about して text（data { to: 行の役割, text, from?: [元の発言の id] }）で置く。from を付けると、トークのその発言の下に、その仕事のそのあと（受け取った・帰った一行）が出る。動いていれば、ボードがその行のセッションの会話に届ける（読みに行かなくてよい）。もう終えていれば、ボードが行を AI の番に戻して起こし直し、答えは同じ行に帰る。行の役割は変わらない。to のない text は誰も起こさない
+- 担当の一覧：行の中でサブエージェントを呼んだ行が終わると、ボードが誰が何を頼まれ何と返したかの表（view table、data.record "inside"）を行に一枚置き、次の回からはそこに書き足す。ボードのもので、行の答えではないので、書き換えない
 - 人が行で決めたこと（「今日やる」「見送り」）は decided に書く。条件つきの待ち（「明日まで」「B のあと」）は wait { text, until?, after? }。条件が満たされると、ボードが人の番で帰す
 - 人が声で提案を受け入れたら（「それでいいよ」）、マネージャがその発言を from に付けて、提案の state を done にする
 - 人の発言は view say・by human。書き換えるのは清書係だけ
@@ -114,9 +116,9 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 ## 画面
 - トークには、発言のすぐ下に返事が一行で出る：その発言を元に持つ（data.from のいちばん後ろ）行の line（まだなら、いまどこまで）と AI の text、その発言に about した AI の text、その発言を from に付けた書き換え（panel_edit の from）で書いた decided・line・話題の note。人が押すと、そのパネルへ移る（閉じた面の中なら、面が開く）。だから、人の発言に応えて置く・書き換えるときは、その発言を付ける（text は data { text, from: [発言の id] }、書き換えは panel_edit の from）
 - 人の発言はトークに出る。話題は表になり、中の仕事が一行ずつ並ぶ。ほかのものは about のないパネルごとに一枚にまとまり、about したものはその中に出る
-- 行の下（面の中のどの深さでも）にある提案と、AI の番の仕事は、表のその行の下に一段字下げして出る。人は面を開かずに、表で受け入れられる。表に「…」がなければ、何も動いていない
+- 行の下（面の中のどの深さでも）にある提案と、AI の番の仕事は、表のその行の下に一段字下げして出る。人は面を開かずに、表で受け入れられる。表に「…」がなければ、何も動いていない。行のセッションが中で呼んでいるもの（サブエージェント）も、動いているあいだは同じ 2 段目に枝で出る（ボードに置かなくてよい）
 - 表は動かない。行が開くと、その行について置かれたものが表の隣に面として出て、行と線でつながる。決まった行の面は、人がその行から離れたら、ボードが行に畳む（行の ▸ からいつでも開き直せる）
-- 面は役割で並ぶ：頭に行の番と結論の一行、左にやること（行の中の行と、行に置かれた提案・仕事を番ごとの札に）、まん中に主役（AI が置いたいちばん新しい結果）、右に残り（新しい順。多いと古いものは一行に畳む。控室の人への言葉は結果ではないので、いちばん後ろに一行に畳んで並ぶ）。行の中の行の結果も、その行の記号つきで面に出る。パネルの見出しは中身の種類で、置いた人は小さな丸。だから結果は一枚ごとに一つの種類にし、いちばん見てほしいものを最後に置く。面の中で置き場所を決めたもの（board_layout の moves）はその場所に残る
+- 面は帯に分けて並ぶ：頭に行の番と結論の一行、左にやること（行の中の行と、行に置かれた提案・仕事を番ごとの札に）、まん中に主役（AI が置いたいちばん新しい結果）、右に残り（新しい順。多いと古いものは一行に畳む。行への言葉は結果ではないので、後ろに一行に畳んで並ぶ。担当の一覧はそのさらに後ろ）。行の中の行の結果も、その行の記号つきで面に出る。パネルの見出しは中身の種類で、置いた人は小さな丸。だから結果は一枚ごとに一つの種類にし、いちばん見てほしいものを最後に置く。面の中で置き場所を決めたもの（board_layout の moves）はその場所に残る
 - 面を開く・閉じるはマネージャが人の話についていって決める（board_layout の out）。人がその行の話を始めたら開く。返ってきた結果だけで面を開かない（先回りしない）。閉じるのは、人がいま話している行の面でなければいつでもよい（話が別の行に移った、面が増えて表が見づらい）。中で動いているものや提案は表の 2 段目に出るので、閉じても見失わない
 - 並びは画面が決める：いまの話題を先頭に大きく、次に印のあるもの、新しいもの、済み（畳む）の順に詰める。幅は中身の形（表は列の数、文章は読みやすい幅）から、高さは中身の量から。読んでいるパネルは画面の同じ位置に残る。並べる手間は要らない。置くときは関係するパネルに about し、組には rel を付けるだけ
 - board_layout は、画面の並びが外れたとき（見せたいものが遠い・大きさが合わない）だけ使う。動かしたものはそこに留まる。人がピン留めしたものとその中は変わらない
@@ -147,7 +149,7 @@ const INSTRUCTIONS = `ボード：人が声で流し込んだ思考を置く場�
 - ピン留めされたものは変えない。人が置いたパネルは外せない。人が書き換えた直後のものに手を入れない
 - ボードに書くのはこの MCP の口からだけ。画面の口（/api/…）と dyve put・dyve add は人のものなので使わない
 - 行の次の一手が外に届くこと（push・取り込み・送信・起票など）なら、行に結果を帰すときに、その提案も一緒に置く（人が「やっていいよ」と言う前に、受け入れる口を出しておく）
-- 外に届くこと（push・送信・起票など）はしない。要るなら state proposal で置き、人に決めてもらう。提案には、受け入れたら何をするか（コマンド・宛先・中身）をそのまま書く。人が受け入れると、提案を置いた人に仕事（data.accepted）として戻ってくるので、そのときは提案の範囲でやる。見送るときは人が外す
+- 外に届くこと（push・送信・起票など）はしない。要るなら state proposal で置き、人に決めてもらう。提案には、受け入れたら何をするか（コマンド・宛先・中身）をそのまま書く。人が受け入れると、提案を置いた役割に仕事（data.accepted）として戻ってくるので、そのときは提案の範囲でやる。見送るときは人が外す
 - 少なく、短く`;
 
 // focus：人のいま（なければ起こし係のもの）
@@ -193,13 +195,14 @@ const BUILTIN_VIEWS = [
   { name: "list", about: "文字列の配列" },
   { name: "table", about: "{ columns: [列の名前], rows: [[値]] }" },
   { name: "json", about: "どんな JSON でも（そのまま見せる）" },
-  { name: "task", about: "{ text, from?, to?, team?, write? }（仕事）" },
+  { name: "task", about: "{ text, from?, to?, team?, write? }（仕事。to は役割）" },
   { name: "topic", about: "{ title, note? }（話題）" },
   { name: "summary", about: "{ points, decided, open }（要点の三つの欄。前の版のボードに残っているもの）" },
   { name: "say", about: "文字列（人の発言）" },
 ];
 
-function call(store, waker, as, name, args = {}, offView, words, focus, views) {
+// row：行のセッションの口（?row=<仕事の id>）から来たときの行の id。操作に添えて起こし係に渡し、操作ログには書かない
+function call(store, waker, as, name, args = {}, offView, words, focus, views, row = null) {
   const { reason: why, ...rest } = args;
   switch (name) {
     case "board_read":
@@ -219,7 +222,7 @@ function call(store, waker, as, name, args = {}, offView, words, focus, views) {
       if ("data" in rest) rest.data = unwrapData(rest.data);
       if (name !== "panel_drop" && rest.view && offView?.(rest.view)) return { ok: false, code: "invalid", message: `view ${rest.view} は人が「使わない」にしている。text や list など別の view で置く` };
       const { from, ...panel } = rest;
-      const r = store.apply({ by: as, type: name.slice(6), panel, reason: why, ...(name === "panel_edit" && from != null ? { from } : {}) });
+      const r = store.apply({ by: as, type: name.slice(6), panel, reason: why, ...(name === "panel_edit" && from != null ? { from } : {}) }, row ? { row } : {});
       return r.ok ? { ok: true, seq: r.op.seq, id: r.op.panel.id } : r;
     }
     default:
@@ -266,7 +269,7 @@ async function panelPicture(store, id, shoot) {
   return { content: [asText({ ok: true, picture: false, message: "ブラウザがないので絵は撮れない", panel })] };
 }
 
-export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus = waker?.focus, views } = {}) {
+export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus = waker?.focus, views, row = null } = {}) {
   const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
   const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return fail(-32600, "Invalid Request");
@@ -292,7 +295,7 @@ export function handleRpc(store, waker, as, msg, { offView, words, shoot, focus 
       if (msg.params?.name === "board_view") return boardPicture(store, focus, msg.params?.arguments?.real, shoot).then(reply);
       if (msg.params?.name === "panel_view") return panelPicture(store, msg.params?.arguments?.id, shoot).then(reply);
       try {
-        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView, words, focus, views);
+        const out = call(store, waker, as, msg.params?.name, msg.params?.arguments, offView, words, focus, views, row);
         return reply({ content: [{ type: "text", text: JSON.stringify(out) }], isError: out?.ok === false });
       } catch (e) {
         return e.rpc ? fail(e.rpc, e.message) : reply({ content: [{ type: "text", text: e.message }], isError: true });

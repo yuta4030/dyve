@@ -12,7 +12,7 @@ import { Board, CODES, STATES, RELS, POINTS, TURNS, marks, sourceApproved } from
 import { Feeds, parseOutput, asStdin } from "../src/feeds.js";
 import { createServer } from "../src/server.js";
 import { handleRpc, TOOLS } from "../src/mcp.js";
-import { readConfig } from "../src/crew.js";
+import { readConfig, readTeam } from "../src/crew.js";
 import { ensurePanels } from "../src/panels.js";
 
 const here = (f) => fileURLToPath(new URL(f, import.meta.url));
@@ -205,6 +205,15 @@ test("約束：MCP の口。道具の名前と引数、返事の形", async () =
     assert.deepEqual(views.user, []);
     // MCP から人として書けない
     assert.equal((await call("human", "panel_add", { view: "text", reason: "x" })).code, "forbidden");
+    // 行のセッションは ?as=<役割>&row=<仕事の id> でつなぐ。by は役割の名前のままで、row は操作ログに書かない
+    const metas = [];
+    const off = store.onOp((op, meta) => metas.push(meta));
+    const res = await (await fetch(`${base}/mcp?as=${encodeURIComponent("アリス")}&row=p9`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "panel_add", arguments: { view: "text", data: "行から", reason: "x" } } }) })).json();
+    off();
+    const rowAdded = JSON.parse(res.result.content[0].text);
+    assert.equal(store.board.get(rowAdded.id).by, "アリス");
+    assert.equal(metas.at(-1).row, "p9");
+    assert.deepEqual(Object.keys(store.board.log.at(-1)).filter((k) => !["seq", "at", "by", "type", "panel", "reason", "from"].includes(k)), []);
   });
   assert.equal(handleRpc(new Store(), null, "アリス", { jsonrpc: "2.0", method: "notifications/initialized" }), null);
 });
@@ -240,12 +249,24 @@ test("約束：設定（config.json）の項目", () => {
     task: { model: "opus", prompt: "notes.md" },
     scribe: { model: "haiku", pause: 1000, cwd: ".", mode: "append", prompt: ["notes.md"] },
     manager: { model: "sonnet", pause: 4000, cwd: ".", mode: "replace", prompt: "notes.md" },
-    team: [{ name: "マイ", initial: "M", model: "opus", room: ".", mode: "append", prompt: "notes.md" }, { name: "ケン" }],
+    team: [{ name: "マイ", description: "文書を書く", initial: "M", model: "opus", room: ".", mode: "append", prompt: "notes.md" }, { name: "ケン" }],
     teams: [],
   };
   fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify(conf));
   const c = readConfig(path.join(dir, "config.json"));
   for (const k of Object.keys(conf)) assert.ok(k in c, k);
   assert.deepEqual(c.team.map((m) => m.name), ["マイ", "ケン"]);
+  assert.equal(c.team[0].description, "文書を書く");
   assert.deepEqual(readConfig(path.join(dir, "nai.json")), {}, "なければ既定のまま");
+  // チームの設定（<リポジトリ>/.dyve/config.json）
+  fs.mkdirSync(path.join(dir, ".dyve"));
+  fs.writeFileSync(path.join(dir, ".dyve", "notes.md"), "指示");
+  const team = {
+    name: "algr", room: ".", task: { model: "sonnet", prompt: "notes.md" }, scribe: { prompt: "notes.md" }, manager: { prompt: "notes.md" },
+    team: [{ name: "マイ", description: "バグを調べる", initial: "M", model: "opus", room: ".", prompt: "notes.md" }],
+  };
+  fs.writeFileSync(path.join(dir, ".dyve", "config.json"), JSON.stringify(team));
+  const t = readTeam(dir);
+  for (const k of Object.keys(team)) assert.ok(k in t, k);
+  assert.equal(t.team[0].description, "バグを調べる");
 });

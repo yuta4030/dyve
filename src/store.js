@@ -18,11 +18,12 @@ export class Store {
     this.listeners = new Set();
   }
 
-  apply(input) {
+  // meta：操作に添えて聞き手に渡すもの（MCP のどの行のセッションから来たか、など）。操作ログには書かない
+  apply(input, meta = {}) {
     const r = this.board.apply(input);
     if (r.ok) {
       if (this.file) fs.appendFileSync(this.file, JSON.stringify(r.op) + "\n");
-      for (const fn of this.listeners) fn(r.op);
+      for (const fn of this.listeners) fn(r.op, meta);
     }
     return r;
   }

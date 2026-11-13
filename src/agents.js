@@ -3,7 +3,7 @@ import { spawn as nodeSpawn, execFileSync, spawnSync } from "node:child_process"
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { NAMES, agentOf, callOf } from "./crew.js";
+import { NAMES, DEFAULT, agentOf, callOf } from "./crew.js";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -17,7 +17,7 @@ const DEFS = {
 };
 
 // 取り消せないことは人が決める。清書係は発言の書き換えと辞書への追記だけ、マネージャはボードだけ。
-// 控室は Claude Code の auto で動く（危ない操作は auto の判定が止める）。調べもの（task）はファイルを書き換えない。
+// 控室は Claude Code の auto で動く（危ない操作は auto の判定が止める）。調べもの（task）には Edit・Write を渡さない（シェルでの書き込みは auto の判定に任せる）。
 // 開発（dev）は仕事ごとの git worktree の中で書き、取り込むかは人が決める。push など外に届くことは DENY で止める。
 // 人が受け入れた提案（act）だけは、提案の範囲で外に届くこともしてよいので DENY を付けず、危ない操作は auto の判定に任せる
 const READ = ["mcp__board", "Read", "Grep", "Glob", "WebSearch", "WebFetch"];
@@ -36,10 +36,10 @@ const DENY = { task: [...OUTWARD, "Edit", "Write", "NotebookEdit"], panels: OUTW
 // 控室だけが部屋（リポジトリ）で働く（開発は部屋から切り出した worktree で）。清書係とマネージャは空の作業場で起こし、前置きを小さく変わらないものにする
 export const inRoom = (role) => role === "task" || role === "dev" || role === "panels" || role === "act";
 
-// 控室（調べもの・開発・パネル）は --task-model、なければその人の model（チームの task.model を含む）、なければ個人の task.model。
+// 控室（調べもの・開発・パネル）は --task-model、なければその役割の model（チームの task.model を含む）、なければ個人の task.model。
 // 清書係とマネージャは models に決まったものが入っている
 const modelOf = (models, role, crew = null, name = null) => inRoom(role) ? models.task ?? agentOf(crew, name)?.model ?? crew?.settings?.task?.model ?? undefined : models[role];
-// 起きる場所：控室はその人の room（なければ部屋）、清書係とマネージャは置き場の cwd（なければ作業場）
+// 起きる場所：控室はその役割の room（なければ部屋）、清書係とマネージャは置き場の cwd（なければ作業場）
 const roomOf = (crew, name, room) => agentOf(crew, name)?.room ?? room;
 const staffOf = (crew, role, staff) => crew?.[role]?.cwd ?? staff;
 
@@ -49,8 +49,8 @@ export function readDef(file) {
 }
 
 // 前置き：dyve の定義に、利用者の指示（個人の置き場・設定の prompt・チームの指示）を足す（mode: replace なら差し替える）。
-// {{names}} は控室の呼び名の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
-// names：控室の名前（id。チームの人は「名前@チーム」）
+// {{names}} は役割の呼び名の並びに置き換える。起動中は変わらないので、前置きのキャッシュは外れない
+// names：役割の名前（id。チームの役割は「名前@チーム」）。最初のものが既定
 export function systemPrompt(role, name, { room = null, crew = null, names = NAMES } = {}) {
   const fill = (s) => s.replaceAll("{{names}}", names.map((n) => callOf(crew, n)).join("、"));
   const tune = inRoom(role) ? agentOf(crew, name) : crew?.[role];
@@ -60,55 +60,87 @@ export function systemPrompt(role, name, { room = null, crew = null, names = NAM
   return text;
 }
 
-// マネージャに渡す控室の顔ぶれ：呼び名と data.to に書く名前、働く場所、チームごとの指示
+// マネージャに渡す役割の一覧：呼び名と data.to に書く名前、得意なこと、働く場所、チームごとの指示。
+// どれも既定のまま（説明・チーム・別の場所がなく、呼び名が名前のまま）なら一覧は出さない
 function roster(names, room, crew) {
-  const people = names.map((n) => agentOf(crew, n) ?? { id: n, call: n, team: null, room: null });
+  const all = names.map((n) => agentOf(crew, n) ?? { id: n, call: callOf(crew, n), team: null, room: null });
   const teams = crew?.teams ?? [];
   const lines = [];
-  if (room) lines.push(`控室のエージェントはふだんリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`);
-  const plain = people.every((m) => !m.team && m.call === m.id && (!m.room || m.room === room));
-  if (!plain) {
-    const line = (m, base) => `- ${m.call} → data.to: "${m.id}"${m.room && m.room !== base ? `（${m.room} で働く）` : ""}`;
-    lines.push("人が呼ぶ名前（呼び名）と、仕事の data.to に書く名前は次のとおりです。data.to には右の名前をそのまま書きます。");
-    const mine = people.filter((m) => !m.team);
+  if (room) lines.push(`タスクエージェントはふだんリポジトリ ${room} で働きます。依頼にファイルの場所を書くときはここを基準にします。`);
+  const bare = (m) => !m.team && !m.description && (m.call === m.id || (m.id === DEFAULT && m.call === callOf(null, DEFAULT))) && (!m.room || m.room === room);
+  if (!all.every(bare)) {
+    const first = all[0];
+    const line = (m, base) => {
+      const notes = [m === first ? "既定" : "", m.room && m.room !== base ? `${m.room} で働く` : ""].filter(Boolean);
+      return `- ${m.call} → data.to: "${m.id}"${notes.length ? `（${notes.join("。")}）` : ""}${m.description ? `：${m.description}` : ""}`;
+    };
+    lines.push(
+      "行をどの役割で受け持つかは、説明を読んで選び、data.to に右の名前をそのまま書きます。どれでもよいとき・合うものがないときは data.to を付けません（既定の役割が受けます）。",
+      "一つの役割で何本でも行が並んで動くので、空いているかは確かめません。",
+    );
+    const mine = all.filter((m) => !m.team);
     if (mine.length) lines.push(...mine.map((m) => line(m, room)));
     for (const t of teams) {
       lines.push("", `### チーム ${t.name}（リポジトリ ${t.room}）`);
       if (t.manager) lines.push(t.manager, "");
-      const who = people.filter((m) => m.team === t.name);
-      lines.push(...(who.length ? who.map((m) => line(m, t.room)) : ["- （控室の人はいない）"]));
-      lines.push(`このチームの仕事で、誰でもよいときは data.team に "${t.name}" を入れます（そのチームの空いている人が受けます）。依頼にファイルの場所を書くときは、このリポジトリを基準にします。`);
+      const who = all.filter((m) => m.team === t.name);
+      lines.push(...(who.length ? who.map((m) => line(m, t.room)) : ["- （役割がない）"]));
+      lines.push(`このチームの仕事で、どの役割でもよいときは data.team に "${t.name}" を入れます（そのチームの最初の役割が受けます）。依頼にファイルの場所を書くときは、このリポジトリを基準にします。`);
     }
     if (teams.length) {
       lines.push(
         "",
         "どのチームの仕事かは、話題・リポジトリ・チームの言葉から見分けます。決められないときは data.team を付けずに取り次ぎます。",
-        "同じ名前の人が二人いて、チームを言わずに名前だけで呼ばれ、話の流れからも決められないときは、取り次がずに、その発言に about して「どちらの〇〇か決まっていません」と短い text を置きます。",
+        "同じ名前の役割が二つあって、チームを言わずに名前だけで呼ばれ、話の流れからも決められないときは、取り次がずに、その発言に about して「どちらの〇〇か決まっていません」と短い text を置きます。",
       );
     }
   }
-  return lines.length ? `\n\n## 控室の顔ぶれ\n${lines.join("\n")}` : "";
+  return lines.length ? `\n\n## 役割\n${lines.join("\n")}` : "";
 }
 
 // 前置き（system prompt・道具）は役ごとに固定し、変わるもの（名前・seq・発言）は指示の側に置く。キャッシュを効かせるため
-// models：役割ごとのモデル（{ scribe, manager, task }）。指定がなければ claude の既定
+// models：清書係・マネージャ・タスクエージェントのモデル（{ scribe, manager, task }）。指定がなければ claude の既定
 // room：控室が働くディレクトリ。マネージャは空の作業場で起きるので、依頼に書けるよう前置きで教える（起動中は変わらないのでキャッシュは外れない）
-// crew・names：利用者の置き場から読んだ配役と、控室の名前の並び
+// crew・names：利用者の置き場から読んだ配役と、役割の名前の並び
+// 行のセッション（控室）は流れる形（stream-json）で起こし、指示は標準入力の最初の一通で渡す。動いているあいだ、行への言葉を押し込める。
+// MCP の口には行の id も付ける（?as=<役割>&row=<仕事の id>）。行の中で呼ばれたものも同じ口でつながるので、その行のセッションとして数える
 export function claudeArgs(job, boardUrl, models = {}, { stream = false, room = null, crew = null, names = NAMES } = {}) {
-  const mcp = { mcpServers: { board: { type: "http", url: `${boardUrl}/mcp?as=${encodeURIComponent(job.name)}` } } };
+  const row = inRoom(job.role);
+  const q = `as=${encodeURIComponent(job.name)}${row && job.taskId ? `&row=${encodeURIComponent(job.taskId)}` : ""}`;
+  const mcp = { mcpServers: { board: { type: "http", url: `${boardUrl}/mcp?${q}` } } };
+  const helpers = row ? helpersOf(job, { room, crew, names }) : null;
   return [
-    ...(stream ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["-p", job.prompt, "--output-format", "json"]),
+    ...(stream || row ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"] : ["-p", job.prompt, "--output-format", "json"]),
     // 同じ行の頼み直し：前にその行を受け持ったセッションを引き継ぐ（job.resume はセッション id）
-    ...(!stream && typeof job.resume === "string" ? ["--resume", job.resume] : []),
+    ...(row && typeof job.resume === "string" ? ["--resume", job.resume] : []),
     "--mcp-config", JSON.stringify(mcp),
     "--strict-mcp-config",
     "--append-system-prompt", systemPrompt(job.role, job.name, { room, crew, names }),
     ...(modelOf(models, job.role, crew, job.name) ? ["--model", modelOf(models, job.role, crew, job.name)] : []),
     // 部屋の git status などを前置きから外し、リポジトリを触っても前置きのキャッシュが外れないようにする
     ...(inRoom(job.role) ? ["--exclude-dynamic-system-prompt-sections", "--permission-mode", "auto"] : []),
+    // 行の中で呼べる相手（役割の一覧）。深さと並べる数は Claude Code の設定のままにし、dyve は決めない
+    ...(helpers ? ["--agents", JSON.stringify(helpers)] : []),
     ...(DENY[job.role] ? ["--disallowedTools", ...DENY[job.role]] : []),
     "--allowedTools", ...TOOLS[job.role],
   ];
+}
+
+// 行の中で呼べる相手：説明のある役割のうち、この行のセッションと同じ場所で働くもの（場所をまたぐ呼び出しはまだ決めていない）。
+// 一つずつ { description, prompt（その役割の指示。なければ何者かの一文）, model? }。合うものがなければ null（--agents を付けない）
+export function helpersOf(job, { room = null, crew = null, names = NAMES } = {}) {
+  const at = (id) => {
+    const r = roomOf(crew, id, room);
+    return r ? real(r) : null;
+  };
+  const here = at(job.name);
+  const out = {};
+  for (const id of names) {
+    const m = agentOf(crew, id);
+    if (!m?.description || at(id) !== here) continue;
+    out[id] = { description: m.description, prompt: m.body || `あなたは役割「${m.call ?? id}」です。得意なこと：${m.description}`, ...(m.model ? { model: m.model } : {}) };
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 // 起こしたエージェントに、誰として・どのボードから起こされたかを環境変数で渡す。エージェントの中で打った dyve put・dyve add は、
@@ -158,7 +190,7 @@ export function workspace({ room, workDir, taskId, board = "board", now = new Da
 
 // 取り込む：人が開発の提案を受け入れたら、その仕事のブランチを部屋のいまのブランチにマージコミットで取り込む
 // （git revert -m 1 で戻せる）。ぶつかったら取りやめて元に戻す。取り込めたら作業場とブランチを片付ける
-// rooms：控室のエージェントが別の部屋（置き場の room）で働くとき、その部屋も探す。見つかった部屋に取り込む
+// rooms：役割が別の部屋（設定の room）で働くとき、その部屋も探す。見つかった部屋に取り込む
 export function integrate({ room, rooms = [room], workDir, board = "board", taskId }) {
   let ws = null;
   for (const r of new Set([room, ...rooms])) {
@@ -296,18 +328,47 @@ function logStream(logDir, job, cmd, cwd, model) {
   return out;
 }
 
-// job: { role, name, prompt, resume? } -> { done: Promise<{code, error?, usage?, session, cwd, resumed}>, kill() }
+// 行の中：行のセッションが呼んだもの（Claude Code のサブエージェント）の一覧を、流れてくる記録（system の task_*）から導く。
+// 一つずつ { id, type, what, depth, parent, state: running | done | failed, tools, ms, last, report }。
+// depth は 1 が行のセッションに呼ばれたもの、2 がその中で呼ばれたもの。parent は呼んだものの id（行のセッションなら null）。
+// 純粋な関数：変わらなければ同じ配列を返す。シェルの裏の仕事（local_bash）は数えない
+const REPORT = 500;
+const clipText = (s, n) => (typeof s === "string" ? (s.length > n ? s.slice(0, n) + "…" : s) : null);
+const ended = (status) => (status === "completed" ? "done" : status === "running" || status === "pending" || status == null ? null : "failed");
+export function insideStep(list, ev) {
+  if (ev?.type !== "system" || typeof ev.task_id !== "string") return list;
+  const i = list.findIndex((t) => t.id === ev.task_id);
+  if (ev.subtype === "task_started") {
+    if (i >= 0 || !(ev.subagent_type || ev.task_type === "local_agent")) return list;
+    const depth = Number.isInteger(ev.spawn_depth) ? ev.spawn_depth : 1;
+    return [...list, { id: ev.task_id, type: ev.subagent_type || "general-purpose", what: clipText(ev.description ?? "", 200), depth, parent: depth > 1 && typeof ev.parent_task_id === "string" ? ev.parent_task_id : null, state: "running", tools: 0, ms: 0, last: null, report: null }];
+  }
+  if (i < 0) return list;
+  const t = list[i], u = ev.usage ?? {};
+  const used = { tools: Number.isFinite(u.tool_uses) ? u.tool_uses : t.tools, ms: Number.isFinite(u.duration_ms) ? u.duration_ms : t.ms };
+  let next = t;
+  if (ev.subtype === "task_progress") next = { ...t, ...used, last: typeof ev.last_tool_name === "string" ? ev.last_tool_name : t.last };
+  else if (ev.subtype === "task_notification") next = { ...t, ...used, state: ended(ev.status) ?? "done", report: clipText(ev.handback_report?.text ?? ev.summary, REPORT) ?? t.report };
+  else if (ev.subtype === "task_updated") next = { ...t, state: ended(ev.patch?.status) ?? t.state };
+  if (JSON.stringify(next) === JSON.stringify(t)) return list;
+  return list.map((x, k) => (k === i ? next : x));
+}
+
+// 行の中の動きを起こし係に知らせる間（一つの行で、だいたい一秒に二度まで）
+const GAP = 500;
+const user = (text) => JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n";
+
+// job: { role, name, prompt, taskId?, resume?, onInside? } -> { done: Promise<{code, error?, usage?, session, cwd, resumed, inside?}>, kill(), say?(text) -> bool }
 // resume：同じ行の頼み直しで、前の回を引き継ぐときの手がかり（{ session, cwd, prompt }。prompt は引き継いだ相手に渡す短い文）。
 // セッションは起きた場所ごとに持たれるので、今回の起きる場所が前の回と同じときだけ引き継ぐ。違えばまっさらで起こす。
 // 引き継ぎが始まらずに終わったら（セッションが見つからないなど、claude が結果を返さなかった）、まっさらで起こし直す
 // 返す session：claude の結果にあったセッション id（取れなければ null）。cwd：起きた場所
+// 行のセッション（控室）は流れる形で起こす：say(text) で動いているセッションに言葉を押し込み（渡せなければ false）、
+// onInside(一覧) で行の中の動きを知らせ、done の inside に終わったときの一覧を返す
 // staff：清書係とマネージャが起きる作業場
 // workDir：開発の worktree を置くところ。panels：利用者のパネル置き場
 export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = room, workDir = path.join(staff, "..", "work"), panels = path.join(staff, "..", "panels"), boardUrl, logDir = null, models = {}, crew = null, names = NAMES }) {
-  const run = (job, cwd) => {
-    const args = claudeArgs(job, boardUrl, models, { room, crew, names });
-    fs.mkdirSync(cwd, { recursive: true });
-    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role, crew, job.name));
+  const runJson = (job, cwd, args, out) => {
     let child;
     const done = new Promise((resolve) => {
       try {
@@ -332,6 +393,88 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
     });
     return { done, kill: () => child?.kill("SIGTERM") };
   };
+  // 行のセッション：標準入力は動いているあいだ開けておく。閉じるのは、結果（result）が来て、行の中で動いているものがなく、
+  // 押し込んだ言葉にまだ結果が来ていないのでもないとき（行の中のものが裏で動いていると result は何度も来る）。終わりはプロセスが終わったとき
+  const runStream = (job, cwd, args, out) => {
+    let child, open = false, seen = false, owed = false, inside = [], last = null, buf = "", tail = "", timer = null, toldAt = 0;
+    const sum = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+    const tell = () => { timer = null; toldAt = Date.now(); job.onInside?.(inside); };
+    const changed = () => {
+      if (!job.onInside || timer) return;
+      const wait = toldAt + GAP - Date.now();
+      if (wait <= 0) tell(); else timer = setTimeout(tell, wait);
+    };
+    const close = () => {
+      if (!open) return;
+      open = false;
+      try { child.stdin.end(); } catch {}
+    };
+    const settle = () => { if (seen && !owed && !inside.some((t) => t.state === "running")) close(); };
+    const say = (text) => {
+      if (!open || !child?.stdin?.writable) return false;
+      try {
+        child.stdin.write(user(text));
+      } catch {
+        return false;
+      }
+      owed = true;
+      out?.write(`\n>>> ${text}\n`);
+      return true;
+    };
+    const done = new Promise((resolve) => {
+      try {
+        child = nodeSpawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"], env: agentEnv(job, boardUrl) });
+      } catch (e) {
+        resolve({ code: -1, error: e.message, session: null, cwd });
+        return;
+      }
+      open = true;
+      child.stdin.on("error", () => { open = false; });
+      child.stdout.on("data", (b) => {
+        out?.write(b);
+        buf += b;
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i);
+          buf = buf.slice(i + 1);
+          let j;
+          try { j = JSON.parse(line); } catch { continue; }
+          const next = insideStep(inside, j);
+          if (next !== inside) {
+            inside = next;
+            changed();
+          }
+          if (j.type === "result") {
+            last = j;
+            const u = usageOf(j);
+            for (const k of Object.keys(sum)) sum[k] += u[k];
+            seen = true;
+            owed = false;
+          }
+          settle();
+        }
+      });
+      child.stderr.on("data", (b) => { out?.write(b); tail = (tail + b).slice(-400); });
+      child.on("error", (e) => resolve({ code: -1, error: e.message, session: null, cwd, inside }));
+      child.on("close", (code) => {
+        open = false;
+        clearTimeout(timer);
+        // トークンは回ごと、費用（total_cost_usd）は会話の通算なので、トークンは足し、費用はいちばん後の結果のもの
+        const usage = last ? { ...sum, costUsd: last.total_cost_usd || 0 } : null;
+        const session = typeof last?.session_id === "string" ? last.session_id : null;
+        const res = code === 0 ? { code, usage, session, cwd, inside } : { code, usage, session, cwd, inside, error: exitError(code, last, tail) };
+        if (out) out.end(() => resolve(res)); else resolve(res);
+      });
+      child.stdin.write(user(job.prompt));
+    });
+    return { done, kill: () => child?.kill("SIGTERM"), say };
+  };
+  const run = (job, cwd) => {
+    const args = claudeArgs(job, boardUrl, models, { room, crew, names });
+    fs.mkdirSync(cwd, { recursive: true });
+    const out = logStream(logDir, job, cmd, cwd, modelOf(models, job.role, crew, job.name));
+    return (inRoom(job.role) ? runStream : runJson)(job, cwd, args, out);
+  };
   return (job) => {
     const { resume, ...fresh } = job;
     job = fresh;
@@ -347,22 +490,22 @@ export function claudeSpawner({ cmd = "claude", room = process.cwd(), staff = ro
         cwd = ws.dir;
         job = { ...job, prompt: job.prompt + "\n" + devNote(ws) };
       } catch (e) {
-        return { done: Promise.resolve({ code: -1, error: `作業場を作れませんでした：${String(e.stderr || e.message).trim().split("\n").at(-1)}`, session: null }), kill: () => {} };
+        return { done: Promise.resolve({ code: -1, error: `作業場を作れませんでした：${String(e.stderr || e.message).trim().split("\n").at(-1)}`, session: null }), kill: () => {}, say: () => false };
       }
     }
     const same = resume?.session && resume.cwd && inRoom(job.role) && real(resume.cwd) === real(cwd);
     if (!same) {
       const h = run(job, cwd);
-      return { done: h.done.then((r) => ({ ...r, resumed: false })), kill: h.kill };
+      return { done: h.done.then((r) => ({ ...r, resumed: false })), kill: h.kill, say: (t) => h.say?.(t) ?? false };
     }
     let cur = run({ ...job, prompt: resume.prompt ?? job.prompt, resume: resume.session }, cwd), killed = false;
     const done = cur.done.then((r) => {
-      // 結果（JSON）を返したなら、引き継いだ会話は動いた。返さずに落ちたときだけ、まっさらで起こし直す
+      // 結果を返したなら、引き継いだ会話は動いた。返さずに落ちたときだけ、まっさらで起こし直す
       if (killed || r.code === 0 || r.usage) return { ...r, resumed: true };
       cur = run(job, cwd);
       return cur.done.then((x) => ({ ...x, resumed: false }));
     });
-    return { done, kill: () => { killed = true; cur.kill(); } };
+    return { done, kill: () => { killed = true; cur.kill(); }, say: (t) => cur.say?.(t) ?? false };
   };
 }
 

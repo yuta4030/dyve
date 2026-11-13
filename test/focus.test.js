@@ -34,6 +34,9 @@ test("人のいま：形の悪いものは捨て、まだ見ていないもの�
   assert.deepEqual(f.tiles(), [{ key: "talk", x: 1, y: 1, w: 3, h: 15 }]);
   f.set("a", { seen: { [r]: b.get(r).aiSeq } });
   assert.deepEqual(f.view(b).unseen, []);
+  // 担当の一覧は記録なので、まだ見ていないものに数えない（画面の知らせと同じ）
+  ai(b, { view: "table", about: r, data: { columns: ["誰"], rows: [["Explore"]], record: "inside" } }, "board");
+  assert.deepEqual(f.view(b).unseen, []);
 });
 
 test("人のいま：マネージャを起こす文と控室の最初の文に数行で混ぜる", () => {
