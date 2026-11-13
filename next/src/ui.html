@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dyve</title>
+<style>
+/* 左にオーバービュー、右にチャット（動かない）。狭い幅では上下に重ねる */
+:root {
+  --bg: #f1f5f6; --surface: #ffffff; --sunk: #e7edef; --ink: #13252c; --muted: #566a72;
+  --line: #d2dce0; --accent: #0a6c88; --accent-soft: #dbecf1; --you: #a05406; --you-soft: #f8e9d4;
+  --font-body: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b161b; --surface: #12222a; --sunk: #1a2e37; --ink: #e2edf0; --muted: #8fa5ad;
+    --line: #253a43; --accent: #55bcd8; --accent-soft: #143744; --you: #e3a552; --you-soft: #3a2c14;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.7;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px));
+}
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app {
+  height: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); overflow: hidden;
+}
+.zone { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
+dyve-chat.zone { border-left: 1px solid var(--line); }
+.cap { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.cap b { font-family: var(--font-mono); font-weight: 500; color: var(--accent); letter-spacing: .02em; }
+.cap .down { color: var(--you); }
+.empty { color: var(--muted); font-size: 13.5px; }
+
+/* オーバービュー */
+.cards { flex: 1; border: 1px dashed var(--line); border-radius: 10px; padding: 14px; min-height: 96px; }
+
+/* チャット */
+.talk { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px; }
+.talk .empty { margin: auto 0 0; }
+.said { align-self: flex-end; max-width: 94%; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.said p { background: var(--sunk); border-radius: 10px; padding: 6px 10px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.said time { font-size: 11px; color: var(--muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.day { align-self: center; font-size: 11.5px; color: var(--muted); }
+.more {
+  align-self: center; background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 999px;
+  padding: 1px 12px; font-size: 12px; cursor: pointer; position: sticky; bottom: 0;
+}
+.field { display: flex; align-items: flex-start; gap: 10px; border: 1.5px solid var(--accent); border-radius: 12px; padding: 10px 14px; background: var(--bg); min-width: 0; }
+.field svg { flex: none; margin-top: 3px; }
+.field textarea {
+  flex: 1; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 15px; line-height: 1.6; padding: 0; max-height: 40vh; overflow-y: auto;
+}
+.field textarea::placeholder { color: var(--muted); }
+.note { font-size: 12px; color: var(--you); min-height: 0; }
+.note:empty { display: none; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  dyve-chat.zone { border-left: 0; border-top: 1px solid var(--line); }
+  .cards { min-height: 64px; }
+}
+</style>
+
+<main class="app">
+  <dyve-overview class="zone"></dyve-overview>
+  <dyve-chat class="zone"></dyve-chat>
+</main>
+
+<script>
+// 画面の言葉
+const L = {
+  overview: "オーバービュー", overviewCap: "動いているセッションが全部。カードは動かない",
+  noSession: "セッションはまだない",
+  chat: "チャット", chatCap: "一つだけ。どのセッションにもここから喋る",
+  emptyChat: "話すか書くと、ここに流れる。声は間があくと置かれ、打ったものは Enter で置かれる（改行は Shift+Enter）",
+  placeholder: "宛先は選ばない。喋るだけ",
+  input: "発言",
+  more: "↓ 新しい発言",
+  failed: "置けなかった。Enter でもう一度",
+  offline: "つながっていない。つなぎ直している",
+};
+
+// 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
+const PAUSE = 2500;
+// いちばん下を見ているか（このくらいの差なら下にいるとみなす）
+const NEAR = 40;
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const atBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < NEAR;
+// Enter で置く。Shift+Enter は改行。IME の変換を確定する Enter では置かない（Safari は isComposing が外れていて keyCode が 229 になる）
+function isSendKey(e) {
+  return e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229;
+}
+const two = (n) => String(n).padStart(2, "0");
+const clock = (d) => `${two(d.getHours())}:${two(d.getMinutes())}`;
+const dayOf = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+
+class Overview extends HTMLElement {
+  connectedCallback() {
+    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}</p><div class="cards"><p class="empty">${L.noSession}</p></div>`;
+  }
+}
+
+class Chat extends HTMLElement {
+  connectedCallback() {
+    this.innerHTML = `<p class="cap"><b>${L.chat}</b><span>${L.chatCap}</span><span class="down"></span></p>
+      <div class="talk" role="log"></div>
+      <div class="field">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="1.5" width="6" height="10" rx="3" fill="var(--accent)"/><path d="M3.5 8.5a5.5 5.5 0 0 0 11 0M9 14v2.5" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <textarea rows="1" aria-label="${L.input}" placeholder="${L.placeholder}"></textarea>
+      </div>
+      <p class="note" aria-live="polite"></p>`;
+    this.talk = this.querySelector(".talk");
+    this.input = this.querySelector("textarea");
+    this.note = this.querySelector(".note");
+    this.talk.addEventListener("scroll", () => { if (atBottom(this.talk)) this.querySelector(".more")?.remove(); });
+    this.listen();
+    this.reset([]);
+  }
+
+  // つながったとき：発言を全部描き直す。いちばん下を見ていたら下のまま、上を読んでいたらそこのまま
+  reset(said) {
+    const follow = atBottom(this.talk), top = this.talk.scrollTop;
+    this.lastDay = this.lastClock = null;
+    this.talk.innerHTML = said.length ? "" : `<p class="empty">${L.emptyChat}</p>`;
+    for (const s of said) this.talk.append(...this.bubble(s));
+    this.talk.scrollTop = follow ? this.talk.scrollHeight : top;
+  }
+
+  add(s) {
+    const follow = atBottom(this.talk);
+    this.talk.querySelector(".empty")?.remove();
+    this.talk.querySelector(".more")?.remove();
+    this.talk.append(...this.bubble(s));
+    if (follow) this.talk.scrollTop = this.talk.scrollHeight;
+    else this.talk.append(this.moreButton());
+  }
+
+  // 上を読んでいるあいだに増えたら、下に印を出すだけ。押したときだけ下へ
+  moreButton() {
+    const b = document.createElement("button");
+    b.className = "more";
+    b.textContent = L.more;
+    b.onclick = () => { b.remove(); this.talk.scrollTop = this.talk.scrollHeight; };
+    return b;
+  }
+
+  // 発言一つ。日が変わったら、その前に日付を一行。時刻は前の発言と分が変わったときだけ
+  bubble(s) {
+    const d = new Date(s.at), out = [];
+    if (dayOf(d) !== this.lastDay) {
+      const day = document.createElement("p");
+      day.className = "day";
+      day.textContent = this.lastDay = dayOf(d);
+      this.lastClock = null;
+      out.push(day);
+    }
+    const el = document.createElement("div");
+    el.className = "said";
+    el.dataset.id = s.id;
+    const t = clock(d);
+    el.innerHTML = `<p>${esc(s.text)}</p>${t === this.lastClock ? "" : `<time datetime="${esc(s.at)}">${t}</time>`}`;
+    this.lastClock = t;
+    out.push(el);
+    return out;
+  }
+
+  // 声と打鍵の見分け：入力の直前にキーが押されていればキーボード（OS の音声入力はキーを押さずに文字が入る）
+  // 声だけなら、間があいたら置く。書きかけに一文字でも打ったら、その書きかけは Enter まで待つ。欄が空になったら声に戻る
+  listen() {
+    const m = this.input;
+    this.timer = null;
+    this.composing = this.sending = this.typed = false;
+    this.lastKey = 0;
+    const byKey = () => Date.now() - this.lastKey < 300;
+    m.addEventListener("keydown", (e) => {
+      this.lastKey = Date.now();
+      if (isSendKey(e)) { e.preventDefault(); clearTimeout(this.timer); this.send(); }
+    });
+    m.addEventListener("input", () => {
+      this.grow();
+      if (!m.value.trim()) this.typed = false;
+      else if (byKey()) this.typed = true;
+      if (this.typed) clearTimeout(this.timer); else this.arm();
+    });
+    m.addEventListener("compositionstart", () => { this.composing = true; });
+    m.addEventListener("compositionend", () => { this.composing = false; if (!byKey() && !this.typed) this.arm(); });
+  }
+
+  arm() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.send(), PAUSE);
+  }
+
+  async send() {
+    const m = this.input;
+    if (this.composing || this.sending) return this.arm();
+    const raw = m.value, text = raw.trim();
+    if (!text) return;
+    this.sending = true;
+    const t0 = Date.now();
+    const ok = await say(text);
+    this.sending = false;
+    // 置けなかったら欄に残す（落とさない）。もう一度置くのは人が Enter で
+    if (!ok) { this.note.textContent = L.failed; return; }
+    this.note.textContent = "";
+    // 置いているあいだに足されたぶんは残し、そのあいだにキーで打ったかで決め直す
+    m.value = m.value.startsWith(raw) ? m.value.slice(raw.length).trimStart() : m.value;
+    this.grow();
+    this.typed = !!m.value.trim() && this.lastKey > t0;
+    if (m.value.trim() && !this.typed) this.arm();
+  }
+
+  // 入力欄は一行から、書いたぶんだけ伸びる
+  grow() {
+    this.input.style.height = "auto";
+    this.input.style.height = `${this.input.scrollHeight}px`;
+  }
+
+  offline(on) {
+    this.querySelector(".down").textContent = on ? L.offline : "";
+  }
+}
+
+customElements.define("dyve-overview", Overview);
+customElements.define("dyve-chat", Chat);
+
+// いまの状態はサーバーが記録を当て直して作る。画面はつないだときにそれを受け取り、あとは増えた記録を一件ずつ当てる
+const chat = document.querySelector("dyve-chat");
+let seq = 0;
+function reset(state) {
+  seq = state.seq;
+  chat.reset(state.said);
+}
+async function take(r) {
+  if (r.seq <= seq) return; // もう当てた
+  if (r.seq !== seq + 1) return reset(await (await fetch("/api/state")).json()); // 抜けがあったら取り直す
+  seq = r.seq;
+  if (r.kind === "say") chat.add({ id: r.seq, at: r.at, text: r.text });
+}
+async function say(text) {
+  try {
+    const res = await fetch("/api/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    const r = await res.json();
+    if (!r.ok) return null;
+    await take(r.record);
+    return r;
+  } catch {
+    return null;
+  }
+}
+const events = new EventSource("/api/events");
+events.addEventListener("state", (e) => { chat.offline(false); reset(JSON.parse(e.data)); });
+events.addEventListener("record", (e) => take(JSON.parse(e.data)));
+events.onerror = () => chat.offline(true);
+</script>
+</html>

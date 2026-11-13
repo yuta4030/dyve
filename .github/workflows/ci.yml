@@ -21,3 +21,4 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@example.com
       - run: npm test
+      - run: npm run test:next

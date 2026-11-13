@@ -16,7 +16,8 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node bin/dyve.js serve",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:next": "node --test next/test/*.test.js"
   },
   "license": "MIT",
   "repository": {

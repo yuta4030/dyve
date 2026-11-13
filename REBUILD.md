@@ -138,7 +138,7 @@ dyve を作り直すための企画。コンセプトは `PLAN.md` のまま変�
 
 - 新しいコードは `next/` に置く（`next/src`・`next/test`）。現行の `src/` は参考に読むだけで、直さない。動くようになったら `src/` と入れ替え、古いものを消す
 - 画面の出発点は `docs/rebuild-sketch.html`（ブラウザで開くと動く絵）。絵は見本で、決まりの正本はこのファイル
-- テストは `node --test next/test/`。外にはつながず、偽の spawn で回す
+- テストは `node --test next/test/*.test.js`（`npm run test:next`）。外にはつながず、偽の spawn で回す
 
 ### 作る順
 
