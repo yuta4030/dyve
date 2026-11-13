@@ -57,6 +57,18 @@ test("記録の当て方は state.js 一つ。画面はそれを読み、自分�
   assert.doesNotMatch(state, /^\s*import\b|\brequire\(/m, "state.js は import を持たない");
 });
 
+test("届け先の印：続き・新しく起こした・届けていない・決まらなかった。まだなら出さない", () => {
+  const Lsrc = script.match(/^const L = \{[\s\S]*?^\};/m)[0];
+  const code = html.match(/^function chipOf\([\s\S]*?^}$/m)[0];
+  const chipOf = new Function(`${Lsrc}; ${code}; return chipOf;`)();
+  const state = { sessions: [{ id: 2, sym: "A", name: "競合の値段", role: "調べもの", asked: [1, 3] }] };
+  assert.equal(chipOf({ id: 1, session: 2 }, state).text, "→ A 競合の値段（新しく起こした。調べものに任せた）");
+  assert.equal(chipOf({ id: 3, session: 2 }, state).text, "→ A 競合の値段");
+  assert.equal(chipOf({ id: 4, session: null, aside: true }, state).quiet, true);
+  assert.equal(chipOf({ id: 5, session: null, aside: false, miss: "係が読めなかった" }, state).title, "係が読めなかった");
+  assert.equal(chipOf({ id: 6, session: null, aside: false, miss: null }, state), null);
+});
+
 test("ライトとダークの両方がある", () => {
   assert.match(html, /@media \(prefers-color-scheme: dark\)/);
   assert.match(html, /--bg: #f1f5f6/);
@@ -65,7 +77,7 @@ test("ライトとダークの両方がある", () => {
 
 test("作り直しのコードに現行の言葉を使わない", () => {
   const dir = new URL("../", import.meta.url);
-  const files = ["src", "bin", "test", "roles"].flatMap((d) => fs.readdirSync(new URL(`${d}/`, dir)).map((f) => new URL(`${d}/${f}`, dir)));
+  const files = ["src", "bin", "test", "roles", "kakari"].flatMap((d) => fs.readdirSync(new URL(`${d}/`, dir)).map((f) => new URL(`${d}/${f}`, dir)));
   const old = /(?<!キー)ボード|トーク|ピン留め|マネージャ|清書係|控室/;
   for (const f of files) {
     if (f.pathname.endsWith("/ui.test.js")) continue; // この試験そのもの

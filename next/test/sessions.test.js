@@ -92,7 +92,7 @@ test("発言を新しいセッションへ：できた・渡した・始まっ�
   j.result("c-1", "0.9.0 です。");
   j.finish(0);
   await tick();
-  assert.deepEqual(kinds(log, a), ["open", "pass", "start", "tool", "talk", "end"]);
+  assert.deepEqual(kinds(log, a), ["open", "pass", "start", "bind", "tool", "talk", "end"]);
   const x = log.state.sessions[0];
   assert.equal(x.id, r.session);
   assert.deepEqual([x.role, x.cwd, x.claude, x.running, x.last, x.failed], ["調べもの", ROOM, "c-1", false, "0.9.0 です。", null]);
@@ -170,7 +170,7 @@ test("引き継ぎが始まらずに落ちたら、まっさらで起こし直�
   assert.match(j.prompt, /- 競合の値段を調べて/);
   assert.match(j.prompt, /いまの頼み：\n年払いは？$/);
   await j.turn("c-9", "年払いは 2 割引き");
-  assert.deepEqual(kinds(log, from), ["say", "pass", "start", "fail", "start", "talk", "end"]);
+  assert.deepEqual(kinds(log, from), ["say", "pass", "start", "fail", "start", "bind", "talk", "end"]);
   assert.match(log.records.find((r) => r.kind === "fail").reason, /No conversation found/);
   const x = log.state.sessions[0];
   assert.equal(x.claude, "c-9");
@@ -224,6 +224,35 @@ test("立て直し：止まったとき動いていたセッションは途切�
   assert.equal(g.jobs[0].prompt, "三つめ");
   assert.equal(g.jobs[0].args[g.jobs[0].args.indexOf("--resume") + 1], "c-1");
   assert.equal(x.running, true);
+});
+
+test("init が来たら Claude の session_id を置く。最初のターンの途中で落ちても、次の発言で引き継げる", async () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-next-")), "record.jsonl");
+  const log = recLog(file), f = fakeSpawn();
+  const s = new Sessions({ log, roles, room: ROOM, spawn: f.spawn }).start();
+  const { session } = s.ask(say(log, "一つめ"), { role: "調べもの" });
+  f.jobs[0].init("c-1");
+  assert.equal(log.records.at(-1).kind, "bind");
+  // ここで dyve が落ちた
+  const again = recLog(file), g = fakeSpawn();
+  const t = new Sessions({ log: again, roles, room: ROOM, spawn: g.spawn }).start();
+  assert.equal(again.state.sessions[0].claude, "c-1");
+  t.ask(say(again, "続き"), { session });
+  assert.equal(g.jobs[0].args[g.jobs[0].args.indexOf("--resume") + 1], "c-1");
+  // 引き継いだ会話の init は同じ id なので、二度は置かない
+  g.jobs[0].init("c-1");
+  assert.ok(!again.records.some((r) => r.kind === "bind"));
+});
+
+test("渡すのは清書した文。新しく起こすときは名前を付けられる", () => {
+  const log = recLog(), f = fakeSpawn();
+  const s = new Sessions({ log, roles, room: ROOM, spawn: f.spawn }).start();
+  const a = say(log, "えーと、きょうごうの値段");
+  log.add("fair", { said: a, text: "競合の値段" });
+  s.ask(a, { role: "調べもの", name: "競合の値段" });
+  assert.equal(f.jobs[0].prompt, "競合の値段");
+  assert.equal(log.state.sessions[0].name, "競合の値段");
+  assert.equal(log.state.said[0].text, "えーと、きょうごうの値段", "元の文は残る");
 });
 
 test("止めるときは、動いているセッションに途切れたと置いてから止める", async () => {

@@ -1,19 +1,23 @@
 #!/usr/bin/env node
 // CLI：サーバーを立てる
 import { parseArgs } from "node:util";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Log } from "../src/log.js";
 import { createServer } from "../src/server.js";
 import { loadRoles } from "../src/roles.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
+import { readConfig } from "../src/config.js";
+import { Words } from "../src/words.js";
+import { Kakari, SaidMouth, Conv, claudeConv, readDef, SAID_SCHEMA } from "../src/kakari.js";
 
 const HOME = path.join(os.homedir(), ".dyve", "next");
 const USAGE = `使い方:
   dyve serve [--port 4750] [--data FILE] [--room DIR] [--claude CMD] [--slots 3] [--config FILE]
     --data    記録（既定：~/.dyve/next/record.jsonl）
     --room    セッションが起きる場所（既定：いまの場所）
-    --config  利用者の設定（既定：~/.dyve/next/config.json。役割の定義はその隣の roles/<名前>.md）`;
+    --config  利用者の設定（既定：~/.dyve/next/config.json。役割の定義はその隣の roles/<名前>.md、辞書は words.jsonl）`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -47,14 +51,17 @@ const slots = Number(v.slots);
 if (!Number.isInteger(slots) || slots < 1) die(`--slots は 1 以上の整数\n${USAGE}`);
 const file = path.resolve(v.data);
 const room = path.resolve(v.room);
-let log, roles;
+const config = path.resolve(v.config);
+const place = path.dirname(config);
+let log, roles, conf;
 try {
   log = new Log(file);
 } catch (e) {
   die(`記録が読めない：${e.message}`);
 }
 try {
-  roles = loadRoles({ config: path.resolve(v.config) });
+  conf = readConfig(config);
+  roles = loadRoles({ config });
 } catch (e) {
   die(`役割が読めない：${e.message}`);
 }
@@ -63,12 +70,22 @@ const missing = claudeMissing(v.claude);
 if (missing) process.stderr.write(`注意：${missing}\n`);
 
 const sessions = new Sessions({ log, roles, room, spawn: claudeSpawn(v.claude), slots }).start();
+// 係：道具を持たない Claude Code。起きる場所は置き場の中の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
+const kakariDir = path.join(place, "kakari");
+fs.mkdirSync(kakariDir, { recursive: true });
+const words = new Words(path.join(place, "words.jsonl"));
+const said = new SaidMouth({
+  log, sessions, roles, words,
+  conv: new Conv({ open: () => claudeConv({ cmd: v.claude, prompt: readDef("said"), schema: SAID_SCHEMA, model: conf.kakari.model ?? "haiku", cwd: kakariDir }) }),
+});
+const kakari = new Kakari([said]).start();
 const server = createServer({ log });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
   process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}（役割：${Object.keys(roles).join("・")}）\n`);
 });
 const quit = () => {
+  kakari.stop();
   sessions.stop();
   server.closeAll();
   process.exit(0);

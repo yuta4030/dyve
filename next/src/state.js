@@ -14,6 +14,21 @@ const usage = (u) => ({ input: u?.input || 0, output: u?.output || 0, cacheWrite
 
 // セッションの出来事は、どれも session（セッションの id）を持つ。セッションの id は、そのセッションができた記録の通し番号
 const sessionOf = (s, r) => s.sessions.find((x) => x.id === r.session);
+const saidOf = (s, n) => s.said.find((p) => p.id === n);
+
+// カードの記号：A〜Z、そのあとは AA・AB…。声で「A は…」と呼ぶためのもので、データには持たず導く
+export function symbolOf(n) {
+  let out = "";
+  for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) out = String.fromCharCode(65 + ((n - 1) % 26)) + out;
+  return out;
+}
+// オーバービューに出ているセッションが使っていない、いちばん若い字（できたときに振り、出ているあいだは変えない）
+function freeSymbol(s) {
+  const used = new Set(s.sessions.map((x) => x.sym));
+  let i = 0;
+  while (used.has(symbolOf(i))) i++;
+  return symbolOf(i);
+}
 
 export const KINDS = {
   // 発言：人が言った元の文。発言の id は、その記録の通し番号
@@ -22,17 +37,58 @@ export const KINDS = {
       return { text: text(t, "発言の text") };
     },
     apply(s, r) {
-      s.said.push({ id: r.seq, at: r.at, text: r.text, session: null });
+      // fair：清書した文（なければ null。元の文 text は残る）。届け先は session か aside（どこにも届けない）。miss：係が届け先を決められなかった理由
+      s.said.push({ id: r.seq, at: r.at, text: r.text, fair: null, session: null, aside: false, miss: null });
+    },
+  },
+
+  // 清書：元の文は残したまま、清書した文を足す
+  fair: {
+    make({ said, text: t }) {
+      return { said: id(said, "said"), text: text(t, "清書の text") };
+    },
+    apply(s, r) {
+      const p = saidOf(s, r.said);
+      if (p) p.fair = r.text;
+    },
+  },
+
+  // どこにも届けない（頼みでも答えでもない発言）。発言はチャットに残る
+  aside: {
+    make({ said }) {
+      return { said: id(said, "said") };
+    },
+    apply(s, r) {
+      const p = saidOf(s, r.said);
+      if (p) {
+        p.aside = true;
+        p.miss = null;
+      }
+    },
+  },
+
+  // 係が届け先を決められなかった（係が動かない・返したものが読めない・ありもしない届け先）。発言は未定のまま、次の回に読み直す
+  miss: {
+    make({ says, reason }) {
+      if (!Array.isArray(says) || !says.length) throw new Error("says がない");
+      return { says: says.map((x) => id(x, "says")), reason: text(reason, "reason") };
+    },
+    apply(s, r) {
+      for (const n of r.says) {
+        const p = saidOf(s, n);
+        if (p) p.miss = r.reason;
+      }
     },
   },
 
   // セッションができた：どの役割で、どこで起きるか
   open: {
-    make({ role, cwd }) {
-      return { role: text(role, "役割"), cwd: text(cwd, "起きる場所") };
+    make({ role, cwd, name = null }) {
+      return { role: text(role, "役割"), cwd: text(cwd, "起きる場所"), name: name == null ? null : text(name, "name") };
     },
+    // sym：カードの記号（導く）。asked：渡した発言の id（順に）
     apply(s, r) {
-      s.sessions.push({ id: r.seq, at: r.at, role: r.role, cwd: r.cwd, claude: null, running: false, pending: [], flow: [], last: null, failed: null, usage: usage() });
+      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, asked: [], pending: [], flow: [], last: null, failed: null, usage: usage() });
     },
   },
 
@@ -43,7 +99,11 @@ export const KINDS = {
     },
     apply(s, r) {
       const x = sessionOf(s, r), p = s.said.find((y) => y.id === r.said);
-      if (p) p.session = r.session;
+      if (p) {
+        p.session = r.session;
+        p.miss = null;
+      }
+      x?.asked.push(r.said);
       x?.pending.push(r.said);
     },
   },
@@ -61,6 +121,17 @@ export const KINDS = {
       x.failed = null;
       x.pending = x.pending.filter((p) => !r.says.includes(p));
       for (const said of r.says) if (!x.flow.some((f) => f.said === said)) x.flow.push({ seq: r.seq, at: r.at, said });
+    },
+  },
+
+  // Claude の session_id がわかった（init が来た）。dyve が途中で落ちても、次の発言で引き継げるように
+  bind: {
+    make({ session, claude }) {
+      return { session: id(session, "session"), claude: text(claude, "claude") };
+    },
+    apply(s, r) {
+      const x = sessionOf(s, r);
+      if (x) x.claude = r.claude;
     },
   },
 

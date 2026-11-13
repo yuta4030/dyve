@@ -124,7 +124,7 @@ export class Sessions {
     this.running.clear();
   }
 
-  // 発言を、セッションへ渡す。to は { session: id }（続き）か { role: 名前 }（この役割で新しく起こす）
+  // 発言を、セッションへ渡す。to は { session: id }（続き）か { role: 名前, name? }（この役割で新しく起こす。name はセッションの名前）
   // 返すもの：{ ok: true, session } か { ok: false, code, message }
   ask(said, to = {}) {
     const st = this.log.state;
@@ -139,7 +139,7 @@ export class Sessions {
       const role = this.roles[to.role];
       if (!role) return fail("not_found", `役割「${to.role}」がない`);
       if (role.place !== "room") return fail("unavailable", `役割「${to.role}」の起きる場所（${role.place}）はまだ用意していない`);
-      session = this.log.add("open", { role: to.role, cwd: this.room }).record.seq;
+      session = this.log.add("open", { role: to.role, cwd: this.room, name: typeof to.name === "string" && to.name.trim() ? to.name.trim() : null }).record.seq;
     } else {
       return fail("invalid", "to には session か role を書く");
     }
@@ -167,7 +167,8 @@ export class Sessions {
   // 一ターン。fresh：前の会話を引き継げなかったので、まっさらで起こし直す（それまでに渡した発言を全部渡し直す）
   _turn(id, fresh = false) {
     const x = this._session(id), role = this.roles[x.role];
-    const text = (s) => this.log.state.said.find((p) => p.id === s)?.text ?? "";
+    // 渡すのは清書した文（なければ元の文）
+    const text = (s) => { const p = this.log.state.said.find((q) => q.id === s); return p?.fair ?? p?.text ?? ""; };
     let says, prompt;
     if (fresh) {
       const now = this._lastStart(id) ?? [];
@@ -220,6 +221,7 @@ export class Sessions {
     if (j.type === "system" && j.subtype === "init") {
       r.inited = true;
       r.claude = j.session_id ?? r.claude;
+      if (r.claude && r.claude !== this._session(id)?.claude) this.log.add("bind", { session: id, claude: r.claude });
     } else if (j.type === "assistant" && !j.parent_tool_use_id) {
       for (const b of j.message?.content ?? []) {
         if (b.type === "text" && b.text?.trim()) this.log.add("talk", { session: id, text: b.text });
