@@ -45,6 +45,10 @@ function writeCard(prompt) {
   if (/表/.test(prompt)) {
     card.panels.push({ view: "table", title: "数えたもの", data: { columns: ["名前", "数"], rows: Array.from({ length: 6 }, (_, i) => ({ cells: [`項目${i + 1}`, String(10 - i)], ...(ref ? { ref } : {}) })) } });
   }
+  // 置き場に bars があって、頼みに「棒」があれば、それを使う
+  if (/^- bars：/m.test(prompt) && /棒/.test(prompt.split("前のカード：")[0])) {
+    card.panels.push({ view: "bars", title: "棒で比べる", data: [{ label: "甲", value: 3, ...(ref ? { ref } : {}) }, { label: "乙", value: 5 }] });
+  }
   card.panels.push({ view: "list", title: "わかったこと", data: [{ text: "答え", value: "42", ...(ref ? { ref } : {}) }] });
   return card;
 }

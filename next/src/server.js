@@ -1,6 +1,7 @@
 // サーバー：画面を返し、発言を受け取り、いまの状態を返し、記録が増えるたびに画面へ流す（SSE）
 import http from "node:http";
 import fs from "node:fs";
+import { listViews, readView } from "./panels.js";
 
 const UI = new URL("./ui.html", import.meta.url);
 // 状態の作り方は一つだけ。画面も同じものを module として読み、記録を一件ずつ当てる
@@ -9,12 +10,13 @@ const STATE = new URL("./state.js", import.meta.url);
 const PAGE = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
-  "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; frame-ancestors 'none'",
+  "content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; frame-src 'none'; frame-ancestors 'none'",
 };
 const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 const LOCAL_HOST = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-export function createServer({ log }) {
+// panels：利用者のパネル置き場（なければ利用者の view はない）
+export function createServer({ log, panels = null }) {
   const clients = new Set();
   const off = log.on((record) => {
     const chunk = `event: record\ndata: ${JSON.stringify(record)}\n\n`;
@@ -43,6 +45,14 @@ export function createServer({ log }) {
         return res.end(fs.readFileSync(STATE));
       }
       if (route === "GET /api/state") return json(200, log.state);
+      // 利用者の view：一覧（名前・一行の説明・データの形）と中身。頼まれるたびに置き場から読む。名前で絞り、置き場の外は読ませない
+      if (route === "GET /api/views") return json(200, panels ? listViews(panels) : []);
+      if (req.method === "GET" && pathname.startsWith("/api/views/")) {
+        const src = readView(panels, decodeURIComponent(pathname.slice("/api/views/".length)));
+        if (src == null) return json(404, { ok: false, code: "not_found", message: "その view はない" });
+        res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        return res.end(src);
+      }
       if (route === "POST /api/say") {
         const body = await readJson(req);
         // peek：覗いていたセッション（あるものだけ）

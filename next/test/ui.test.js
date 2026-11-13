@@ -76,12 +76,25 @@ test("届け先の印：続き・新しく起こした・届けていない・�
 test("パネルは view の名前で描き手を選ぶ。本体が描くのは summary・list・table・text・json", () => {
   const views = script.match(/^const VIEWS = \{([\s\S]*?)^\};/m)[1];
   assert.deepEqual([...views.matchAll(/^  (\w+):/gm)].map((m) => m[1]), ["summary", "list", "table", "text", "json"]);
-  assert.match(script, /\(VIEWS\[p\.view\] \?\? VIEWS\.json\)/);
+  assert.match(script, /if \(Object\.hasOwn\(VIEWS, p\.view\)\) return/);
+  assert.match(script, /VIEWS\.json\(u\.data/, "置き場の view で描けなければ json で出す");
 });
 
 test("ステートといまどこまでは state.js のものを使う", () => {
   assert.match(script, /^import \{ step, stageOf, nowOf \} from "\/state\.js";$/m);
   assert.doesNotMatch(script, /function stageOf|function nowOf/);
+});
+
+test("パネル置き場の view は sandbox の iframe（allow-scripts だけ）で描き、外に出さない", () => {
+  const sandboxes = [...script.matchAll(/setAttribute\("sandbox", "([^"]*)"\)/g)].map((m) => m[1]);
+  assert.deepEqual(sandboxes, ["allow-scripts"]);
+  assert.doesNotMatch(script, /allow-same-origin|allow-top-navigation|allow-popups|allow-forms/);
+  const csp = script.match(/^const FRAME_CSP = "([^"]*)";$/m)[1];
+  assert.match(csp, /^default-src 'none';/);
+  assert.doesNotMatch(csp, /connect-src|https?:|'self'/);
+  // 囲いからの知らせで受けるのは、高さ・光らせたい・描けなかった、だけ
+  const handler = script.slice(script.indexOf('addEventListener("message"'));
+  assert.deepEqual([...handler.matchAll(/m\.dyve === "(\w+)"/g)].map((m) => m[1]), ["size", "fail", "light"]);
 });
 
 test("ライトとダークの両方がある", () => {

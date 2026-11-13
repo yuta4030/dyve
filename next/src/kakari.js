@@ -149,12 +149,12 @@ const STAGE = { run: "実行中", wait: "人待ち", back: "帰った", done: "�
 const DONE = 8;
 const stageWord = (x) => { const g = stageOf(x); return STAGE[g.stage] + (g.none ? "（結果なし）" : ""); };
 const shown = (p) => p?.fair ?? p?.text ?? "";
-// 新しく起こせる役割（起きる場所が用意できているもの）
-export const choosable = (roles) => Object.values(roles).filter((r) => r.place === "room");
+// 新しく起こせる役割（起きる場所が用意できているもの）。can(role) が起きる場所を返す
+export const choosable = (roles, can = (r) => r.place === "room") => Object.values(roles).filter((r) => can(r));
 
 // 係に渡す一通。batch：届け先を決める発言。context：その前の、届け先が決まった発言をいくつ添えるか
 // again：届けていない発言のうち、届け直せるもの（人が「それは A に送って」と言ったときのため）
-export function saidPrompt({ state, batch, again = [], roles, words = [], context = 5 }) {
+export function saidPrompt({ state, batch, again = [], roles, can, words = [], context = 5 }) {
   const said = (n) => state.said.find((p) => p.id === n);
   const first = Math.min(...batch.map((p) => p.id));
   const before = state.said.filter((p) => p.id < first && (p.session != null || p.aside)).slice(-context);
@@ -164,7 +164,7 @@ export function saidPrompt({ state, batch, again = [], roles, words = [], contex
   const done = state.sessions.filter((x) => x.folded).sort((a, b) => b.folded.seq - a.folded.seq).slice(0, DONE);
   return [
     "選べる役割：",
-    ...choosable(roles).map((r) => `- ${r.name}：${r.about}`),
+    ...choosable(roles, can).map((r) => `- ${r.name}：${r.about}`),
     "",
     "辞書：",
     ...(words.length ? words.map(wordLine) : ["（なし）"]),
@@ -192,6 +192,8 @@ export class SaidMouth {
   // conv：Conv（send(text) を持つもの）。words：Words。pause：発言が来てから読むまで（ミリ秒）。most：一度に読む発言の数
   constructor({ log, sessions, roles, words, conv, pause = 0, most = 20 }) {
     Object.assign(this, { log, sessions, roles, words, conv, pause, most });
+    // 起きる場所が用意できている役割だけを選ばせる
+    this.can = (r) => !!sessions.placeOf?.(r);
     this.reading = new Set();
     this.busy = false;
     this.again = false;
@@ -238,7 +240,7 @@ export class SaidMouth {
     for (const p of batch) this.reading.add(p.id);
     let res;
     try {
-      res = await this.conv.send(saidPrompt({ state: this.log.state, batch, again, roles: this.roles, words: this.words?.list() ?? [] }));
+      res = await this.conv.send(saidPrompt({ state: this.log.state, batch, again, roles: this.roles, can: this.can, words: this.words?.list() ?? [] }));
     } catch (e) {
       res = { ok: false, error: e.message };
     }
@@ -260,7 +262,7 @@ export class SaidMouth {
     const mine = new Map(batch.map((p) => [p.id, p])), back = new Map(again.map((p) => [p.id, p]));
     const items = Array.isArray(json?.says) ? json.says.filter((x) => x && (mine.has(x.id) || back.has(x.id))).sort((a, b) => a.id - b.id) : [];
     const done = new Set(), made = new Map(), missed = [], resent = [];
-    const choices = new Set(choosable(this.roles).map((r) => r.name));
+    const choices = new Set(choosable(this.roles, this.can).map((r) => r.name));
     for (const it of items) {
       if (done.has(it.id)) continue;
       done.add(it.id);
@@ -322,7 +324,8 @@ export const CARD_SCHEMA = {
     what: { type: "string" },
     steps: { type: "array", items: { type: "object", properties: { text: { type: "string" }, state: { type: "string", enum: ["done", "now", "todo"] } }, required: ["text", "state"] } },
     ask: { type: "object", properties: { text: { type: "string" }, ref: { type: "integer" } }, required: ["text"] },
-    panels: { type: "array", items: { type: "object", properties: { view: { type: "string", enum: VIEWS }, title: { type: "string" }, data: {} }, required: ["view", "data"] } },
+    // view は本体のもの（VIEWS）か、置き場の view の名前。置き場は変わるので、ここでは名前を絞らない（cardOf で確かめる）
+    panels: { type: "array", items: { type: "object", properties: { view: { type: "string" }, title: { type: "string" }, data: {} }, required: ["view", "data"] } },
   },
   required: ["line", "back"],
 };
@@ -334,7 +337,8 @@ const TALK = 600, LAST = 4000, FLOW = 60;
 export const refsOf = (x) => new Set([...x.asked, ...x.flow.filter((f) => f.talk || f.tool).map((f) => f.seq)]);
 
 // 係に渡す一通：セッション・頼んだこと・前のカード・前のカードのあとのやりとり・最後の言葉
-export function sessionPrompt(state, x) {
+// views：パネル置き場の view（listViews の結果）。合うときだけ選べるように見せる
+export function sessionPrompt(state, x, views = []) {
   const said = (n) => state.said.find((p) => p.id === n);
   const since = x.card?.turn ?? 0;
   const flow = x.flow.filter((f) => f.seq > since).slice(-FLOW).map((f) =>
@@ -353,6 +357,7 @@ export function sessionPrompt(state, x) {
     "",
     "最後の言葉：",
     clip(String(x.last ?? "（なし）"), LAST),
+    ...(views.length ? ["", "置き場の view（本体の view のほかに使えるもの。データがはっきり合うときだけ）：", ...views.map((v) => `- ${v.name}：${v.about}${v.shape ? `\n  ${v.shape.replace(/\n/g, "\n  ")}` : ""}`)] : []),
   ].join("\n");
 }
 
@@ -362,9 +367,14 @@ const str = (v, n) => {
 };
 const arr = (v) => (Array.isArray(v) ? v : []);
 
-// パネル一枚を確かめる。知らない view は、文字列なら text、ほかは json に落とす。ありもしない ref は外す。中身がなければ null
-export function panelOf(p, refs) {
+// パネル一枚を確かめる。知らない view は、文字列なら text、ほかは json に落とす。ありもしない ref は外す。中身がなければ null。
+// own：置き場にある view の名前。その view のデータの形は置き場の view が決めるので、大きさだけを見て通す（ref は画面が押されたときに確かめる）
+export function panelOf(p, refs, own = new Set()) {
   if (!p || typeof p !== "object") return null;
+  if (!VIEWS.includes(p.view) && own.has(p.view)) {
+    const title = str(p.title, 40);
+    return p.data != null && JSON.stringify(p.data).length <= 8000 ? { view: p.view, ...(title ? { title } : {}), data: p.data } : null;
+  }
   const ref = (r) => (Number.isInteger(r) && refs.has(r) ? { ref: r } : {});
   const title = str(p.title, 40);
   let view = VIEWS.includes(p.view) ? p.view : typeof p.data === "string" ? "text" : "json";
@@ -388,7 +398,7 @@ export function panelOf(p, refs) {
 }
 
 // 返ったカードを確かめる。きびしすぎて全部を落とさない：直せるものは直し、一行がなければ読めなかったことにする（null）
-export function cardOf(json, x) {
+export function cardOf(json, x, own = new Set()) {
   if (!json || typeof json !== "object") return null;
   const refs = refsOf(x);
   let line = str(json.line, 80), back = str(json.back, 160);
@@ -398,13 +408,14 @@ export function cardOf(json, x) {
   const steps = arr(json.steps).map((s) => ({ text: str(s?.text, 60), state: ["done", "now", "todo"].includes(s?.state) ? s.state : "todo" })).filter((s) => s.text).slice(0, 10);
   const askText = str(json.ask?.text, 160);
   const ask = askText ? { text: askText, ref: Number.isInteger(json.ask.ref) && refs.has(json.ask.ref) ? json.ask.ref : null } : null;
-  const panels = arr(json.panels).map((p) => panelOf(p, refs)).filter(Boolean).slice(0, 3);
+  const panels = arr(json.panels).map((p) => panelOf(p, refs, own)).filter(Boolean).slice(0, 3);
   return { line, back, what: str(json.what, 80) || x.card?.what || null, steps, ask, panels };
 }
 
 export class SessionMouth {
-  constructor({ log, conv }) {
-    Object.assign(this, { log, conv });
+  // views：パネル置き場の view を読む関数（読むたびに置き場から。なければ利用者の view はない）
+  constructor({ log, conv, views = () => [] }) {
+    Object.assign(this, { log, conv, views });
     this.reading = new Set();
     this.busy = false;
     this.again = false;
@@ -450,15 +461,16 @@ export class SessionMouth {
     this.busy = true;
     this.reading.add(x.id);
     const turn = x.turn;
-    let res;
+    let res, views = [];
     try {
-      res = await this.conv.send(sessionPrompt(this.log.state, x));
+      views = this.views();
+      res = await this.conv.send(sessionPrompt(this.log.state, x, views));
     } catch (e) {
       res = { ok: false, error: e.message };
     }
     if (!this.stopped) {
       const cur = this.log.state.sessions.find((s) => s.id === x.id);
-      const card = res.ok ? cardOf(res.json, cur) : null;
+      const card = res.ok ? cardOf(res.json, cur, new Set(views.map((v) => v.name))) : null;
       if (card) this.log.add("card", { session: x.id, turn, ...card });
       else this.log.add("nocard", { session: x.id, turn, reason: res.ok ? "係の返したカードが読めない" : `係が読めなかった：${res.error}` });
     }

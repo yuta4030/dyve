@@ -93,11 +93,13 @@ export function toolLine({ name, input }) {
 const fail = (code, message) => ({ ok: false, code, message });
 
 export class Sessions {
-  // roles：loadRoles の結果。room：起きる場所（role.place が room のとき）。spawn：claudeSpawn か、テストの偽物
-  constructor({ log, roles, room, spawn, slots = 3 }) {
+  // roles：loadRoles の結果。room：place が room の役割が起きる場所。panels：place が panels の役割が起きる場所（パネル置き場）。
+  // spawn：claudeSpawn か、テストの偽物
+  constructor({ log, roles, room, panels = null, spawn, slots = 3 }) {
     this.log = log;
     this.roles = roles;
     this.room = room;
+    this.places = { room, panels };
     this.spawn = spawn;
     this.slots = Math.max(1, slots);
     this.running = new Map(); // セッションの id -> { kill, claude }
@@ -139,14 +141,20 @@ export class Sessions {
     } else if (to.role != null) {
       const role = this.roles[to.role];
       if (!role) return fail("not_found", `役割「${to.role}」がない`);
-      if (role.place !== "room") return fail("unavailable", `役割「${to.role}」の起きる場所（${role.place}）はまだ用意していない`);
-      session = this.log.add("open", { role: to.role, cwd: this.room, name: typeof to.name === "string" && to.name.trim() ? to.name.trim() : null }).record.seq;
+      const cwd = this.placeOf(role);
+      if (!cwd) return fail("unavailable", `役割「${to.role}」の起きる場所（${role.place}）はまだ用意していない`);
+      session = this.log.add("open", { role: to.role, cwd, name: typeof to.name === "string" && to.name.trim() ? to.name.trim() : null }).record.seq;
     } else {
       return fail("invalid", "to には session か role を書く");
     }
     this.log.add("pass", { session, said, ...(typeof to.body === "string" && to.body.trim() ? { text: to.body.trim() } : {}) });
     this._fill();
     return { ok: true, session };
+  }
+
+  // 役割が起きる場所（用意できていなければ null）
+  placeOf(role) {
+    return (role && Object.hasOwn(this.places, role.place) && this.places[role.place]) || null;
   }
 
   _session(id) {

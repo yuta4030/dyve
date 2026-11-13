@@ -10,14 +10,16 @@ import { loadRoles } from "../src/roles.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
 import { readConfig } from "../src/config.js";
 import { Words } from "../src/words.js";
+import { ensurePanels, listViews } from "../src/panels.js";
 import { Kakari, SaidMouth, SessionMouth, Folder, Conv, claudeConv, readDef, SAID_SCHEMA, CARD_SCHEMA } from "../src/kakari.js";
 
 const HOME = path.join(os.homedir(), ".dyve", "next");
 const USAGE = `使い方:
-  dyve serve [--port 4750] [--data FILE] [--room DIR] [--claude CMD] [--slots 3] [--config FILE]
+  dyve serve [--port 4750] [--data FILE] [--room DIR] [--claude CMD] [--slots 3] [--config FILE] [--panels DIR]
     --data    記録（既定：~/.dyve/next/record.jsonl）
     --room    セッションが起きる場所（既定：いまの場所）
-    --config  利用者の設定（既定：~/.dyve/next/config.json。役割の定義はその隣の roles/<名前>.md、辞書は words.jsonl）`;
+    --config  利用者の設定（既定：~/.dyve/next/config.json。役割の定義はその隣の roles/<名前>.md、辞書は words.jsonl）
+    --panels  パネル置き場（既定：設定の隣の panels/。なければ作る）`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -36,6 +38,7 @@ try {
       claude: { type: "string", default: "claude" },
       slots: { type: "string", default: "3" },
       config: { type: "string", default: path.join(HOME, "config.json") },
+      panels: { type: "string" },
     },
   });
 } catch (e) {
@@ -69,7 +72,16 @@ if (log.skipped) process.stderr.write(`注意：記録の ${log.skipped} 行が�
 const missing = claudeMissing(v.claude);
 if (missing) process.stderr.write(`注意：${missing}\n`);
 
-const sessions = new Sessions({ log, roles, room, spawn: claudeSpawn(v.claude), slots }).start();
+// パネル置き場：なければ作る（git の履歴つき）。あれば何も上書きしない
+let panels;
+try {
+  const made = ensurePanels(path.resolve(v.panels ?? path.join(place, "panels")));
+  panels = made.dir;
+  if (made.warn) process.stderr.write(`注意：${made.warn}\n`);
+} catch (e) {
+  die(`パネル置き場を作れない：${e.message}`);
+}
+const sessions = new Sessions({ log, roles, room, panels, spawn: claudeSpawn(v.claude), slots }).start();
 // 係：道具を持たない Claude Code。起きる場所は置き場の中の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(place, "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
@@ -78,13 +90,13 @@ const words = new Words(path.join(place, "words.jsonl"));
 const conv = (def, schema) => new Conv({ open: () => claudeConv({ cmd: v.claude, prompt: readDef(def), schema, model: conf.kakari.model ?? "haiku", cwd: kakariDir }) });
 const kakari = new Kakari([
   new SaidMouth({ log, sessions, roles, words, conv: conv("said", SAID_SCHEMA) }),
-  new SessionMouth({ log, conv: conv("session", CARD_SCHEMA) }),
+  new SessionMouth({ log, conv: conv("session", CARD_SCHEMA), views: () => listViews(panels) }),
   new Folder({ log }),
 ]).start();
-const server = createServer({ log });
+const server = createServer({ log, panels });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}（役割：${Object.keys(roles).join("・")}）\n`);
+  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}（役割：${Object.keys(roles).join("・")}）\nパネル置き場：${panels}\n`);
 });
 const quit = () => {
   kakari.stop();

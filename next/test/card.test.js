@@ -66,7 +66,8 @@ test("係の定義：一瞬でわかるパネル、言っていないことを�
   assert.match(def, /一瞬で/);
   assert.match(def, /セッションが言っていないことを足しません/);
   assert.match(def, /人への問いは、セッションが実際に聞いたことだけ/);
-  assert.deepEqual(CARD_SCHEMA.properties.panels.items.properties.view.enum, ["summary", "list", "table", "text", "json"]);
+  assert.equal(CARD_SCHEMA.properties.panels.items.properties.view.type, "string", "置き場の view の名前も書けるよう、名前は絞らない");
+  assert.match(def, /置き場の view/);
 });
 
 test("止まったら係に渡す：セッション・頼んだこと・前のカード・やりとり（通し番号つき）・最後の言葉", async () => {

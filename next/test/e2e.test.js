@@ -89,6 +89,22 @@ test("通し：発言 → 係が届け先を決める → セッション → �
   }
 });
 
+test("通し：パネル置き場の view を使うカード。置き場は立てるときに作られ、view の一覧と中身が読める", { timeout: 20000 }, async () => {
+  const { base, stop, dir } = await serve();
+  try {
+    assert.ok(fs.existsSync(path.join(dir, "panels", "views", "bars.js")), "置き場は設定の隣に作られる");
+    assert.deepEqual((await (await fetch(`${base}/api/views`)).json()).map((v) => v.name), ["bars"]);
+    await say(base, "甲と乙を棒で比べて");
+    const s = await until(base, (s) => s.backs.length === 1);
+    const card = s.sessions[0].card;
+    assert.equal(card.panels[0].view, "bars");
+    assert.deepEqual(card.panels[0].data.map((r) => r.label), ["甲", "乙"]);
+    assert.ok(card.panels[0].data[0].ref, "行に、もとのやりとりの番号");
+  } finally {
+    await stop();
+  }
+});
+
 test("通し：立て直しても、カードとチャットの一行が残る", { timeout: 20000 }, async () => {
   const a = await serve();
   await say(a.base, "版を調べて");

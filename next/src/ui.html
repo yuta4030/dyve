@@ -110,6 +110,7 @@ dyve-overview.zone, dyve-peek.zone { overflow-y: auto; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .tbl th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; border-bottom: 1px solid var(--line); padding: 2px 6px 2px 0; }
 .tbl td { padding: 2px 6px 2px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--sunk); }
+.uframe { display: block; width: 100%; height: 40px; border: 0; background: transparent; }
 .ptext { white-space: pre-wrap; overflow-wrap: anywhere; }
 .pjson { margin: 0; font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
 .more-rows { font-size: 11.5px; color: var(--muted); }
@@ -206,6 +207,7 @@ const L = {
   stage: { run: "実行中", wait: "人待ち", back: "帰った", done: "済み" }, noResult: "帰った・結果なし", doneNone: "済み・結果なし",
   shelf: "済み", shelfCap: "終わったセッションはここに畳まれる。消えない。話しかければ戻る", justFolded: "いま畳んだ",
   shelfMore: (n) => `ほか ${n} 件`, shelfLess: "新しいものだけ", noResultLine: (why) => `結果なし：${why}`,
+  viewFallback: (v) => `view「${v}」で描けなかったので、データをそのまま出す`,
   toDone: (name) => `→ ${name}（済み）`,
   roleLabel: "任せた先", ask: "人への問い", peekBtn: "中身を覗く", hit: "いま届いた", mark: "見てほしい",
   stepAt: (i, n, t) => `${i}/${n}　${t}`, stepsDone: "済んだ",
@@ -273,7 +275,83 @@ const VIEWS = {
   text: (d) => `<p class="ptext">${esc(d)}</p>`,
   json: (d, o) => `<pre class="pjson">${esc(o.full ? JSON.stringify(d, null, 2) : JSON.stringify(d).slice(0, 160))}</pre>`,
 };
-const panelHtml = (p, o = {}) => `<div class="panel">${p.title ? `<h3>${esc(p.title)}</h3>` : ""}${(VIEWS[p.view] ?? VIEWS.json)(p.data, o)}</div>`;
+// 本体の view でなければ、パネル置き場の view として囲い（iframe）に描く。o.key は描き直しで同じ囲いを使い続けるための鍵、o.session はそのパネルのセッション
+function panelHtml(p, o = {}) {
+  const head = p.title ? `<h3>${esc(p.title)}</h3>` : "";
+  if (Object.hasOwn(VIEWS, p.view)) return `<div class="panel">${head}${VIEWS[p.view](p.data, o)}</div>`;
+  const key = `${o.key}`;
+  UV.set(key, { view: p.view, data: p.data, full: !!o.full, session: o.session });
+  return `<div class="panel">${head}<div class="uview" data-uv="${esc(key)}"></div></div>`;
+}
+
+// ── パネル置き場の view：sandbox の iframe（allow-scripts だけ）で描く ──
+// view ができるのは、描くこと・行のもとのやりとりを光らせるよう頼むこと（ref を一つ）・自分の高さを伝えること、だけ。
+// 囲いの中から外へは出さない：読めるのは中に書いたスクリプトと style、data: の絵だけ。dyve の口にも外のサーバーにも通信できない。
+// 囲いごと別のページへ移ることは、このページの frame-src（サーバーが付ける）と sandbox で止める
+const UV = new Map(); // 鍵 -> { view, data, full, session }
+const FRAME_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+const FRAME_VARS = ["--bg", "--surface", "--sunk", "--ink", "--muted", "--line", "--accent", "--accent-soft"];
+const FRAME_MAX = { card: 160, full: 2000 };
+const RUNTIME = `window.dyve = (() => {
+  const init = JSON.parse(document.getElementById("init").textContent), root = document.getElementById("root");
+  let called = false;
+  const fail = (m) => parent.postMessage({ dyve: "fail", m: String(m) }, "*");
+  addEventListener("error", (e) => { if (!/ResizeObserver loop/.test(e.message)) fail(e.message); });
+  new ResizeObserver(() => parent.postMessage({ dyve: "size", h: document.documentElement.scrollHeight }, "*")).observe(document.body);
+  addEventListener("load", () => { if (!called) fail("dyve.view was not called"); });
+  const ctx = { theme: init.theme, light: (ref) => parent.postMessage({ dyve: "light", ref }, "*") };
+  return { view: (fn) => { called = true; try { fn(root, init.data, ctx); } catch (e) { fail(e.message); } } };
+})();`;
+// まだ囲いを作っていない場所に作る。view の中身は、頼まれるたびに置き場から読む（書き換えたら次に描くときから新しいもの）
+function hydrate(root) {
+  for (const el of root.querySelectorAll(".uview:not([data-on])")) {
+    el.dataset.on = "1";
+    const u = UV.get(el.dataset.uv);
+    if (!u) continue;
+    fetch(`/api/views/${encodeURIComponent(u.view)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status))))).then(
+      (src) => el.replaceChildren(frameOf(u, src)),
+      () => fallback(el, u),
+    );
+  }
+}
+// 描けなかったら、データをそのまま json で出す（何も出ないことにしない）
+function fallback(el, u) {
+  el.innerHTML = `<p class="more-rows">${esc(L.viewFallback(u.view))}</p>${VIEWS.json(u.data, { full: u.full })}`;
+}
+function frameOf(u, src) {
+  const f = document.createElement("iframe");
+  f.className = "uframe";
+  f.setAttribute("sandbox", "allow-scripts");
+  f.title = u.view;
+  f.dataset.session = u.session;
+  f.dataset.max = u.full ? FRAME_MAX.full : FRAME_MAX.card;
+  const cs = getComputedStyle(document.documentElement);
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const vars = FRAME_VARS.map((v) => `${v}:${cs.getPropertyValue(v)}`).join(";");
+  const init = JSON.stringify({ data: u.data, theme: dark ? "dark" : "light" }).replace(/</g, "\\u003c");
+  const safe = (t) => String(t).replace(/<\/(script)/gi, "<\\/$1");
+  f.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}">` +
+    `<style>:root{${vars};color-scheme:${dark ? "dark" : "light"}}html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.5 system-ui,"Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden}</style>` +
+    `<body><div id="root"></div><script type="application/json" id="init">${init}<\/script><script>${RUNTIME}<\/script><script>${safe(src)}<\/script></body>`;
+  return f;
+}
+// 囲いの中からの知らせ：高さ・光らせたい・描けなかった。ほかは受けない
+addEventListener("message", (e) => {
+  const f = [...document.querySelectorAll("iframe.uframe")].find((x) => x.contentWindow === e.source);
+  const m = e.data || {};
+  if (!f || typeof m.dyve !== "string") return;
+  if (m.dyve === "size" && Number.isFinite(m.h)) f.style.height = `${Math.min(Number(f.dataset.max), Math.max(20, Math.ceil(m.h)))}px`;
+  else if (m.dyve === "fail") {
+    const el = f.closest(".uview"), u = el && UV.get(el.dataset.uv);
+    if (u) fallback(el, u);
+  } else if (m.dyve === "light" && Number.isInteger(m.ref)) {
+    // そのセッションにある番号だけ。カードの中からなら、そのセッションを覗いてから光らせる
+    const x = state?.sessions.find((s) => String(s.id) === f.dataset.session);
+    if (!x || !(x.asked.includes(m.ref) || x.flow.some((g) => g.seq === m.ref && (g.talk || g.tool)))) return;
+    if (ui.peek !== x.id) peek(x.id);
+    peekView.light(String(m.ref));
+  }
+});
 
 // ステートの札。結果なしはそれとわかるように
 function pillHtml(x) {
@@ -332,7 +410,8 @@ class Overview extends HTMLElement {
       if (line.textContent !== nowOf(x)) line.textContent = nowOf(x);
       put(c.querySelector(".cprog"), progHtml(x.card?.steps));
       put(c.querySelector(".cyours"), wait ? `<b>${L.ask}</b>${esc(x.card.ask.text)}` : "");
-      put(c.querySelector(".cpanel"), x.card?.panels[0] ? panelHtml(x.card.panels[0]) : "");
+      put(c.querySelector(".cpanel"), x.card?.panels[0] ? panelHtml(x.card.panels[0], { key: `${x.id}-${x.card.seq}-0-c`, session: x.id }) : "");
+      hydrate(c);
     }
   }
 
@@ -402,7 +481,8 @@ class Peek extends HTMLElement {
     const steps = card?.steps?.length && g.stage !== "run"
       ? `<ol class="steps">${card.steps.map((t) => `<li class="${t.state}">${esc(t.text)}</li>`).join("")}</ol>`
       : `<p>${esc(nowOf(x))}</p>`;
-    put(this.querySelector(".pcol"), ask + `<div class="panel"><h3>${L.now}</h3>${steps}</div>` + (card?.panels ?? []).map((p) => panelHtml(p, { full: true })).join(""));
+    put(this.querySelector(".pcol"), ask + `<div class="panel"><h3>${L.now}</h3>${steps}</div>` + (card?.panels ?? []).map((p, i) => panelHtml(p, { full: true, key: `${x.id}-${card.seq}-${i}-f`, session: x.id })).join(""));
+    hydrate(this.querySelector(".pcol"));
   }
 
   // パネルの行を押したら、もとのやりとりを光らせ、そこが見えるところまでやりとりだけを動かす

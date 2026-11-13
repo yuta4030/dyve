@@ -14,11 +14,11 @@ const COMMIT = ["Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Ba
 // 外に届くこと・取り消せないこと。どの役割にも禁じ、利用者の設定でも外せない（Claude Code では禁止が許可に勝つ）
 export const NEVER = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git reset:*)", "Bash(rm:*)"];
 
-// place：起きる場所。room は serve の --room。worktree（開発）と panels（パネル）はまだ用意していない
+// place：起きる場所。room は serve の --room、panels は利用者のパネル置き場。worktree（開発）はまだ用意していない
 const BUILTIN = {
   調べもの: { about: "頼まれたことを、リポジトリを読み、要るときは Web で調べて答える。ファイルは書き換えない", place: "room", tools: READ, deny: ["Edit", "Write", "NotebookEdit"] },
   開発: { about: "仕事ごとの作業場（git worktree とブランチ）でコードを書き、テストを走らせてコミットする", place: "worktree", tools: [...READ, "Edit", "Write", "Bash(node --test:*)", ...COMMIT], deny: ["Bash(git worktree:*)", "Bash(git checkout:*)"] },
-  パネル: { about: "利用者のパネル置き場で、パネルの view を書く", place: "panels", tools: [...READ, "Edit", "Write", ...COMMIT], deny: [] },
+  パネル: { about: "パネルの見せ方（view）そのものを作る・直す。「〜を棒で見たい」「こういうパネルがほしい」のような、見せ方の頼み。データを調べて答える頼みではない", place: "panels", tools: [...READ, "Edit", "Write", ...COMMIT], deny: [] },
 };
 
 
