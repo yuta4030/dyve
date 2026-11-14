@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dyve 次に直すところの絵</title>
 <style>
-/* 上に画面の絵（左にオーバービュー、右にチャット）、下に番号ごとの説明。番号は rebuild-next.md の節と同じ */
+/* 上に画面の絵（左にチャット、右にオーバービュー）、下に番号ごとの説明。番号は rebuild-next.md の節と同じ */
 :root {
   --bg: #f1f5f6; --surface: #ffffff; --sunk: #e7edef; --ink: #13252c; --muted: #566a72;
   --line: #d2dce0; --accent: #0a6c88; --accent-soft: #dbecf1; --you: #a05406; --you-soft: #f8e9d4;
@@ -35,9 +35,10 @@ h1 { font-size: 20px; }
 .pin { position: absolute; top: -9px; right: -7px; }
 
 /* 画面の端まで使う。外の余白と角の丸みを持たない。高さも使い切り、カードの行が余った高さを分け合う */
-.app { background: var(--surface); border-block: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); min-height: 88vh; }
+.app { background: var(--surface); border-block: 1px solid var(--line); display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); min-height: 88vh; }
 .zone { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.chat { border-left: 1px solid var(--line); }
+/* チャットは左、オーバービューは右 */
+.chat { order: -1; border-right: 1px solid var(--line); }
 .cap { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
 .cap b { font-family: var(--font-mono); font-weight: 500; color: var(--accent); }
 .quota { margin-left: auto; position: relative; display: flex; gap: 10px; font-family: var(--font-mono); font-size: 11.5px; padding-right: 16px; }
@@ -125,7 +126,7 @@ h1 { font-size: 20px; }
 
 @media (max-width: 900px) {
   .app { grid-template-columns: minmax(0, 1fr); }
-  .chat { border-left: 0; border-top: 1px solid var(--line); }
+  .chat { order: 0; border-right: 0; border-top: 1px solid var(--line); }
   .card.s, .card.m, .card.l { flex: 1 1 100%; }
   .card.m .cbody, .card.l .cbody { grid-template-columns: minmax(0, 1fr); }
 }
