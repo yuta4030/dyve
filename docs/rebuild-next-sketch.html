@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dyve 次に直すところの絵</title>
+<style>
+/* 上に画面の絵（左にオーバービュー、右にチャット）、下に番号ごとの説明。番号は rebuild-next.md の節と同じ */
+:root {
+  --bg: #f1f5f6; --surface: #ffffff; --sunk: #e7edef; --ink: #13252c; --muted: #566a72;
+  --line: #d2dce0; --accent: #0a6c88; --accent-soft: #dbecf1; --you: #a05406; --you-soft: #f8e9d4;
+  --back: #2a7548; --back-soft: #ddefe3; --note: #7a2e8a; --note-soft: #f1def5;
+  --font-body: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b161b; --surface: #12222a; --sunk: #1a2e37; --ink: #e2edf0; --muted: #8fa5ad;
+    --line: #253a43; --accent: #55bcd8; --accent-soft: #143744; --you: #e3a552; --you-soft: #3a2c14;
+    --back: #6fc490; --back-soft: #16352a; --note: #d79ae6; --note-soft: #3a1f42;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7; padding: 20px 16px 40px; }
+p, h1, h2, h3 { margin: 0; }
+.wrap { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-size: 20px; }
+.lead { color: var(--muted); font-size: 14px; }
+
+/* 番号の札 */
+.n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--note); color: var(--surface); font-size: 12px; font-weight: 700; font-family: var(--font-mono); flex: none; vertical-align: middle; }
+.pin { position: absolute; top: -9px; right: -7px; }
+
+.app { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); overflow: hidden; }
+.zone { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.chat { border-left: 1px solid var(--line); }
+.cap { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.cap b { font-family: var(--font-mono); font-weight: 500; color: var(--accent); }
+.quota { margin-left: auto; position: relative; display: flex; gap: 10px; font-family: var(--font-mono); font-size: 11.5px; padding-right: 16px; }
+.quota i { font-style: normal; color: var(--ink); }
+
+/* 5. カードは折り返して並び、行はいつも埋まる。順は変えない */
+.cards { display: flex; flex-wrap: wrap; gap: 12px 10px; align-items: stretch; padding-top: 6px; }
+.card { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card.s { flex: 2 1 200px; }
+.card.m { flex: 4 1 420px; }
+.card.l { flex: 1 1 100%; }
+.size { margin-top: auto; align-self: flex-end; font-size: 11px; color: var(--note); }
+.chead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.sym { font-family: var(--font-mono); font-weight: 500; width: 24px; height: 24px; flex: none; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; }
+.sym.dim { color: var(--muted); border-style: dashed; }
+.cname { font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; font-weight: 500; }
+.pill.run { background: var(--accent-soft); color: var(--accent); }
+.pill.wait { background: var(--you-soft); color: var(--you); }
+.pill.back { background: var(--back-soft); color: var(--back); }
+.roles { display: flex; gap: 4px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.role { border-radius: 5px; padding: 0 6px; line-height: 1.6; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.cbody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px 14px; }
+.card.m .cbody { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+.card.l .cbody { grid-template-columns: minmax(0, 3fr) minmax(0, 8fr); }
+.cmain { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cline { font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+.prog { display: flex; gap: 3px; }
+.prog span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.prog .done { background: var(--back); }
+.prog .now { background: var(--accent); }
+.pstep { font-size: 12.5px; color: var(--muted); }
+.cyours { background: var(--you-soft); border-radius: 8px; padding: 6px 9px; font-size: 13.5px; line-height: 1.55; }
+.cyours b { display: block; font-size: 12px; color: var(--you); }
+.tools { list-style: none; margin: 0; padding: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 1px; }
+.tools li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tools li:last-child { color: var(--ink); }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; align-content: start; min-width: 0; position: relative; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 13px; }
+.panel h3 { font-size: 12px; font-weight: 700; color: var(--muted); }
+.sum { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.sum div { display: flex; flex-direction: column; }
+.sum b { font-size: 17px; line-height: 1.3; }
+.sum span { font-size: 11.5px; color: var(--muted); }
+.items { list-style: none; margin: 0; padding: 0; }
+.items li { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.items li span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { white-space: nowrap; text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; border-bottom: 1px solid var(--line); padding: 2px 6px 2px 0; }
+.tbl td { padding: 2px 6px 2px 0; border-bottom: 1px solid var(--sunk); }
+.wline { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: 12.5px; color: var(--muted); }
+.wline code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); }
+.plus { color: var(--back); font-family: var(--font-mono); }
+.minus { color: var(--you); font-family: var(--font-mono); }
+.act { align-self: flex-start; background: var(--accent); color: var(--surface); border: 0; border-radius: 8px; padding: 3px 12px; font: inherit; font-size: 13px; font-weight: 700; }
+
+.shelf { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 6px; display: flex; flex-direction: column; gap: 8px; position: relative; }
+.drows { display: flex; flex-wrap: wrap; gap: 6px; }
+.drow { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px 3px 4px; font-size: 13px; color: var(--muted); }
+.drow b { color: var(--ink); font-weight: 500; }
+
+/* チャット */
+.talk { display: flex; flex-direction: column; gap: 10px; }
+.said { align-self: flex-end; max-width: 94%; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; position: relative; }
+.said p { background: var(--sunk); border-radius: 10px; padding: 6px 10px; font-size: 14px; line-height: 1.6; }
+.chip { font-size: 12px; color: var(--accent); text-align: right; }
+.chip.warn { color: var(--you); max-width: 26em; }
+.chip s { color: var(--muted); }
+.from { align-self: flex-start; max-width: 94%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: start; font-size: 14px; line-height: 1.6; position: relative; }
+.field { margin-top: auto; border: 1.5px solid var(--accent); border-radius: 12px; padding: 10px 14px; background: var(--bg); color: var(--muted); font-size: 15px; }
+
+/* 説明 */
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+.note { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; line-height: 1.6; }
+.note h2 { font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.note .was { color: var(--muted); font-size: 12.5px; }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+.rule table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.rule th, .rule td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--sunk); vertical-align: top; }
+.rule th { font-weight: 500; color: var(--muted); font-size: 12px; }
+.rule th:first-child, .rule td:first-child { white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .chat { border-left: 0; border-top: 1px solid var(--line); }
+  .card.s, .card.m, .card.l { flex: 1 1 100%; }
+  .card.m .cbody, .card.l .cbody { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>次に直すところの絵</h1>
+    <p class="lead">使ってみたレポートから直す 6 つを、一枚の画面に置いたもの。紫の番号は <code>rebuild-next.md</code> の節。動かない見本で、決まりの正本ではない。</p>
+  </header>
+
+  <main class="app">
+    <section class="zone">
+      <p class="cap"><b>オーバービュー</b>カードは並んだ順のまま。大きさだけが変わる
+        <span class="quota"><span>5 時間 <i>62%</i></span><span>週 <i>31%</i></span><span class="n pin">6</span></span>
+      </p>
+
+      <div class="cards">
+        <article class="card l">
+          <span class="n pin">5</span>
+          <div class="chead"><span class="sym">C</span><span class="cname">ログ検討</span><span class="pill back">帰った</span></div>
+          <div class="cbody">
+            <div class="cmain">
+              <p class="roles"><span>任せた先</span><span class="role">調べもの</span></p>
+              <p class="cline">パネルを厚くする案は 3 段。まずカードを書く口だけモデルを上げる</p>
+              <div><div class="prog"><span class="done"></span><span class="done"></span><span class="done"></span></div><p class="pstep">済んだ</p></div>
+            </div>
+            <div class="panels">
+              <div class="panel"><h3>案</h3>
+                <table class="tbl"><thead><tr><th>段</th><th>やること</th><th>重さ</th></tr></thead>
+                <tbody><tr><td>1</td><td>カードを書く口のモデル</td><td>小</td></tr><tr><td>2</td><td>view を 4 つ足す</td><td>中</td></tr><tr><td>3</td><td>道具を持つパネル係</td><td>大</td></tr></tbody></table>
+              </div>
+              <div class="panel"><h3>読んだログ</h3>
+                <div class="sum"><div><b>412 件</b><span>記録</span></div><div><b>6 件</b><span>伝言</span></div><div><b>3 回</b><span>言い直し</span></div></div>
+              </div>
+              <div class="panel"><h3>伝言</h3>
+                <ul class="items"><li><span>カードを大きく</span><span class="v">3 件目</span></li><li><span>利用枠の残り</span><span class="v">4 件目</span></li><li><span>追従</span><span class="v">未決</span></li><li><span>前のパネル</span><span class="v">未決</span></li></ul>
+              </div>
+            </div>
+          </div>
+          <span class="size">大：パネル 2 枚以上</span>
+        </article>
+
+        <article class="card m">
+          <div class="chead"><span class="sym">D</span><span class="cname">記号の固定</span><span class="pill wait">人待ち</span></div>
+          <div class="cbody">
+            <div class="cmain">
+              <p class="roles"><span>任せた先</span><span class="role">開発</span></p>
+              <p class="cline">記号をできた順に固定した。テストは 101 件通る</p>
+              <div class="cyours"><b>人への問い</b>古い記録を当て直すと記号が変わります。前の記号を覚えている人のために、変わったことをチャットに一行出しますか</div>
+            </div>
+            <div class="panels">
+              <span class="n pin">6</span>
+              <div class="panel"><h3>作業場</h3>
+                <p class="wline"><code>dyve/12-kigou</code><span>2 コミット</span><span class="plus">+86</span><span class="minus">−41</span></p>
+                <ul class="items"><li><span>next/src/state.js</span></li><li><span>next/src/kakari.js</span></li><li><span>next/kakari/発言.md</span></li><li><span>next/test/fold.test.js</span><span class="v">ほか 2</span></li></ul>
+                <button class="act">取り込む</button>
+              </div>
+            </div>
+          </div>
+          <span class="size">中：人待ち、またはパネル 1 枚</span>
+        </article>
+
+        <article class="card s">
+          <div class="chead"><span class="sym">E</span><span class="cname">競合の値段</span><span class="pill run">実行中</span></div>
+          <p class="roles"><span>任せた先</span><span class="role">調べもの</span></p>
+          <p class="cline">乙社の料金ページを読んでいる</p>
+          <ul class="tools"><li>WebSearch 乙社 料金 年払い</li><li>WebFetch https://example.com/pricing</li><li>Grep 月額 docs/</li></ul>
+          <span class="size">小：パネルがまだない</span>
+        </article>
+
+        <article class="card s">
+          <div class="chead"><span class="sym">F</span><span class="cname">README の誤字</span><span class="pill back">帰った</span></div>
+          <p class="roles"><span>任せた先</span><span class="role">調べもの</span></p>
+          <p class="cline">誤字は 2 か所。直す先は next/README.md</p>
+          <span class="size">小</span>
+        </article>
+
+        <article class="card m">
+          <div class="chead"><span class="sym">B</span><span class="cname">ビュー開発</span><span class="pill run">実行中</span></div>
+          <div class="cbody">
+            <div class="cmain">
+              <p class="roles"><span>任せた先</span><span class="role">パネル</span></p>
+              <p class="cline">棒で見せる view を書いている</p>
+              <div><div class="prog"><span class="done"></span><span class="now"></span><span></span></div><p class="pstep">2/3　データの形を決める</p></div>
+            </div>
+            <div class="panels">
+              <div class="panel"><h3>前のカードのパネル</h3>
+                <ul class="items"><li><span>bars.js</span><span class="v">書いた</span></li><li><span>README の例</span><span class="v">これから</span></li></ul>
+              </div>
+            </div>
+          </div>
+          <span class="size">中：戻っても B のまま。動き出しても縮まない</span>
+        </article>
+      </div>
+
+      <div class="shelf">
+        <span class="n pin">1</span>
+        <p class="cap"><b>済み</b>畳んでも記号は変わらない。「A で」と言えば戻る</p>
+        <div class="drows">
+          <span class="drow"><span class="sym dim">A</span><b>dyve 最新版の確認</b><span>next は 8 まで入っている</span></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="zone chat">
+      <p class="cap"><b>チャット</b>一つだけ。どのセッションにもここから喋る</p>
+      <div class="talk">
+        <div class="said"><span class="n pin">1</span><p>B で並行して進めて</p><span class="chip">→ B ビュー開発（済みから戻した）</span></div>
+
+        <div class="said"><span class="n pin">2</span><p>さっきのやつ、ファイルにまとめておいて</p>
+          <span class="chip warn">届けていない：どのセッションの話かわからなかった。記号か名前で言えば届く</span></div>
+
+        <div class="said"><p>ログ検討のほう</p><span class="chip">前の発言を届け直した</span></div>
+
+        <div class="from"><span class="sym">C</span><span>案は 3 段。まとめはカードに置いた</span></div>
+
+        <div class="said"><span class="n pin">3</span><p>テストも足しておいて</p><span class="chip">→ D 記号の固定（<s>C</s> から付け替え）</span></div>
+
+        <div class="said"><p>C じゃなくて D</p><span class="chip">前の発言を付け替えた</span></div>
+
+        <div class="from"><span class="sym">D</span><span>古い記録の記号が変わることを、チャットに出すか決めてほしい</span></div>
+      </div>
+      <div class="field">宛先は選ばない。喋るだけ</div>
+    </section>
+  </main>
+
+  <section class="notes">
+    <div class="note"><h2><span class="n">1</span>記号を固定する</h2><p>できた順に振り、畳んでも戻っても変えない。済みの列とチャットにも記号を出す。</p><p class="was">いま：畳むと字を返し、次のセッションが同じ字をもらう。済みは名前でしか呼べない。</p></div>
+    <div class="note"><h2><span class="n">2</span>届けなかったわけを返す</h2><p>頼みらしいのに届け先を決められなかったら、その発言の下に、わけと言い直し方を一行。独り言は静かなまま。</p><p class="was">いま：どちらも薄い字で「どこにも届けていない」。</p></div>
+    <div class="note"><h2><span class="n">3</span>届けた発言を付け替える</h2><p>「C じゃなくて D」で付け替える。声で言われたときだけ。まだ渡していなければ、元のセッションからは取り消す。</p><p class="was">いま：一度届けた発言は動かせない。</p></div>
+    <div class="note"><h2><span class="n">4</span>カードを書く口のモデルを分ける</h2><p>届け先は速いモデルのまま、カードとパネルを書く口だけ上げる。絵には出ないが、パネルの中身はここで決まる。</p><p class="was">いま：二つの口が同じモデル（既定は haiku）。</p></div>
+    <div class="note"><h2><span class="n">5</span>カードの大きさと、パネルを全部</h2><p>大きさはステートとパネルの数から導く。行はいつも埋まり、順は変わらない。パネルは 3 枚まで全部出す。</p><p class="was">いま：どのカードも 230px の列。パネルは 1 枚目の頭だけ。</p></div>
+    <div class="note"><h2><span class="n">6</span>dyve が自分で取れるパネル</h2><p>作業場（ブランチ・行数・ファイル）と利用枠の残りは、係を呼ばずに出す。動いているカードは、使った道具の新しい 3 行。</p><p class="was">いま：作業場は一行。利用枠は受け取るだけで出していない。</p></div>
+  </section>
+
+  <section class="rule">
+    <b>大きさの決まり（5）</b>
+    <table>
+      <tr><th>大きさ</th><th>いつ</th><th>出すもの</th></tr>
+      <tr><td>小</td><td>パネルがまだない</td><td>いまどこまで（2 行）。動いているあいだは、使った道具の新しい 3 行</td></tr>
+      <tr><td>中</td><td>パネルが 1 枚、または人待ち</td><td>いまどこまで（3 行）・段取り・問いの全文・パネル 1 枚</td></tr>
+      <tr><td>大</td><td>パネルが 2 枚以上</td><td>中と同じものと、パネルを全部</td></tr>
+    </table>
+    <p class="lead" style="margin-top:6px">人も AI も大きさを変えられない。ポインタがオーバービューの上にあるあいだは変えず、離れたときに変える。</p>
+  </section>
+</div>
+</html>
