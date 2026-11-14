@@ -1,0 +1,475 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dyve 作り直しの絵</title>
+<style>
+/* layout: 上に「喋ってみる」言葉、まんなかに画面の絵（左にオーバービューか覗いた中身、右に一つのチャット）、下にしくみと決めること */
+:root {
+  --bg: #f1f5f6;
+  --surface: #ffffff;
+  --sunk: #e7edef;
+  --ink: #13252c;
+  --muted: #566a72;
+  --line: #d2dce0;
+  --accent: #0a6c88;
+  --accent-soft: #dbecf1;
+  --you: #a05406;
+  --you-soft: #f8e9d4;
+  --back: #2a7548;
+  --back-soft: #ddefe3;
+  --hl: #ffefbf;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b161b; --surface: #12222a; --sunk: #1a2e37; --ink: #e2edf0; --muted: #8fa5ad;
+    --line: #253a43; --accent: #55bcd8; --accent-soft: #143744; --you: #e3a552; --you-soft: #3a2c14;
+    --back: #6fc490; --back-soft: #16352a; --hl: #4a3d12; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b161b; --surface: #12222a; --sunk: #1a2e37; --ink: #e2edf0; --muted: #8fa5ad;
+  --line: #253a43; --accent: #55bcd8; --accent-soft: #143744; --you: #e3a552; --you-soft: #3a2c14;
+  --back: #6fc490; --back-soft: #16352a; --hl: #4a3d12; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.7;
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+h1 { font-size: 26px; line-height: 1.3; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 17px; margin: 0; font-weight: 700; }
+p { margin: 0; }
+.lead { color: var(--muted); max-width: 40em; }
+header { display: flex; flex-direction: column; gap: 8px; }
+button { font: inherit; color: inherit; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 喋ってみる */
+.try { display: flex; flex-direction: column; gap: 10px; }
+.try-label { font-size: 13px; color: var(--muted); }
+.says { display: flex; flex-wrap: wrap; gap: 8px; }
+.say {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 14px; cursor: pointer; min-width: 0;
+}
+.say:hover:not(:disabled) { border-color: var(--accent); }
+.say b { font-weight: 500; }
+.say small { font-size: 12px; color: var(--muted); }
+.say.event { border-style: dashed; }
+.say:disabled { opacity: .45; cursor: default; }
+.say.reset { background: transparent; border-color: transparent; color: var(--muted); justify-content: center; text-decoration: underline; }
+
+/* 画面の絵 */
+.app {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 330px); overflow: hidden;
+}
+.cap { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.cap b { font-family: var(--font-mono); font-weight: 500; color: var(--accent); letter-spacing: .02em; }
+.zone { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.talkzone { border-left: 1px solid var(--line); }
+.left.swap > :not(.cap) { animation: swap .26s ease-out; }
+@keyframes swap { from { opacity: .15; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes pulse { from { box-shadow: 0 0 0 6px var(--accent-soft); } to { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .left.swap > :not(.cap), .card.hit { animation: none; } }
+
+.sym { font-family: var(--font-mono); font-weight: 500; width: 24px; height: 24px; flex: none; border-radius: 6px; background: var(--surface); border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; }
+.pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; font-weight: 500; }
+.pill.ai { background: var(--accent-soft); color: var(--accent); }
+.pill.you { background: var(--you-soft); color: var(--you); }
+.pill.back { background: var(--back-soft); color: var(--back); }
+
+/* オーバービュー */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(225px, 1fr)); gap: 10px; }
+.card {
+  position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; min-width: 0;
+}
+.card:hover { border-color: var(--muted); }
+.card.hit { border-color: var(--accent); animation: pulse .7s ease-out; }
+.card.hit .pill.ai { background: var(--surface); }
+.chead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.cname { font-weight: 700; overflow-wrap: anywhere; }
+.cline { font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+.prog { display: flex; gap: 3px; }
+.prog span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.prog .done { background: var(--back); }
+.prog .now { background: var(--accent); }
+.pstep { font-size: 12.5px; color: var(--muted); }
+.cyours { background: var(--you-soft); border-radius: 8px; padding: 6px 9px; font-size: 13.5px; line-height: 1.55; }
+.cyours b { display: block; font-size: 12px; color: var(--you); }
+.cpanel { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.cpanel h3 { margin: 0 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.crow { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.crow span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.v { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.v.wait { font-family: var(--font-body); }
+.peekbtn { margin-top: auto; align-self: flex-start; background: none; border: 0; padding: 2px 0 0; font-size: 12.5px; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.tag { position: absolute; top: -9px; left: 10px; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--surface); border-radius: 999px; padding: 0 8px; line-height: 1.6; }
+.mark { position: absolute; top: -5px; right: -5px; width: 13px; height: 13px; border-radius: 50%; background: var(--you); border: 2px solid var(--surface); }
+
+.roles { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.roles > span:first-child { margin-right: 2px; }
+.role { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; line-height: 1.6; }
+.role.on { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 700; }
+.card.hit .role.on { background: var(--surface); }
+.shelf { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.drows { display: flex; flex-wrap: wrap; gap: 6px; }
+.drow { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; text-align: left; min-width: 0; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.drow:hover { border-color: var(--muted); }
+.drow b { color: var(--ink); font-weight: 500; }
+.drow i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--back); }
+
+/* 覗いた中身 */
+.phead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.backbtn { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 13px; cursor: pointer; }
+.backbtn:hover { border-color: var(--accent); }
+.pwhat { font-size: 13px; color: var(--muted); flex-basis: 100%; }
+.pbody { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 250px); gap: 14px; }
+.pcol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.panel { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.panel h3 { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.steps, .items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.steps li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; align-items: baseline; font-size: 13.5px; }
+.steps li::before { font-family: var(--font-mono); font-size: 12px; }
+.steps .done { color: var(--muted); }
+.steps .done::before { content: "✓"; color: var(--back); }
+.steps .now { font-weight: 700; }
+.steps .now::before { content: "●"; color: var(--accent); }
+.steps .todo { color: var(--muted); }
+.steps .todo::before { content: "○"; }
+.item {
+  width: 100%; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; text-align: left;
+  background: transparent; border: 0; border-radius: 6px; padding: 3px 6px; margin: 0 -6px; font-size: 13.5px; cursor: pointer; min-width: 0;
+}
+.item:hover { background: var(--sunk); }
+.item span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.yours { background: var(--you-soft); border-color: transparent; }
+.yours h3 { color: var(--you); }
+.yours .item { font-weight: 500; }
+.yours .item:hover { background: transparent; text-decoration: underline; }
+.chat { height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; position: relative; padding: 2px; }
+.msg { max-width: 92%; padding: 6px 10px; border-radius: 10px; font-size: 14px; line-height: 1.65; transition: background .3s; }
+.msg.you { align-self: flex-end; background: var(--sunk); }
+.msg.ai { align-self: flex-start; padding-left: 2px; }
+.msg.hl { background: var(--hl); padding-left: 10px; }
+
+/* 一つのチャット */
+.talk { flex: 1; min-height: 240px; max-height: 430px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px; }
+.said { align-self: flex-end; max-width: 94%; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.said p { background: var(--sunk); border-radius: 10px; padding: 6px 10px; font-size: 14px; line-height: 1.6; }
+.chip { background: none; border: 0; padding: 0; font-size: 12px; color: var(--accent); cursor: pointer; text-align: right; }
+.chip:hover { text-decoration: underline; }
+.from {
+  align-self: flex-start; max-width: 94%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; text-align: left;
+  background: none; border: 0; padding: 2px; border-radius: 8px; font-size: 14px; line-height: 1.6; cursor: pointer;
+}
+.from:hover { background: var(--bg); }
+.field { display: flex; align-items: center; gap: 10px; border: 1.5px solid var(--accent); border-radius: 12px; padding: 10px 14px; background: var(--bg); min-width: 0; }
+.field svg { flex: none; }
+.field .text { min-width: 0; color: var(--muted); }
+
+/* しくみ */
+.flow { display: flex; align-items: stretch; gap: 8px; flex-wrap: nowrap; }
+.node { flex: 1 1 0; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 14px; }
+.node small { font-weight: 400; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+.node.key { border-color: var(--accent); background: var(--accent-soft); }
+.sess { display: flex; gap: 6px; }
+.sess .sym { background: var(--bg); }
+.arr { flex: none; align-self: center; color: var(--muted); font-family: var(--font-mono); }
+.arr::before { content: "→"; }
+
+.block { display: flex; flex-direction: column; gap: 12px; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .talkzone { border-left: 0; border-top: 1px solid var(--line); }
+  .pbody { grid-template-columns: minmax(0, 1fr); }
+  .chat { height: 240px; }
+  .talk { max-height: 300px; min-height: 0; }
+  .flow { flex-direction: column; }
+  .arr::before { content: "↓"; }
+  h1 { font-size: 22px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>オーバービューと、一つのチャット</h1>
+    <p class="lead">ふだん見るのはこの二つだけ。喋るとセッションが裏で動き、カードが変わる。気になったセッションだけ、カードから中身を覗く。誰に任せるかは内容から勝手に決まり、終わったセッションは済みに畳まれる。</p>
+  </header>
+
+  <div class="try">
+    <p class="try-label">押すと下の絵が動く。宛先はどれも選んでいない。</p>
+    <div class="says" id="says"></div>
+  </div>
+
+  <div class="app">
+    <div class="zone left" id="left"></div>
+    <div class="zone talkzone">
+      <p class="cap"><b>チャット</b>一つだけ。どのセッションにもここから喋る</p>
+      <div class="talk" id="talk"></div>
+      <div class="field">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><rect x="6" y="1.5" width="6" height="10" rx="3" fill="var(--accent)"/><path d="M3.5 8.5a5.5 5.5 0 0 0 11 0M9 14v2.5" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span class="text">宛先は選ばない。喋るだけ</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <h2>しくみ</h2>
+    <div class="flow">
+      <div class="node">声・キーボード</div><i class="arr"></i>
+      <div class="node key">チャット 一つ<small>宛先を選ばせない</small></div><i class="arr"></i>
+      <div class="node">横で読む係<small>届け先と任せる役割を決める。セッションを読んでカードを書き、終わったら畳む</small></div><i class="arr"></i>
+      <div class="node">セッション<span class="sess"><span class="sym">A</span><span class="sym">B</span><span class="sym">C</span></span><small>役割ごとに起こす Claude Code。素のまま働き、出来事が一つずつ届く</small></div><i class="arr"></i>
+      <div class="node">オーバービュー<small>係が書いたカードが並ぶ。中身は覗いたときだけ。終わったら済みへ</small></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const TURN = { ai: '実行中', you: '人待ち', back: '帰った' };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let S;
+
+function fresh() {
+  return {
+    peek: null, order: ['A', 'B'], answered: false, asked: false, returned: false,
+    mark: {}, used: {}, hit: null, hl: null, done: ['Z'], justDone: null,
+    talk: [
+      { who: 'you', t: 'ログインしたあとすぐ切れるやつ、直しておいて', to: 'A' },
+      { who: 'you', t: '料金ページを直す前に、競合がいくらか調べておいて', to: 'B' },
+      { who: 'A', t: '直し方を決めてほしい。すぐ失効させるか、30 秒の猶予を持たせるか' },
+    ],
+    chat: {
+      A: [
+        { id: 'a1', who: 'you', t: 'ログインしたあとすぐ切れるやつ、直しておいて' },
+        { id: 'a2', who: 'ai', t: '再現しました。トークンの更新が二重に走り、あとから来たほうが先のを無効にしています。原因は src/auth/refresh.js で、落ちているテストは 2 本です。' },
+        { id: 'a3', who: 'ai', t: '直し方は二つあります。古いトークンをすぐ失効させるか、30 秒の猶予を持たせるか。どちらにしますか。' },
+      ],
+      B: [
+        { id: 'b1', who: 'you', t: '料金ページを直す前に、競合がいくらか調べておいて' },
+        { id: 'b2', who: 'ai', t: '甲社は月 980 円でした。乙社と丙社は料金のページが分かれているので、続けて調べます。' },
+      ],
+      Z: [
+        { id: 'z1', who: 'you', t: '依存が古くなってるの、上げておいて' },
+        { id: 'z2', who: 'ai', t: '3 件を上げました。テストは全部通っています。' },
+      ],
+      C: [
+        { id: 'c1', who: 'you', t: 'そういやリリースノートも書かないと' },
+        { id: 'c2', who: 'ai', t: '前の版からの変更を集めて、直したこと・足したこと・壊れる変更に分けます。' },
+      ],
+    },
+  };
+}
+
+function view(id) {
+  if (id === 'A') {
+    const d = S.answered;
+    return {
+      name: '認証のバグ', turn: d ? 'ai' : 'you', roles: [['実装', d], ['テスト', false], ['レビュー', false]],
+      line: d ? '30 秒の猶予で直している' : '直し方を決めてほしい',
+      what: 'ログインのあとすぐセッションが切れる不具合を直す',
+      steps: [['再現した', 'done'], ['原因を絞った', 'done'], ['直し方を決める', d ? 'done' : 'now'], ['直す', d ? 'now' : 'todo'], ['テストを回す', 'todo']],
+      yours: d ? null : { text: '古いトークンをすぐ失効させるか、30 秒の猶予を持たせるか', ref: 'a3' },
+      panels: [
+        { title: 'テスト　14 通る・2 落ちる', items: [['二重に更新すると切れる', '落ちる', 'a2', true], ['続けて送ると切れる', '落ちる', 'a2', true]] },
+        { title: '触るファイル', items: d
+          ? [['src/auth/refresh.js', '+18 −6', 'a5'], ['test/refresh.test.js', '+41', 'a5']]
+          : [['src/auth/refresh.js', '原因はここ', 'a2', true]] },
+      ],
+    };
+  }
+  if (id === 'B') {
+    const r = S.returned, q = S.asked;
+    const steps = [['調べる会社を決めた', 'done'], ['月額を集める', r ? 'done' : 'now']];
+    if (q) steps.push(['年払いの割引を調べる', r ? 'now' : 'todo']);
+    steps.push(['まとめる', r && !q ? 'done' : 'todo']);
+    const asks = [['競合 3 社の月額', r ? '出た' : '調べている', 'b1', true]];
+    if (q) asks.push(['年払いの割引', '調べている', 'b4', true]);
+    return {
+      name: '料金の調査', turn: r && !q ? 'back' : 'ai', roles: [['調べもの', !(r && !q)]],
+      line: r ? (q ? '月額は出た。年払いを調べている' : '競合 3 社の月額が出た') : (q ? '月額を集めている。次に年払い' : '競合 3 社の月額を集めている'),
+      what: '料金ページを直す前に、競合の値段を調べる',
+      steps, yours: null,
+      panels: [
+        { title: '月額の比べ', items: [['甲社', '980 円', 'b2'], ['乙社', r ? '1,480 円' : '調べている', r ? 'b3' : 'b2', !r], ['丙社', r ? '2,000 円' : '調べている', r ? 'b3' : 'b2', !r]] },
+        { title: '頼んだこと', items: asks },
+      ],
+    };
+  }
+  if (id === 'Z') {
+    return {
+      name: '依存の更新', turn: 'back', roles: [['実装', false], ['テスト', false]], line: '3 件上げて、テストは通った',
+      what: '古くなった依存を上げる',
+      steps: [['上げるものを決めた', 'done'], ['上げた', 'done'], ['テストを回した', 'done']],
+      yours: null,
+      panels: [{ title: '上げたもの', items: [['3 件', 'テスト通る', 'z2', true]] }],
+    };
+  }
+  return {
+    name: 'リリースノート', turn: 'ai', roles: [['書き手', true], ['校正', false]], line: '前の版からの変更を集めている',
+    what: 'つぎの版のリリースノートを書く',
+    steps: [['前の版からの変更を集める', 'now'], ['見出しに分ける', 'todo'], ['下書きを書く', 'todo']],
+    yours: null,
+    panels: [{ title: '下書きの見出し', items: [['直したこと', '集めている', 'c2', true], ['足したこと', '集めている', 'c2', true], ['壊れる変更', '集めている', 'c2', true]] }],
+  };
+}
+
+const ACTS = {
+  u1: { say: '猶予を持たせるほうで', hint: '答えるだけ', to: 'A', run() {
+    S.answered = true;
+    S.chat.A.push({ id: 'a4', who: 'you', t: '猶予を持たせるほうで' }, { id: 'a5', who: 'ai', t: '30 秒の猶予で直します。refresh.js とテストを書き換えています。' });
+  } },
+  u2: { say: '料金ページの件、年払いの割引も見ておいて', hint: '別のセッションの話', to: 'B', run() {
+    S.asked = true;
+    S.chat.B.push({ id: 'b4', who: 'you', t: '料金ページの件、年払いの割引も見ておいて' }, { id: 'b5', who: 'ai', t: '年払いの割引も調べます。' });
+  } },
+  u3: { say: 'そういやリリースノートも書かないと', hint: '新しい話', to: 'C', create: true, run() { S.order.push('C'); } },
+};
+
+function speak(k) {
+  const a = ACTS[k];
+  if (S.used[k]) return;
+  S.used[k] = true;
+  S.justDone = null;
+  for (const id of [...S.order]) {
+    if (id !== a.to && view(id).turn === 'back') {
+      S.order = S.order.filter(x => x !== id);
+      S.done.push(id);
+      delete S.mark[id];
+      S.justDone = id;
+    }
+  }
+  const out = S.done.includes(a.to);
+  if (out) { S.done = S.done.filter(x => x !== a.to); S.order.push(a.to); }
+  a.run();
+  S.talk.push({ who: 'you', t: a.say, to: a.to, note: a.create ? 'new' : out ? 'out' : '' });
+  S.hit = a.to;
+  S.hl = null;
+  render(false);
+}
+
+function comeBack() {
+  if (S.used.ev) return;
+  S.used.ev = true;
+  S.returned = true;
+  S.chat.B.push({ id: 'b3', who: 'ai', t: '乙社は月 1,480 円、丙社は月 2,000 円でした。3 社の月額がそろいました。' });
+  S.talk.push({ who: 'B', t: '競合 3 社の月額が出た。甲社 980 円、乙社 1,480 円、丙社 2,000 円' });
+  if (S.peek !== 'B') S.mark.B = true;
+  S.hit = null;
+  S.hl = null;
+  render(false);
+}
+
+function peek(id) {
+  S.peek = id;
+  if (id) delete S.mark[id];
+  S.hit = null;
+  S.hl = null;
+  render(true);
+}
+
+const rolesHtml = s => `<p class="roles"><span>任せた先</span>${s.roles.map(([n, on]) => `<span class="role${on ? ' on' : ''}">${esc(n)}</span>`).join('')}</p>`;
+
+function cardHtml(id) {
+  const s = view(id);
+  const at = s.steps.findIndex(x => x[1] === 'now');
+  const step = at < 0 ? '済んだ' : `${at + 1}/${s.steps.length}　${s.steps[at][0]}`;
+  const p = s.panels[0];
+  return `<div class="card${S.hit === id ? ' hit' : ''}" data-go="${id}">
+    ${S.hit === id ? '<span class="tag">いま届いた</span>' : ''}${S.mark[id] ? '<span class="mark" title="知らせ"></span>' : ''}
+    <div class="chead"><span class="sym">${id}</span><span class="cname">${esc(s.name)}</span><span class="pill ${s.turn}">${TURN[s.turn]}</span></div>
+    ${rolesHtml(s)}
+    <p class="cline">${esc(s.line)}</p>
+    <div class="prog">${s.steps.map(x => `<span class="${x[1]}"></span>`).join('')}</div>
+    <p class="pstep">${esc(step)}</p>
+    ${s.yours ? `<p class="cyours"><b>人への問い</b>${esc(s.yours.text)}</p>` : ''}
+    <div class="cpanel"><h3>${esc(p.title)}</h3>${p.items.map(([l, v, , w]) => `<div class="crow"><span>${esc(l)}</span><span class="v${w ? ' wait' : ''}">${esc(v)}</span></div>`).join('')}</div>
+    <button class="peekbtn" data-go="${id}">中身を覗く</button>
+  </div>`;
+}
+
+function itemHtml([label, value, ref, wait]) {
+  return `<li><button class="item" data-ref="${ref}"><span>${esc(label)}</span><span class="v${wait ? ' wait' : ''}">${esc(value)}</span></button></li>`;
+}
+
+function peekHtml(id) {
+  const v = view(id);
+  return `<p class="cap"><b>中身</b>セッションのやりとりそのままと、そのパネル。行を押すと元の発言が光る</p>
+    <div class="phead"><button class="backbtn" data-back="1">← オーバービュー</button>${id === 'Z' ? '' : `<span class="sym">${id}</span>`}<span class="cname">${esc(v.name)}</span><span class="pill ${v.turn}">${TURN[v.turn]}</span>${rolesHtml(v)}<p class="pwhat">${esc(v.what)}</p></div>
+    <div class="pbody">
+      <div class="chat" id="chat">${S.chat[id].map(m => `<div class="msg ${m.who}${m.id === S.hl ? ' hl' : ''}">${esc(m.t)}</div>`).join('')}</div>
+      <div class="pcol">
+        ${v.yours ? `<div class="panel yours"><h3>人への問い</h3><ul class="items"><li><button class="item" data-ref="${v.yours.ref}"><span>${esc(v.yours.text)}</span></button></li></ul></div>` : ''}
+        <div class="panel"><h3>いまどこまで</h3><ol class="steps">${v.steps.map(([t, c]) => `<li class="${c}">${esc(t)}</li>`).join('')}</ol></div>
+        ${v.panels.map(p => `<div class="panel"><h3>${esc(p.title)}</h3><ul class="items">${p.items.map(itemHtml).join('')}</ul></div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function render(swapped) {
+  const $ = id => document.getElementById(id);
+
+  $('says').innerHTML =
+    Object.entries(ACTS).map(([k, a]) =>
+      `<button class="say" data-say="${k}" ${S.used[k] ? 'disabled' : ''}><b>「${esc(a.say)}」</b><small>${esc(a.hint)}</small></button>`).join('') +
+    `<button class="say event" data-ev="1" ${S.used.ev ? 'disabled' : ''}><b>B の結果が返る</b><small>人は喋っていない</small></button>` +
+    `<button class="say reset" data-reset="1">はじめに戻す</button>`;
+
+  const left = $('left');
+  left.innerHTML = S.peek
+    ? peekHtml(S.peek)
+    : `<p class="cap"><b>オーバービュー</b>動いているセッションが全部。カードは動かない。ステートと、いまどこまで</p>
+       <div class="cards">${S.order.map(cardHtml).join('')}</div>
+       <div class="shelf"><p class="cap"><b>済み</b>終わったセッションはここに畳まれる。消えない。話しかければ戻る</p>
+       <div class="drows">${S.done.map(id => { const s = view(id); return `<button class="drow" data-go="${id}">${S.justDone === id ? '<i>いま畳んだ</i>' : ''}<b>${esc(s.name)}</b><span>${esc(s.line)}</span></button>`; }).join('')}</div></div>`;
+  const chat = $('chat');
+  if (chat) {
+    const target = S.hl && chat.querySelector('.hl');
+    chat.scrollTop = target ? Math.max(0, target.offsetTop - 40) : chat.scrollHeight;
+  }
+
+  const talk = $('talk');
+  talk.innerHTML = S.talk.map(m => {
+    if (m.who === 'you') {
+      const s = view(m.to);
+      const note = m.note === 'new' ? `（新しく起こした。${s.roles.map(r => r[0]).join('・')}に任せた）` : m.note === 'out' ? '（済みから取り出した）' : '';
+      return `<div class="said"><p>${esc(m.t)}</p><button class="chip" data-go="${m.to}">→ ${m.to} ${esc(s.name)}${note}</button></div>`;
+    }
+    return `<button class="from" data-go="${m.who}"><span class="sym">${m.who}</span><span>${esc(m.t)}</span></button>`;
+  }).join('');
+  talk.scrollTop = talk.scrollHeight;
+
+  if (swapped) {
+    left.classList.remove('swap');
+    void left.offsetWidth;
+    left.classList.add('swap');
+  }
+}
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-say],[data-ev],[data-reset],[data-back],[data-ref],[data-go]');
+  if (!t) return;
+  const d = t.dataset;
+  if (d.say) speak(d.say);
+  else if (d.ev) comeBack();
+  else if (d.reset) { S = fresh(); render(true); }
+  else if (d.back) peek(null);
+  else if (d.ref) { S.hl = d.ref; render(false); }
+  else if (d.go) peek(d.go);
+});
+
+S = fresh();
+render(false);
+</script>
