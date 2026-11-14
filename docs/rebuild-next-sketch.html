@@ -25,7 +25,7 @@
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7; padding: 0 0 40px; }
 p, h1, h2, h3 { margin: 0; }
 .wrap { display: flex; flex-direction: column; gap: 18px; }
-header, .notes, .rule { margin: 0 16px; }
+header, .notes { margin: 0 16px; }
 header { padding-top: 12px; }
 h1 { font-size: 20px; }
 .lead { color: var(--muted); font-size: 14px; }
@@ -95,10 +95,12 @@ h1 { font-size: 20px; }
 .minus { color: var(--you); font-family: var(--font-mono); }
 .act { align-self: flex-start; background: var(--accent); color: var(--surface); border: 0; border-radius: 8px; padding: 3px 12px; font: inherit; font-size: 13px; font-weight: 700; }
 
-.shelf { border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 6px; display: flex; flex-direction: column; gap: 8px; position: relative; }
-.drows { display: flex; flex-wrap: wrap; gap: 6px; }
-.drow { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px 3px 4px; font-size: 13px; color: var(--muted); }
-.drow b { color: var(--ink); font-weight: 500; }
+/* 済みは一行。記号と名前だけの小さな札で、最後の一行は出さない（押して覗けば読める） */
+.shelf { border-top: 1px dashed var(--line); padding-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; position: relative; padding-right: 18px; }
+.drows { display: contents; }
+.drow { display: flex; gap: 5px; align-items: baseline; font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+.drow i { font-style: normal; font-family: var(--font-mono); color: var(--ink); }
+.shelf .more { font-size: 11.5px; color: var(--muted); text-decoration: underline; }
 
 /* チャット */
 .talk { display: flex; flex-direction: column; gap: 10px; }
@@ -120,11 +122,6 @@ h1 { font-size: 20px; }
 .note { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; line-height: 1.6; }
 .note h2 { font-size: 14px; display: flex; gap: 8px; align-items: center; }
 .note .was { color: var(--muted); font-size: 12.5px; }
-.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
-.rule table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-.rule th, .rule td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--sunk); vertical-align: top; }
-.rule th { font-weight: 500; color: var(--muted); font-size: 12px; }
-.rule th:first-child, .rule td:first-child { white-space: nowrap; }
 
 @media (max-width: 900px) {
   .app { grid-template-columns: minmax(0, 1fr); }
@@ -227,9 +224,13 @@ h1 { font-size: 20px; }
 
       <div class="shelf">
         <span class="n pin">1</span>
-        <p class="cap"><b>済み</b>畳んでも記号は変わらない。「A で」と言えば戻る</p>
+        <p class="cap"><b>済み</b></p>
         <div class="drows">
-          <span class="drow"><span class="sym dim">A</span><b>dyve 最新版の確認</b><span>next は 8 まで入っている</span></span>
+          <span class="drow"><i>A</i>dyve 最新版の確認</span>
+          <span class="drow"><i>G</i>依存の更新</span>
+          <span class="drow"><i>H</i>朝会のメモ</span>
+          <span class="drow"><i>I</i>CI の落ち</span>
+          <span class="more">ほか 4 件</span>
         </div>
       </div>
     </section>
@@ -260,23 +261,12 @@ h1 { font-size: 20px; }
   </main>
 
   <section class="notes">
-    <div class="note"><h2><span class="n">1</span>記号を固定する</h2><p>できた順に振り、畳んでも戻っても変えない。済みの列とチャットにも記号を出す。</p><p class="was">いま：畳むと字を返し、次のセッションが同じ字をもらう。済みは名前でしか呼べない。</p></div>
+    <div class="note"><h2><span class="n">1</span>記号を固定する</h2><p>できた順に振り、畳んでも戻っても変えない。済みは一行に小さく並べ、記号と名前だけにする。「A で」と言えば戻る。</p><p class="was">いま：畳むと字を返し、次のセッションが同じ字をもらう。済みは名前でしか呼べない。</p></div>
     <div class="note"><h2><span class="n">2</span>届けなかったわけを返す</h2><p>頼みらしいのに届け先を決められなかったら、その発言の下に、わけと言い直し方を一行。独り言は静かなまま。</p><p class="was">いま：どちらも薄い字で「どこにも届けていない」。</p></div>
     <div class="note"><h2><span class="n">3</span>届けた発言を付け替える</h2><p>声で「C じゃなくて D」、または発言の下の「変える」から手で選ぶ。届けていない発言も同じところから届けられる。</p><p class="was">いま：一度届けた発言は動かせない。</p></div>
     <div class="note"><h2><span class="n">4</span>カードを書く口のモデルを分ける</h2><p>届け先は速いモデルのまま、カードとパネルを書く口だけ上げる。絵には出ないが、パネルの中身はここで決まる。</p><p class="was">いま：二つの口が同じモデル（既定は haiku）。</p></div>
     <div class="note"><h2><span class="n">5</span>カードの大きさと、パネルを全部</h2><p>画面の端まで、高さも使い切る。大きさはステートとパネルの数から導き、順は変えない。大きさが変わればカードはずれてよい。パネルは 3 枚まで全部出す。</p><p class="was">いま：どのカードも 230px の列で、外に余白があり、下が空く。パネルは 1 枚目の頭だけ。</p></div>
     <div class="note"><h2><span class="n">6</span>dyve が自分で取れるパネル</h2><p>作業場（ブランチ・行数・ファイル）と利用枠の残りは、係を呼ばずに出す。動いているカードは、使った道具の新しい 3 行。</p><p class="was">いま：作業場は一行。利用枠は受け取るだけで出していない。</p></div>
-  </section>
-
-  <section class="rule">
-    <b>大きさの決まり（5）</b>
-    <table>
-      <tr><th>大きさ</th><th>いつ</th><th>出すもの</th></tr>
-      <tr><td>小</td><td>パネルがまだない</td><td>いまどこまで（2 行）。動いているあいだは、使った道具の新しい 3 行</td></tr>
-      <tr><td>中</td><td>パネルが 1 枚、または人待ち</td><td>いまどこまで（3 行）・段取り・問いの全文・パネル 1 枚</td></tr>
-      <tr><td>大</td><td>パネルが 2 枚以上</td><td>中と同じものと、パネルを全部</td></tr>
-    </table>
-    <p class="lead" style="margin-top:6px">人も AI も大きさを変えられない。大きさが変われば、後ろのカードはずれてよい。余った高さは行が分け合い、パネルは入るだけ行を出す。</p>
   </section>
 </div>
 </html>
