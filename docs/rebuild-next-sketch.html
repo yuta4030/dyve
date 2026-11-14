@@ -22,9 +22,11 @@
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7; padding: 20px 16px 40px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.7; padding: 0 0 40px; }
 p, h1, h2, h3 { margin: 0; }
-.wrap { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.wrap { display: flex; flex-direction: column; gap: 18px; }
+header, .notes, .rule { margin: 0 16px; }
+header { padding-top: 12px; }
 h1 { font-size: 20px; }
 .lead { color: var(--muted); font-size: 14px; }
 
@@ -32,7 +34,8 @@ h1 { font-size: 20px; }
 .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--note); color: var(--surface); font-size: 12px; font-weight: 700; font-family: var(--font-mono); flex: none; vertical-align: middle; }
 .pin { position: absolute; top: -9px; right: -7px; }
 
-.app { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); overflow: hidden; }
+/* 画面の端まで使う。外の余白と角の丸みを持たない。高さも使い切り、カードの行が余った高さを分け合う */
+.app { background: var(--surface); border-block: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); min-height: 88vh; }
 .zone { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .chat { border-left: 1px solid var(--line); }
 .cap { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
@@ -41,10 +44,10 @@ h1 { font-size: 20px; }
 .quota i { font-style: normal; color: var(--ink); }
 
 /* 5. カードは折り返して並び、行はいつも埋まる。順は変えない */
-.cards { display: flex; flex-wrap: wrap; gap: 12px 10px; align-items: stretch; padding-top: 6px; }
+.cards { flex: 1; display: flex; flex-wrap: wrap; gap: 12px 10px; align-items: stretch; align-content: stretch; padding-top: 6px; }
 .card { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.card.s { flex: 2 1 200px; }
-.card.m { flex: 4 1 420px; }
+.card.s { flex: 2 1 220px; }
+.card.m { flex: 4 1 460px; }
 .card.l { flex: 1 1 100%; }
 .size { margin-top: auto; align-self: flex-end; font-size: 11px; color: var(--note); }
 .chead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
@@ -72,7 +75,7 @@ h1 { font-size: 20px; }
 .tools { list-style: none; margin: 0; padding: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 1px; }
 .tools li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tools li:last-child { color: var(--ink); }
-.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; align-content: start; min-width: 0; position: relative; }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; min-width: 0; position: relative; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 13px; }
 .panel h3 { font-size: 12px; font-weight: 700; color: var(--muted); }
 .sum { display: flex; flex-wrap: wrap; gap: 4px 14px; }
@@ -104,6 +107,11 @@ h1 { font-size: 20px; }
 .chip { font-size: 12px; color: var(--accent); text-align: right; }
 .chip.warn { color: var(--you); max-width: 26em; }
 .chip s { color: var(--muted); }
+.chip u { color: var(--muted); text-underline-offset: 2px; margin-left: 6px; }
+.pick { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.pick span { font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 0 7px; line-height: 1.8; font-family: var(--font-mono); }
+.pick .on { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.pick .w { font-family: var(--font-body); color: var(--muted); }
 .from { align-self: flex-start; max-width: 94%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: start; font-size: 14px; line-height: 1.6; position: relative; }
 .field { margin-top: auto; border: 1.5px solid var(--accent); border-radius: 12px; padding: 10px 14px; background: var(--bg); color: var(--muted); font-size: 15px; }
 
@@ -236,6 +244,9 @@ h1 { font-size: 20px; }
 
         <div class="said"><p>ログ検討のほう</p><span class="chip">前の発言を届け直した</span></div>
 
+        <div class="said"><span class="n pin">3</span><p>年払いの値段も見ておいて</p><span class="chip">→ C ログ検討<u>変える</u></span>
+          <div class="pick"><span class="dim">A</span><span>B</span><span class="on">C</span><span>D</span><span>E</span><span>F</span><span class="w">新しく</span><span class="w">届けない</span></div></div>
+
         <div class="from"><span class="sym">C</span><span>案は 3 段。まとめはカードに置いた</span></div>
 
         <div class="said"><span class="n pin">3</span><p>テストも足しておいて</p><span class="chip">→ D 記号の固定（<s>C</s> から付け替え）</span></div>
@@ -251,9 +262,9 @@ h1 { font-size: 20px; }
   <section class="notes">
     <div class="note"><h2><span class="n">1</span>記号を固定する</h2><p>できた順に振り、畳んでも戻っても変えない。済みの列とチャットにも記号を出す。</p><p class="was">いま：畳むと字を返し、次のセッションが同じ字をもらう。済みは名前でしか呼べない。</p></div>
     <div class="note"><h2><span class="n">2</span>届けなかったわけを返す</h2><p>頼みらしいのに届け先を決められなかったら、その発言の下に、わけと言い直し方を一行。独り言は静かなまま。</p><p class="was">いま：どちらも薄い字で「どこにも届けていない」。</p></div>
-    <div class="note"><h2><span class="n">3</span>届けた発言を付け替える</h2><p>「C じゃなくて D」で付け替える。声で言われたときだけ。まだ渡していなければ、元のセッションからは取り消す。</p><p class="was">いま：一度届けた発言は動かせない。</p></div>
+    <div class="note"><h2><span class="n">3</span>届けた発言を付け替える</h2><p>声で「C じゃなくて D」、または発言の下の「変える」から手で選ぶ。届けていない発言も同じところから届けられる。</p><p class="was">いま：一度届けた発言は動かせない。</p></div>
     <div class="note"><h2><span class="n">4</span>カードを書く口のモデルを分ける</h2><p>届け先は速いモデルのまま、カードとパネルを書く口だけ上げる。絵には出ないが、パネルの中身はここで決まる。</p><p class="was">いま：二つの口が同じモデル（既定は haiku）。</p></div>
-    <div class="note"><h2><span class="n">5</span>カードの大きさと、パネルを全部</h2><p>大きさはステートとパネルの数から導く。行はいつも埋まり、順は変わらない。パネルは 3 枚まで全部出す。</p><p class="was">いま：どのカードも 230px の列。パネルは 1 枚目の頭だけ。</p></div>
+    <div class="note"><h2><span class="n">5</span>カードの大きさと、パネルを全部</h2><p>画面の端まで、高さも使い切る。大きさはステートとパネルの数から導き、順は変えない。大きさが変わればカードはずれてよい。パネルは 3 枚まで全部出す。</p><p class="was">いま：どのカードも 230px の列で、外に余白があり、下が空く。パネルは 1 枚目の頭だけ。</p></div>
     <div class="note"><h2><span class="n">6</span>dyve が自分で取れるパネル</h2><p>作業場（ブランチ・行数・ファイル）と利用枠の残りは、係を呼ばずに出す。動いているカードは、使った道具の新しい 3 行。</p><p class="was">いま：作業場は一行。利用枠は受け取るだけで出していない。</p></div>
   </section>
 
@@ -265,7 +276,7 @@ h1 { font-size: 20px; }
       <tr><td>中</td><td>パネルが 1 枚、または人待ち</td><td>いまどこまで（3 行）・段取り・問いの全文・パネル 1 枚</td></tr>
       <tr><td>大</td><td>パネルが 2 枚以上</td><td>中と同じものと、パネルを全部</td></tr>
     </table>
-    <p class="lead" style="margin-top:6px">人も AI も大きさを変えられない。ポインタがオーバービューの上にあるあいだは変えず、離れたときに変える。</p>
+    <p class="lead" style="margin-top:6px">人も AI も大きさを変えられない。大きさが変われば、後ろのカードはずれてよい。余った高さは行が分け合い、パネルは入るだけ行を出す。</p>
   </section>
 </div>
 </html>
