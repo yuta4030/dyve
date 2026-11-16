@@ -1,4 +1,4 @@
-// 役割：セッションを起こすときの定義。dyve の定義（next/roles/<名前>.md）に、利用者の置き場の定義を重ねる。
+// 役割：セッションを起こすときの定義。dyve の定義（roles/<名前>.md）に、利用者の置き場の定義を重ねる。
 //   <置き場>/config.json：役割ごとの model・mode・tools・deny（JSON。YAML は使わない）
 //   <置き場>/roles/<名前>.md：役割の指示。dyve と同じ名前なら後ろに足し（mode が "replace" なら差し替え）、新しい名前なら役割が増える
 // 許す道具は、dyve の役割はこのファイルに、利用者の役割は config.json に書く。定義（Markdown）には役割の指示だけを書く

@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "board": {
-      "type": "http",
-      "url": "http://127.0.0.1:4740/mcp?as=guest"
-    }
-  }
-}

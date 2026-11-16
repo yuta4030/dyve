@@ -1,8 +1,8 @@
 # 作り直し：次に直すところ（案）
 
-使ってみたレポート（作り直し版 e8656b8 を既定のまま立てた回）から、`next/` で次に直すところをまとめた手順書。開発を受け持つ人が、これだけ読んで始められる粒度で書く。絵は `rebuild-next-sketch.html`（ブラウザで開く。番号はこのファイルの節と同じ）。
+使ってみたレポート（作り直し版 e8656b8 を既定のまま立てた回）から、次に直すところをまとめた手順書。開発を受け持つ人が、これだけ読んで始められる粒度で書く。絵は `rebuild-next-sketch.html`（ブラウザで開く。番号はこのファイルの節と同じ）。
 
-これは案で、決まりの正本ではない。直したら、決まった形を `REBUILD.md`（仮の決め・未決）と `next/README.md`（設定）に書き、このファイルと絵は消す。
+これは案で、決まりの正本ではない。直したら、決まった形を `REBUILD.md`（仮の決め・未決）と `README.md`（設定）に書き、このファイルと絵は消す。
 
 ## 0. はじめに
 
@@ -20,9 +20,9 @@
 ### 進め方
 
 - 順番は 1 → 2 → 3（届け先）、4（係のモデル）、5 → 6（カード）。番号ごとにコミットを分け、一つ終わるたびにテストを通す
-- テストは `npm run test:next`。外にはつながず、`next/test/fake-claude.js` で回す。画面は `node next/bin/dyve.js serve --claude next/test/fake-claude.js` で立てて目で確かめる
+- テストは `npm test`。外にはつながず、`test/fake-claude.js` で回す。画面は `node bin/dyve.js serve --claude test/fake-claude.js` で立てて目で確かめる
 - 守ることは `CLAUDE.md` の「作り直し中」「技術スタック」「文書を直すとき」と、`REBUILD.md` §3 の原則。`src/` は直さない
-- 画面の言葉は `ui.html` の `L` に足す。ダイアログ・フォーカスを奪う・音・見ている位置を動かす、はしない（`next/test/ui.test.js` が確かめている）
+- 画面の言葉は `ui.html` の `L` に足す。ダイアログ・フォーカスを奪う・音・見ている位置を動かす、はしない（`test/ui.test.js` が確かめている）
 - 記録の形は足すだけにする。いまの `record.jsonl` は、そのまま当て直せること
 
 ### 決まったこと
@@ -42,17 +42,17 @@
 - 係は、出ているものも済みのものも記号で指す。`#番号` はやめる
 
 **触るところ**
-- `next/src/state.js`
+- `src/state.js`
   - `freeSymbol` を消す。`open.apply` は `sym: symbolOf(s.sessions.length)`
   - `fold.apply` の `x.sym = null` と、`pass.apply` の `x.sym = freeSymbol(s)` を消す
   - `callOf` は `x.sym` を返すだけにする
-- `next/src/kakari.js`
+- `src/kakari.js`
   - `SaidMouth._apply` のセッション探し（`(s.folded ? "#"+s.id : s.sym) === key`）を、`s.sym === key` にする。係に見せていない古い済み（`DONE` の 8 件より前）も、記号が合えば届ける
-- `next/kakari/発言.md`
+- `kakari/発言.md`
   - 「済みのセッション」は記号で渡る、と直す。`session` に書くのはいつも記号
   - 記号で呼ばれたら、済みでも、一覧になくても、その記号を書く
   - 「済みに戻すか新しく起こすか迷ったら、新しく起こす」は、名前や中身で当てるときだけに残す
-- `next/src/ui.html`
+- `src/ui.html`
   - `fromHead`：済みでも記号を出す（薄く）。`.dname` は要らなくなる
   - `Overview.shelf`：済みは一行に小さく並べる。出すのは記号と名前だけで、最後の一行は title に回す（押せば覗ける）。見出しの説明の文と、札の枠をなくす。いちばん新しい `SHELF` 件のあとは「ほか n 件」
   - `chipOf` と `L.toDone`：済みへ届いた発言の印を「→ B 名前（済み）」にする
@@ -75,13 +75,13 @@
 - 言い直せば、いまの届け直し（`resend`）で届く。新しいしくみは足さない
 
 **触るところ**
-- `next/src/kakari.js`
+- `src/kakari.js`
   - `SAID_SCHEMA` の項目に `why`（文字列）を足す
   - `_apply`：`to: "none"` で `why` があれば、`aside` に `why`（一行、80 字まで）を付けて置く
   - `_apply` が自分で作る `miss` の文を、人が読む言葉にする（「ありもしないセッション「B」を返した」→「「B」というセッションがない」など）
-- `next/kakari/発言.md`：`none` の説明に足す。「頼みや答えらしいのに届け先を決められないときは、`why` に、何がわからなかったかと、どう言えば届くかを一行で書く。独り言には書かない」
-- `next/src/state.js`：`aside.make({ said, why = null })`、`apply` で `p.why` に持つ（`pass` で届いたら消す）
-- `next/src/ui.html`
+- `kakari/発言.md`：`none` の説明に足す。「頼みや答えらしいのに届け先を決められないときは、`why` に、何がわからなかったかと、どう言えば届くかを一行で書く。独り言には書かない」
+- `src/state.js`：`aside.make({ said, why = null })`、`apply` で `p.why` に持つ（`pass` で届いたら消す）
+- `src/ui.html`
   - `chipOf`：`s.why` があれば `L.asideWhy(why)` を、薄くしないで出す。`s.miss` も薄くせず、理由を title ではなく文で出す
   - 色は人のもの（`--you`）。`.chip.warn` を足す
 
@@ -107,21 +107,21 @@
 - 付け替えた発言では、ほかのセッションを畳まない（届け直しと同じ）
 
 **触るところ**
-- `next/src/kakari.js`
+- `src/kakari.js`
   - `saidPrompt` が中で作っている「直前の発言」（`before`）を、`SaidMouth.read` で作って `saidPrompt` と `_apply` の両方に渡す
   - `_apply`：返った `says` に「直前の発言」の id があり、`to` が `session` か `new` で、いまの届け先と違えば、`this.sessions.ask(id, { …, move: true })`。言った発言には、いまと同じ `resend` を置く
-- `next/kakari/発言.md`：「届け直す」に足す。届けた発言も、人が「A じゃなくて B」「それは B のほう」と言ったときだけ、同じ書き方で付け替えられる
-- `next/src/sessions.js` の `ask`：`p.session != null` のとき、`to.move` があり届け先が違えば通す。`pass` に `from`（元のセッション）を付けて置く
+- `kakari/発言.md`：「届け直す」に足す。届けた発言も、人が「A じゃなくて B」「それは B のほう」と言ったときだけ、同じ書き方で付け替えられる
+- `src/sessions.js` の `ask`：`p.session != null` のとき、`to.move` があり届け先が違えば通す。`pass` に `from`（元のセッション）を付けて置く
 - 知らせ（新しい記録 `recall`：`{ session, said }`）
-  - `next/src/sessions.js`：`ask` が付け替えたとき、元のセッションがその発言をもう受け取っていて、畳まれていなければ `recall` を置く。`_fill` は `recalls` のあるセッションも待っているものとして扱う。`_turn` は、渡す文の頭に知らせの文（`RECALLED`。`ACCEPTED` と同じ置き方）と、取り違えた発言の文を付ける。知らせだけのターンもある
-  - `next/src/state.js`：`recall.apply` は `x.recalls` に発言の id を足す。`start` に `recalls`（渡した知らせ）を足し、`apply` で `x.recalls` から外して、やりとりに `{ recall: 発言の id }` を積む
-  - `next/src/ui.html` の `Peek.render`：やりとりの中の知らせを、人の側の薄い一行で出す
-- `next/src/state.js` の `pass.apply`：`r.from` があれば
+  - `src/sessions.js`：`ask` が付け替えたとき、元のセッションがその発言をもう受け取っていて、畳まれていなければ `recall` を置く。`_fill` は `recalls` のあるセッションも待っているものとして扱う。`_turn` は、渡す文の頭に知らせの文（`RECALLED`。`ACCEPTED` と同じ置き方）と、取り違えた発言の文を付ける。知らせだけのターンもある
+  - `src/state.js`：`recall.apply` は `x.recalls` に発言の id を足す。`start` に `recalls`（渡した知らせ）を足し、`apply` で `x.recalls` から外して、やりとりに `{ recall: 発言の id }` を積む
+  - `src/ui.html` の `Peek.render`：やりとりの中の知らせを、人の側の薄い一行で出す
+- `src/state.js` の `pass.apply`：`r.from` があれば
   - 元のセッションの `pending` から外す。外せたら（まだ渡していなかったら）`asked` からも外す
   - `p.from = r.from`、`p.again = true`（`toFold` が畳まない）
-- `next/src/kakari.js` の `Folder`：`from` の付いた `pass` のあと、元のセッションの `asked` が空なら `fold` を置く
-- `next/src/server.js`：`POST /api/move`（`{ said, session }` か `{ said, role }` か `{ said, none: true }`）。取り込む・受け入れると同じく、この画面のオリジンからだけ通す。中は `sessions.ask(said, { …, move: true })`。届けないに変えるときは `aside` を置き、元のセッションからは上と同じに外す
-- `next/src/ui.html`
+- `src/kakari.js` の `Folder`：`from` の付いた `pass` のあと、元のセッションの `asked` が空なら `fold` を置く
+- `src/server.js`：`POST /api/move`（`{ said, session }` か `{ said, role }` か `{ said, none: true }`）。取り込む・受け入れると同じく、この画面のオリジンからだけ通す。中は `sessions.ask(said, { …, move: true })`。届けないに変えるときは `aside` を置き、元のセッションからは上と同じに外す
+- `src/ui.html`
   - `chipOf`：付け替えた発言の印は「→ B 名前（A から付け替え）」
   - 発言の印のとなりに「変える」。押すと、その発言の下に選ぶところが開く（開いているかは `ui` に持つ）。印の名前を押すと覗く、はいままでどおり
   - 届けていない発言（独り言・わけ付き・届け先が決まらなかったもの）にも同じ「変える」を出す
@@ -149,9 +149,9 @@
 ```
 
 **触るところ**
-- `next/src/config.js`：`KAKARI` に `said`・`session`（中は `model` だけ）を足す。知らない項目は、いままでどおり断る
-- `next/bin/dyve.js`（106 行）：`conv(def, schema)` が口ごとのモデルを選ぶ
-- `next/README.md` の「設定」
+- `src/config.js`：`KAKARI` に `said`・`session`（中は `model` だけ）を足す。知らない項目は、いままでどおり断る
+- `bin/dyve.js`（106 行）：`conv(def, schema)` が口ごとのモデルを選ぶ
+- `README.md` の「設定」
 
 **気をつけること**：係は 60 秒で返らなければ止めて起こし直す（`kakari.js` の `TIMEOUT`）。本物の `claude` で、長いやりとりのカードが時間内に返るかを一度確かめる。
 
@@ -182,8 +182,8 @@
   - パネルは、カードの高さに入るだけ行を出す（決まった行数で切らない。入らないぶんだけ「ほか n 行」）
 
 **触るところ**
-- `next/src/state.js`：`sizeOf(x)`（`"s"`・`"m"`・`"l"`）と、`toolsOf(x, n)`（いまのターンで使った道具の新しい n 行）を足す。どちらも導くだけ
-- `next/src/ui.html`
+- `src/state.js`：`sizeOf(x)`（`"s"`・`"m"`・`"l"`）と、`toolsOf(x, n)`（いまのターンで使った道具の新しい n 行）を足す。どちらも導くだけ
+- `src/ui.html`
   - `.cards` を flex に。`.card.s`・`.card.m`・`.card.l`
   - `Overview.render`：`sizeOf` でクラスを付ける
   - `body`・`.app`・`.zone` の余白と、`.app` の列の幅
@@ -191,7 +191,7 @@
   - パネルの行の切り方を、決まった数（`list` 4 行、`table` 3 行）から、入るだけに変える
   - 小のカードで、動いているあいだ `toolsOf` の 3 行を等幅で出す
   - 狭い幅（860px より下）では、どの大きさも一列
-- `next/kakari/セッション.md`：パネルは覗かなくてもオーバービューに全部出る、と一行足す（1 枚目に何を置くかの重みが変わる）
+- `kakari/セッション.md`：パネルは覗かなくてもオーバービューに全部出る、と一行足す（1 枚目に何を置くかの重みが変わる）
 
 **記録の形**：変わらない。
 
@@ -208,9 +208,9 @@
 
 開発のセッションのカードに、ブランチ・変えた行数・変えたファイルを出す。「取り込む」はこのパネルの中に置く。
 
-- `next/src/work.js` の `status`：`names`（変えたファイルを 8 つまで。いま数えている `diff --name-only` の結果）と、`plus`・`minus`（`git diff --shortstat HEAD...<ブランチ>`）を足す
-- `next/src/state.js` の `work`：`names`・`plus`・`minus` を通す
-- `next/src/ui.html` の `workHtml`：パネルの形にする。`sizeOf` はこれを 1 枚と数える
+- `src/work.js` の `status`：`names`（変えたファイルを 8 つまで。いま数えている `diff --name-only` の結果）と、`plus`・`minus`（`git diff --shortstat HEAD...<ブランチ>`）を足す
+- `src/state.js` の `work`：`names`・`plus`・`minus` を通す
+- `src/ui.html` の `workHtml`：パネルの形にする。`sizeOf` はこれを 1 枚と数える
 - テスト：`work.test.js` に、`names` と行数
 
 **記録の形**：`work` に `names`・`plus`・`minus` が足される（なくてよい）。

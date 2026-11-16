@@ -5,9 +5,8 @@ import { version, notes } from "../scripts/release-notes.js";
 
 const read = (f) => fs.readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
 
-test("版は package.json とプラグインでそろっていて、CHANGELOG にいまの版の節がある", () => {
+test("CHANGELOG にいまの版の節がある", () => {
   const v = version();
-  assert.equal(JSON.parse(read(".claude-plugin/plugin.json")).version, v);
   assert.ok(notes(v, read("CHANGELOG.md")), `CHANGELOG.md に ${v} の節がない`);
 });
 
@@ -20,14 +19,8 @@ test("CHANGELOG からその版の節だけを取り出す", () => {
 });
 
 test("入れたときに要るものだけを配る", () => {
-  const files = JSON.parse(read("package.json")).files;
-  for (const f of ["bin", "src", "agents", "skills"]) assert.ok(files.includes(f), f);
-  assert.ok(!files.includes("test"));
-});
-
-test("MCP の口が名乗る版も同じ", async () => {
-  const { handleRpc } = await import("../src/mcp.js");
-  const { Store } = await import("../src/store.js");
-  const r = handleRpc(new Store(), null, "アリス", { jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-  assert.equal(r.result.serverInfo.version, version());
+  const pkg = JSON.parse(read("package.json"));
+  for (const f of ["bin", "src", "kakari", "roles"]) assert.ok(pkg.files.includes(f), f);
+  assert.ok(!pkg.files.includes("test"));
+  assert.equal(pkg.bin.dyve, "bin/dyve.js");
 });

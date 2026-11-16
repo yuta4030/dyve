@@ -1,198 +1,180 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Store } from "../src/store.js";
+import { Log } from "../src/log.js";
 import { createServer } from "../src/server.js";
-import { toMarkdown } from "../src/export.js";
-import { claudeArgs } from "../src/agents.js";
-import { unwrapData } from "../src/mcp.js";
 
-async function withServer(fn) {
-  const store = new Store();
-  const server = createServer({ store });
-  await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const base = `http://127.0.0.1:${server.address().port}`;
+async function start(file = null) {
+  const log = new Log(file);
+  const server = createServer({ log });
+  await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
+  const { port } = server.address();
+  return { log, server, port, base: `http://127.0.0.1:${port}` };
+}
+
+// fetch は Host と Origin を書き換えられないので、http で送る
+function request(port, { method = "GET", path: p = "/", headers = {}, body } = {}) {
+  return new Promise((ok, ng) => {
+    const req = http.request({ host: "127.0.0.1", port, method, path: p, headers }, (res) => {
+      let s = "";
+      res.setEncoding("utf8");
+      res.on("data", (c) => (s += c)).on("end", () => ok({ status: res.statusCode, headers: res.headers, body: s }));
+    });
+    req.on("error", ng);
+    if (body != null) req.write(body);
+    req.end();
+  });
+}
+
+const say = (base, text, headers = {}) =>
+  fetch(`${base}/api/say`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ text }) });
+
+// SSE を読み、届いた出来事を順に返す
+async function events(base, n) {
+  const ac = new AbortController();
+  const res = await fetch(`${base}/api/events`, { signal: ac.signal });
+  const got = [];
+  let buf = "";
+  const dec = new TextDecoder();
+  const reader = res.body.getReader();
+  const next = async () => {
+    while (got.length < n) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        const ev = chunk.match(/^event: (.*)$/m)?.[1], data = chunk.match(/^data: (.*)$/m)?.[1];
+        if (ev) got.push({ event: ev, data: JSON.parse(data) });
+      }
+    }
+    ac.abort();
+    return got;
+  };
+  return { res, next };
+}
+
+test("画面を返す。外のものを読ませない", async () => {
+  const { server, base } = await start();
   try {
-    await fn({ store, base });
+    const res = await fetch(`${base}/`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type"), /text\/html/);
+    assert.match(res.headers.get("content-security-policy"), /default-src 'none'/);
+    assert.match(res.headers.get("content-security-policy"), /script-src 'self' 'unsafe-inline'/);
+    assert.match(await res.text(), /<dyve-chat/);
+    const st = await fetch(`${base}/state.js`);
+    assert.equal(st.status, 200);
+    assert.match(st.headers.get("content-type"), /text\/javascript/);
+    assert.match(await st.text(), /export function step/);
   } finally {
     server.closeAll();
   }
-}
-
-const post = (url, body, headers = {}) =>
-  fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
-
-test("画面から来る操作は人のもの", async () => {
-  await withServer(async ({ store, base }) => {
-    const r = await (await post(`${base}/api/op`, { type: "add", panel: { view: "say", data: "やあ" } })).json();
-    assert.equal(r.ok, true);
-    assert.equal(store.board.list()[0].by, "human");
-    const b = await (await fetch(`${base}/api/board`)).json();
-    assert.equal(b.panels.length, 1);
-    const html = await (await fetch(`${base}/`)).text();
-    assert.match(html, /<script type="module">/);
-  });
 });
 
-test("画面のページ：利用者の view の囲いが、別のページへ移って外へ出ることを止める", async () => {
-  await withServer(async ({ base }) => {
-    for (const page of ["/", "/panels", "/boards"]) {
-      const r = await fetch(`${base}${page}`);
-      assert.equal(r.status, 200, page);
-      assert.equal(r.headers.get("content-security-policy"), "frame-src 'none'", page);
-    }
-  });
-});
-
-test("別のサイトからの書き込みは断る", async () => {
-  await withServer(async ({ base }) => {
-    const r = await post(`${base}/api/op`, { type: "add", panel: { view: "say", data: "x" } }, { origin: "https://evil.example" });
-    assert.equal(r.status, 403);
-  });
-});
-
-test("MCP の口：初期化・道具の一覧・書き込みは名乗った立場で、人にはなれない", async () => {
-  await withServer(async ({ store, base }) => {
-    const rpc = async (as, method, params, id = 1) => (await post(`${base}/mcp?as=${encodeURIComponent(as)}`, { jsonrpc: "2.0", id, method, params })).json();
-    const init = await rpc("manager", "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } });
-    assert.equal(init.result.protocolVersion, "2025-06-18");
-    // ボードの決まりは MCP の説明に一つだけ持つ（定義には役割だけ）
-    assert.match(init.result.instructions, /## パネル[\s\S]*## 守ること/);
-    const note = await post(`${base}/mcp?as=manager`, { jsonrpc: "2.0", method: "notifications/initialized" });
-    assert.equal(note.status, 202);
-    const tools = await rpc("manager", "tools/list");
-    assert.deepEqual(tools.result.tools.map((t) => t.name), ["board_read", "panel_add", "panel_edit", "panel_drop", "board_view", "panel_view", "board_layout", "word_add", "panel_history", "view_list"]);
-
-    store.apply({ by: "human", type: "add", panel: { view: "say", data: "えっと、あの" } });
-    const add = await rpc("アリス", "tools/call", { name: "panel_add", arguments: { view: "text", about: "p1", data: "答え", reason: "調べた" } });
-    assert.equal(JSON.parse(add.result.content[0].text).ok, true);
-    assert.equal(store.board.list()[1].by, "アリス");
-
-    const noReason = await rpc("アリス", "tools/call", { name: "panel_add", arguments: { view: "text" } });
-    assert.equal(noReason.result.isError, true);
-
-    const asHuman = await rpc("human", "tools/call", { name: "panel_edit", arguments: { id: "p1", pinned: true, reason: "x" } });
-    assert.equal(JSON.parse(asHuman.result.content[0].text).code, "forbidden");
-
-    const read = await rpc("manager", "tools/call", { name: "board_read", arguments: { since: 1 } });
-    const view = JSON.parse(read.result.content[0].text);
-    assert.equal(view.seq, 2);
-    assert.deepEqual(view.panels.map((p) => p.id), ["p2"]);
-  });
-});
-
-test("MCP の data：二重にくるまれた文字列はほどき、ほかはそのまま", async () => {
-  assert.equal(unwrapData('"# 見出し\\n本文"'), "# 見出し\n本文");
-  assert.equal(unwrapData(JSON.stringify(JSON.stringify("二重"))), "二重");
-  assert.equal(unwrapData("「引用」はそのまま"), "「引用」はそのまま");
-  assert.equal(unwrapData('"閉じていない'), '"閉じていない');
-  assert.equal(unwrapData('"a" と "b"'), '"a" と "b"');
-  assert.deepEqual(unwrapData(["a"]), ["a"]);
-  assert.equal(unwrapData("[1, 2]"), "[1, 2]");
-  await withServer(async ({ store, base }) => {
-    await post(`${base}/mcp?as=${encodeURIComponent("アリス")}`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "panel_add", arguments: { view: "md", data: '"# dyve\\n本文"', reason: "x" } } });
-    assert.equal(store.board.list()[0].data, "# dyve\n本文");
-  });
-});
-
-test("操作ログはファイルに積まれ、起動し直しても同じボードになる", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "board-"));
-  const file = path.join(dir, "log.jsonl");
-  const a = new Store(file);
-  a.apply({ by: "human", type: "add", panel: { view: "say", data: "一つ目" } });
-  a.apply({ by: "manager", type: "edit", panel: { id: "p1", data: "一つ目。" }, reason: "清書" });
-  const b = new Store(file);
-  assert.deepEqual(b.board.list(), a.board.list());
-  fs.rmSync(dir, { recursive: true });
-});
-
-test("Markdown に書き出す（AI を使わない）", () => {
-  const s = new Store();
-  s.apply({ by: "human", type: "add", panel: { view: "say", data: "検索を速くしたい" } });
-  s.apply({ by: "manager", type: "add", panel: { view: "task", state: "task", about: "p1", data: { text: "原因を調べる" } }, reason: "x" });
-  s.apply({ by: "アリス", type: "add", panel: { view: "table", about: "p2", data: { columns: ["原因", "確度"], rows: [["索引がない", "高"]] } }, reason: "x" });
-  const md = toMarkdown(s.board, { title: "テスト", now: new Date("2026-11-02T10:00:00Z") });
-  assert.match(md, /^# テスト/);
-  assert.match(md, /^- 検索を速くしたい$/m);
-  assert.match(md, /^ {2}- manager：原因を調べる（仕事）$/m);
-  assert.match(md, /\| 索引がない \| 高 \|/);
-});
-
-test("エージェントの起こし方：役割ごとの道具と、名乗りを付けた MCP の口", () => {
-  const args = claudeArgs({ role: "task", name: "アリス", prompt: "やって" }, "http://127.0.0.1:4740");
-  const mcp = JSON.parse(args[args.indexOf("--mcp-config") + 1]);
-  assert.equal(mcp.mcpServers.board.url, "http://127.0.0.1:4740/mcp?as=%E3%82%A2%E3%83%AA%E3%82%B9");
-  assert.ok(args.includes("WebSearch"));
-  const allowed = args.slice(args.indexOf("--allowedTools") + 1);
-  assert.ok(!allowed.includes("Edit") && !allowed.includes("Bash"));
-  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
-  assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
-  assert.match(m[m.indexOf("--append-system-prompt") + 1], /ボードマネージャ/);
-  assert.ok(!m.includes("--model"));
-  const r = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x", {}, { room: "/repo/x" });
-  assert.match(r[r.indexOf("--append-system-prompt") + 1], /リポジトリ \/repo\/x/);
-});
-
-test("エージェントの起こし方：前置きを固定してキャッシュを効かせる", () => {
-  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x");
-  assert.ok(t.includes("--exclude-dynamic-system-prompt-sections"));
-  // 行のセッションは流れる形で起こし、指示は標準入力で渡す（引数に入れない）
-  assert.equal(t[t.indexOf("--output-format") + 1], "stream-json");
-  assert.equal(t[t.indexOf("--input-format") + 1], "stream-json");
-  assert.ok(!t.includes("やって"));
-  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x");
-  assert.equal(m[m.indexOf("--output-format") + 1], "json", "マネージャを一回ずつ起こすときは今までどおり");
-  assert.ok(!m.includes("--exclude-dynamic-system-prompt-sections"));
-  // 清書係は起こしっぱなしの会話で、発言を書き換える道具だけ
-  const s = claudeArgs({ role: "scribe", name: "scribe" }, "http://x", { scribe: "haiku" }, { stream: true });
-  assert.equal(s[s.indexOf("--input-format") + 1], "stream-json");
-  assert.equal(s[s.indexOf("--model") + 1], "haiku");
-  assert.deepEqual(s.slice(s.indexOf("--allowedTools") + 1), ["mcp__board__panel_edit", "mcp__board__word_add"]);
-  assert.match(s[s.indexOf("--append-system-prompt") + 1], /清書係/);
-});
-
-test("エージェントの起こし方：役割ごとのモデル", () => {
-  const models = { manager: "haiku", task: "opus" };
-  const m = claudeArgs({ role: "manager", name: "manager", prompt: "整えて" }, "http://x", models);
-  assert.equal(m[m.indexOf("--model") + 1], "haiku");
-  assert.deepEqual(m.slice(m.indexOf("--allowedTools") + 1), ["mcp__board"]);
-  const t = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", models);
-  assert.equal(t[t.indexOf("--model") + 1], "opus");
-  const n = claudeArgs({ role: "task", name: "ボブ", prompt: "やって" }, "http://x", { manager: "haiku" });
-  assert.ok(!n.includes("--model"));
-});
-
-test("履歴：at を渡すと、その時点での中身だけ", async () => {
-  await withServer(async ({ store, base }) => {
-    const id = store.apply({ by: "manager", type: "add", panel: { view: "list", data: ["a"] }, reason: "r" }).op.panel.id;
-    store.apply({ by: "manager", type: "edit", panel: { id, data: ["a", "b"] }, reason: "r" });
-    assert.deepEqual(await (await fetch(`${base}/api/history?id=${id}&at=1`)).json(), { data: ["a"] });
-    assert.deepEqual(await (await fetch(`${base}/api/history?id=${id}&at=0`)).json(), { data: null });
-    assert.equal((await (await fetch(`${base}/api/history?id=${id}`)).json()).length, 2);
-  });
-});
-
-test("画面の調整：画面から変えるとすぐ効き、幅の外は断り、null で既定に戻る。ファイルに持つ", async () => {
-  const { Tune } = await import("../src/tune.js");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-tune-"));
-  const file = path.join(dir, "ui-settings.json");
-  const tune = new Tune(file);
-  const server = createServer({ store: new Store(), tune });
-  await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  const base = `http://127.0.0.1:${server.address().port}`;
+test("発言を置くと記録に残り、いまの状態で読める", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-next-"));
+  const file = path.join(dir, "record.jsonl");
+  const { server, base } = await start(file);
   try {
-    assert.equal((await (await fetch(`${base}/api/board`)).json()).tune.values.readPerCharMs, 25);
-    const r = await (await post(`${base}/api/tune`, { set: { readPerCharMs: 40 } })).json();
-    assert.equal(r.values.readPerCharMs, 40);
-    assert.equal(new Tune(file).view().values.readPerCharMs, 40, "立て直しても残る");
-    assert.equal((await post(`${base}/api/tune`, { set: { readPerCharMs: 9999 } })).status, 400);
-    assert.equal((await post(`${base}/api/tune`, { set: { nope: 1 } })).status, 400);
-    assert.equal((await (await post(`${base}/api/tune`, { set: { readPerCharMs: null } })).json()).values.readPerCharMs, 25);
-    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {});
+    const r = await (await say(base, "料金ページを直す前に、競合がいくらか調べておいて")).json();
+    assert.equal(r.ok, true);
+    assert.equal(r.record.seq, 1);
+    assert.equal(r.record.kind, "say");
+    const state = await (await fetch(`${base}/api/state`)).json();
+    assert.deepEqual(state.said.map((s) => s.text), ["料金ページを直す前に、競合がいくらか調べておいて"]);
+    assert.equal(state.seq, 1);
+    assert.equal(fs.readFileSync(file, "utf8").trim().split("\n").length, 1);
   } finally {
     server.closeAll();
-    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("立て直しても、前に置いた発言がいまの状態にある", async () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "dyve-next-")), "record.jsonl");
+  const a = await start(file);
+  await say(a.base, "一つめ");
+  a.server.closeAll();
+  const b = await start(file);
+  try {
+    const state = await (await fetch(`${b.base}/api/state`)).json();
+    assert.deepEqual(state.said.map((s) => s.text), ["一つめ"]);
+  } finally {
+    b.server.closeAll();
+  }
+});
+
+test("中身のない発言や壊れた JSON は 400 で断り、記録しない", async () => {
+  const { server, base, log, port } = await start();
+  try {
+    const r = await say(base, "  ");
+    assert.equal(r.status, 400);
+    assert.equal((await r.json()).code, "invalid");
+    const bad = await request(port, { method: "POST", path: "/api/say", headers: { "content-type": "application/json" }, body: "{" });
+    assert.equal(bad.status, 400);
+    assert.equal(log.state.seq, 0);
+  } finally {
+    server.closeAll();
+  }
+});
+
+test("つなぐと、まずいまの状態が流れ、そのあと増えた記録が一件ずつ流れる", async () => {
+  const { server, base } = await start();
+  try {
+    await say(base, "前から");
+    const { res, next } = await events(base, 3);
+    assert.match(res.headers.get("content-type"), /text\/event-stream/);
+    const done = next();
+    await say(base, "あとから一つめ");
+    await say(base, "あとから二つめ");
+    const got = await done;
+    assert.equal(got[0].event, "state");
+    assert.deepEqual(got[0].data.said.map((s) => s.text), ["前から"]);
+    assert.deepEqual(got.slice(1).map((g) => [g.event, g.data.seq, g.data.text]), [["record", 2, "あとから一つめ"], ["record", 3, "あとから二つめ"]]);
+  } finally {
+    server.closeAll();
+  }
+});
+
+test("ほかのオリジンからは断る。書き込みも残らない", async () => {
+  const { server, port, log } = await start();
+  try {
+    const body = JSON.stringify({ text: "外から" });
+    const evil = await request(port, { method: "POST", path: "/api/say", headers: { origin: "https://example.com", "content-type": "text/plain" }, body });
+    assert.equal(evil.status, 403);
+    assert.equal(JSON.parse(evil.body).code, "forbidden");
+    const read = await request(port, { path: "/api/state", headers: { origin: "http://localhost.example.com" } });
+    assert.equal(read.status, 403);
+    // DNS リバインディング：名前で来たものは断る
+    const rebind = await request(port, { method: "POST", path: "/api/say", headers: { host: `evil.example:${port}`, "content-type": "application/json" }, body });
+    assert.equal(rebind.status, 403);
+    assert.equal(log.state.seq, 0);
+    // 手元の画面からは通す
+    const own = await request(port, { method: "POST", path: "/api/say", headers: { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" }, body });
+    assert.equal(own.status, 200);
+    const lh = await request(port, { method: "POST", path: "/api/say", headers: { host: `localhost:${port}`, origin: `http://localhost:${port}`, "content-type": "application/json" }, body });
+    assert.equal(lh.status, 200);
+    // 手元のほかのポートで動くページからは書けない
+    const before = log.state.seq;
+    const other = await request(port, { method: "POST", path: "/api/say", headers: { origin: `http://127.0.0.1:${port + 1}`, "content-type": "text/plain" }, body });
+    assert.equal(other.status, 403);
+    assert.equal(log.state.seq, before);
+  } finally {
+    server.closeAll();
+  }
+});
+
+test("知らない口は 404", async () => {
+  const { server, base } = await start();
+  try {
+    assert.equal((await fetch(`${base}/api/nothing`)).status, 404);
+    assert.equal((await fetch(`${base}/api/say`)).status, 404);
+  } finally {
+    server.closeAll();
   }
 });
