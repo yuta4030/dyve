@@ -80,9 +80,15 @@ test("パネルは view の名前で描き手を選ぶ。本体が描くのは s
   assert.match(script, /VIEWS\.json\(u\.data/, "置き場の view で描けなければ json で出す");
 });
 
-test("ステートといまどこまでは state.js のものを使う", () => {
-  assert.match(script, /^import \{ step, stageOf, nowOf \} from "\/state\.js";$/m);
-  assert.doesNotMatch(script, /function stageOf|function nowOf/);
+test("ステート・いまどこまで・カードの大きさ・道具の行は state.js のものを使う", () => {
+  assert.match(script, /^import \{ step, stageOf, nowOf, sizeOf, toolsOf \} from "\/state\.js";$/m);
+  assert.doesNotMatch(script, /function (stageOf|nowOf|sizeOf|toolsOf)/);
+});
+
+test("カードのパネルは決まった行数で切らず、入るだけ出す", () => {
+  assert.doesNotMatch(script, /\.slice\(0, [34]\)/);
+  assert.match(script, /^function fit\(panel\)/m);
+  assert.match(script, /new ResizeObserver\(\(es\) => \{ for \(const e of es\) fitAll/);
 });
 
 test("パネル置き場の view は sandbox の iframe（allow-scripts だけ）で描き、外に出さない", () => {

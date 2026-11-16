@@ -7,7 +7,7 @@ import { Log } from "../src/log.js";
 import { loadRoles } from "../src/roles.js";
 import { Sessions } from "../src/sessions.js";
 import { SaidMouth, SessionMouth, Kakari, sessionPrompt, cardOf, panelOf, readDef, CARD_SCHEMA } from "../src/kakari.js";
-import { stageOf, nowOf } from "../src/state.js";
+import { stageOf, nowOf, sizeOf, toolsOf } from "../src/state.js";
 
 const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 const roles = loadRoles();
@@ -255,4 +255,49 @@ test("チャットに並ぶ順：発言と帰った一行が通し番号の順�
   const items = [...st.said.map((p) => [p.id, p.text]), ...st.backs.map((b) => [b.seq, b.text])].sort((a, b) => a[0] - b[0]).map((i) => i[1]);
   assert.deepEqual(items, ["a", "その間に別の話", CARD.back]);
   assert.equal(st.backs[0].session, s);
+});
+
+test("カードの大きさ：パネルなし → 小、1 枚か人待ち → 中、2 枚から → 大。作業場も一枚。動き出しても前の大きさのまま", async () => {
+  const t = setup();
+  t.ask("競合の値段を調べて");
+  assert.equal(sizeOf(t.x()), "s");
+  await t.f.jobs[0].run({ says: ["甲社は 980 円でした。"] });
+  const list = { view: "list", data: [{ text: "甲社", value: "980 円" }] };
+  t.conv.asks[0].reply({ ...CARD, panels: [list] });
+  await tick();
+  assert.equal(sizeOf(t.x()), "m");
+  t.log.add("work", { session: t.x().id, branch: "dyve/1" });
+  assert.equal(sizeOf(t.x()), "l", "作業場を足して 2 枚");
+  const said = t.log.add("say", { text: "続けて" }).record.seq;
+  t.sessions.ask(said, { session: t.x().id });
+  assert.equal(stageOf(t.x()).stage, "run");
+  assert.equal(sizeOf(t.x()), "l", "動き出しても前のカードのまま");
+
+  const w = setup();
+  w.ask("どちらにするか聞いて");
+  await w.f.jobs[0].run({ says: ["A と B のどちらにしますか"] });
+  w.conv.asks[0].reply({ ...CARD, ask: { text: "A か B か", ref: null } });
+  await tick();
+  assert.equal(stageOf(w.x()).stage, "wait");
+  assert.equal(sizeOf(w.x()), "m", "人待ちはパネルがなくても中");
+});
+
+test("いまのターンで使った道具：新しい n 行だけ。前のターンの道具は出さない", async () => {
+  const t = setup();
+  t.ask("競合の値段を調べて");
+  await t.f.jobs[0].run({ tools: ["/a.md", "/b.md"], says: ["済んだ"] });
+  t.conv.asks[0].reply(CARD);
+  await tick();
+  const said = t.log.add("say", { text: "続けて" }).record.seq;
+  t.sessions.ask(said, { session: t.x().id });
+  await tick();
+  assert.deepEqual(toolsOf(t.x()), [], "新しいターンのはじめは空");
+  const job = t.f.jobs[1];
+  job.emit({ type: "system", subtype: "init", session_id: "c-1" });
+  for (const f of ["/c.md", "/d.md", "/e.md", "/f.md"]) job.emit({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: f } }] } });
+  await tick();
+  const tools = toolsOf(t.x(), 3);
+  assert.equal(tools.length, 3);
+  assert.match(tools[0], /d\.md/);
+  assert.match(tools[2], /f\.md/);
 });
