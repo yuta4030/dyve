@@ -8,10 +8,10 @@
 Node 20 以上と、入れてログインした [Claude Code](https://docs.claude.com/en/docs/claude-code/setup)（`claude`）が要る。依存はない。
 
 ```sh
-npm i -g github:yuta4030/dyve#v0.11.0     # dyve コマンドを入れる。版はタグで固定する
+npm i -g github:yuta4030/dyve#v0.12.0     # dyve コマンドを入れる。版はタグで固定する
 ```
 
-入れずに試すだけなら `npx github:yuta4030/dyve#v0.11.0 serve`。更新は版を変えて `npm i -g` し直す（版ごとの変更は [CHANGELOG](CHANGELOG.md)）。
+入れずに試すだけなら `npx github:yuta4030/dyve#v0.12.0 serve`。更新は版を変えて `npm i -g` し直す（版ごとの変更は [CHANGELOG](CHANGELOG.md)）。
 
 ## 立てる
 

@@ -330,6 +330,21 @@ export function nowOf(x) {
   return x.failed ?? x.card?.line ?? headOf(x.last);
 }
 
+// カードの大きさ（導く。記録にも持たず、人も AI も変えない）：s（小）・m（中）・l（大）。
+// パネルの数は、いちばん新しいカードのパネルと作業場。カードは動き出しても残るので、ターンのたびに縮んで広がらない。人待ちなら中より小さくしない
+export function sizeOf(x) {
+  const n = (x.card?.panels?.length ?? 0) + (x.work || x.merged ? 1 : 0);
+  if (n >= 2) return "l";
+  if (n === 1 || stageOf(x).stage === "wait") return "m";
+  return "s";
+}
+
+// いまのターンで使った道具の新しい n 行（ターンのはじめは、渡した発言か受け入れ）
+export function toolsOf(x, n = 3) {
+  const at = x.flow.findLastIndex((f) => f.said != null || f.accept != null);
+  return x.flow.slice(at + 1).filter((f) => f.tool).slice(-n).map((f) => headOf(f.tool));
+}
+
 // 係が指すときの呼び方：出ているものは記号、済みのものは #id
 export const callOf = (x) => x.sym ?? `#${x.id}`;
 
