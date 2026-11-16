@@ -1,6 +1,6 @@
 {
   "name": "dyve",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "潜ったまま働ける道具。入力欄は一つで、喋ると係が届け先を決め、セッションが裏で動く",
   "type": "module",
   "bin": { "dyve": "bin/dyve.js" },
