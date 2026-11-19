@@ -73,6 +73,22 @@ test("届け先の印：続き・新しく起こした・届けていない・�
   assert.equal(chipOf({ id: 8, session: 2, resent: [4, 5] }, state).text, "→ A 競合の値段・前の発言を届け直した（2 件）");
 });
 
+test("言いつけの印：覗くのをやめた・済みにした・しなかったわけ", () => {
+  const Lsrc = script.match(/^const L = \{[\s\S]*?^\};/m)[0];
+  const code = html.match(/^function chipOf\([\s\S]*?^}$/m)[0];
+  const chipOf = new Function(`${Lsrc}; ${code}; return chipOf;`)();
+  const state = { sessions: [{ id: 2, sym: null, folded: { seq: 9 }, name: "競合の値段", role: "調べもの", asked: [1] }] };
+  assert.equal(chipOf({ id: 3, session: null, order: { act: "back", session: 2, reason: null } }, state).text, "覗くのをやめた");
+  assert.deepEqual(chipOf({ id: 4, session: null, order: { act: "fold", session: 2, reason: null } }, state), { go: 2, text: "競合の値段 を済みにした" });
+  assert.equal(chipOf({ id: 5, session: null, order: { act: "fold", session: 2, reason: "動いているので畳まない" } }, state).text, "しなかった：動いているので畳まない");
+});
+
+test("新しく始めるは画面で押したときだけ。断られたら、もう一度押したときだけそのまま進める", () => {
+  assert.match(script, /data-anew/);
+  assert.match(script, /const confirm = ui\.anew\?\.code === "unmerged";/);
+  assert.match(script, /"\/api\/anew"/);
+});
+
 test("パネルは view の名前で描き手を選ぶ。本体が描くのは summary・list・table・text・json", () => {
   const views = script.match(/^const VIEWS = \{([\s\S]*?)^\};/m)[1];
   assert.deepEqual([...views.matchAll(/^  (\w+):/gm)].map((m) => m[1]), ["summary", "list", "table", "text", "json"]);
@@ -112,7 +128,7 @@ test("ライトとダークの両方がある", () => {
 test("コードに前の版の言葉を使わない", () => {
   const dir = new URL("../", import.meta.url);
   const files = ["src", "bin", "test", "roles", "kakari"].flatMap((d) => fs.readdirSync(new URL(`${d}/`, dir)).map((f) => new URL(`${d}/${f}`, dir)));
-  const old = /(?<!キー)ボード|トーク|ピン留め|マネージャ|清書係|控室/;
+  const old = /(?<!キー)ボード|トーク(?!ン)|ピン留め|マネージャ|清書係|控室/;
   for (const f of files) {
     if (f.pathname.endsWith("/ui.test.js")) continue; // この試験そのもの
     assert.doesNotMatch(fs.readFileSync(f, "utf8"), old, f.pathname);

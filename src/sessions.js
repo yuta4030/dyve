@@ -8,6 +8,27 @@ import { NEVER } from "./roles.js";
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const oneLine = (s) => String(s).replace(/\s+/g, " ").trim();
 
+// 会話がこの大きさ（トークン）を超えたら、次の続きは引き継がずに、まっさらで起こし直す（0 なら起こし直さない）
+export const RENEW = 100000;
+// 起こし直すときに並べる、これまでに頼んだことの数（新しいほうから）
+const RENEW_ASKED = 10;
+
+// 起こし直すときに渡す文：これまでのこと（頼んだこと・何のセッションか・いまどこまで・段取り）と、いまの頼み
+export function renewPrompt(x, before, now) {
+  const card = x.card;
+  return [
+    "（前の会話が長くなったので、引き継がずに起こし直しました。前の会話は読めません。これまでのことを並べます）",
+    ...(card?.what ? [`何の仕事か：${oneLine(card.what)}`] : []),
+    ...(before.length ? ["これまでに頼んだこと：", ...before.slice(-RENEW_ASKED).map((t) => `- ${oneLine(t)}`)] : []),
+    ...(card?.line ? [`いまどこまで：${oneLine(card.line)}`] : []),
+    ...(card?.steps?.length ? ["段取り：", ...card.steps.map((t) => `- [${t.state === "done" ? "済" : t.state === "now" ? "いま" : "これから"}] ${oneLine(t.text)}`)] : []),
+    "要るものは、手元のファイルを読み直してください。",
+    "",
+    "いまの頼み：",
+    ...now,
+  ].join("\n");
+}
+
 // 人がカードの伺いを受け入れて始めるターンの文（セッションには、これだけを渡す）
 export const ACCEPTED = "人が受け入れました。聞いた範囲で進めてかまいません。";
 
@@ -102,13 +123,15 @@ export class Sessions {
   // roles：loadRoles の結果。room：place が room の役割が起きる場所。panels：place が panels の役割が起きる場所（パネル置き場）。
   // spawn：claudeSpawn か、テストの偽物
   // works：開発の作業場（work.js の Works。place が worktree の役割はここで起きる）
-  constructor({ log, roles, room, panels = null, works = null, spawn, slots = 3 }) {
+  // renew：会話がこの大きさを超えたら、次の続きはまっさらで起こし直す（0 なら起こし直さない）
+  constructor({ log, roles, room, panels = null, works = null, spawn, slots = 3, renew = RENEW }) {
     this.log = log;
     this.roles = roles;
     this.works = works;
     this.places = { room, panels, worktree: works?.place() ?? null };
     this.spawn = spawn;
     this.slots = Math.max(1, slots);
+    this.renew = renew;
     this.running = new Map(); // セッションの id -> { kill, claude }
     this.quota = null; // 利用枠：いちばん新しい rate_limit_event の rate_limit_info
     this.stopped = false;
@@ -131,6 +154,18 @@ export class Sessions {
       r.kill();
     }
     this.running.clear();
+  }
+
+  // 新しく始める（画面の人が押したときだけ）：いまの記録を退けて、空の記録から始め直す。
+  // 動いているセッション・渡す発言を待たせているセッションがあれば断る。取り込んでいない作業場があれば、confirm のときだけ進める（作業場とブランチは残る）
+  anew({ confirm = false } = {}) {
+    const st = this.log.state;
+    const busy = st.sessions.filter((x) => x.running || x.pending.length || this.running.has(x.id));
+    if (busy.length) return { ...fail("running", "動いているセッションがある"), sessions: busy.map((x) => x.id) };
+    const left = st.sessions.filter((x) => x.work && !x.work.gone && (x.work.ahead > 0 || x.work.dirty));
+    if (left.length && !confirm) return { ...fail("unmerged", "取り込んでいない作業場がある"), sessions: left.map((x) => x.id) };
+    const moved = this.log.anew();
+    return { ok: true, moved, left: left.map((x) => x.work.branch) };
   }
 
   // 発言を、セッションへ渡す。to は { session: id }（続き）か { role: 名前, name? }（この役割で新しく起こす。name はセッションの名前）。
@@ -214,13 +249,19 @@ export class Sessions {
       says = [...x.pending];
       prompt = says.map(text).join("\n\n");
     }
-    const resume = fresh ? null : x.claude;
+    // 会話が長くなっていたら、引き継がずに起こし直す（受け入れたターンは、聞いたことを覚えている会話で続ける）
+    const renew = !fresh && accept == null && x.claude && this.renew > 0 && x.context >= this.renew ? x.context : null;
+    if (renew != null) {
+      const before = x.flow.filter((f) => f.said).map((f) => text(f.said));
+      prompt = renewPrompt(x, before, says.map(text));
+    }
+    const resume = fresh || renew != null ? null : x.claude;
     if (!role) {
       this.log.add("start", { session: id, says, resume });
       this.log.add("fail", { session: id, reason: `役割「${x.role}」がもうない（定義を消したか、名前を変えた）`, claude: x.claude });
       return;
     }
-    this.log.add("start", { session: id, says, resume, ...(accept != null ? { accept } : {}) });
+    this.log.add("start", { session: id, says, resume, ...(accept != null ? { accept } : {}), ...(renew != null ? { renew } : {}) });
     // 開発の作業場がなければ切り出す（片付けたあとの続きも、同じ場所で）。切り出せなければ結果なしで終わる
     if (this.works?.mine(x)) {
       try {
@@ -230,7 +271,7 @@ export class Sessions {
         return;
       }
     }
-    const r = { claude: null, inited: false, result: null, killed: false };
+    const r = { claude: null, inited: false, result: null, killed: false, context: null };
     const h = this.spawn({ args: claudeArgs(role, { resume, lift: accept != null }), cwd: x.cwd, prompt }, (j) => this._event(id, r, j));
     r.kill = () => { r.killed = true; h.kill(); };
     this.running.set(id, r);
@@ -244,7 +285,7 @@ export class Sessions {
         return;
       }
       if (r.result && !r.result.is_error && r.claude) {
-        this.log.add("end", { session: id, claude: r.claude, last: typeof r.result.result === "string" ? r.result.result : null, usage: usageOf(r.result) });
+        this.log.add("end", { session: id, claude: r.claude, last: typeof r.result.result === "string" ? r.result.result : null, usage: usageOf(r.result), ...(r.context ? { context: r.context } : {}) });
       } else {
         this.log.add("fail", { session: id, reason: r.result || code ? exitError(code, r.result, stderr) : "結果を返さずに終わった", claude: r.claude, ...(r.result ? { usage: usageOf(r.result) } : {}) });
       }
@@ -267,6 +308,9 @@ export class Sessions {
       r.claude = j.session_id ?? r.claude;
       if (r.claude && r.claude !== this._session(id)?.claude) this.log.add("bind", { session: id, claude: r.claude });
     } else if (j.type === "assistant" && !j.parent_tool_use_id) {
+      // 会話の大きさ：いちばん新しい一回でモデルが読んだもの（キャッシュから読んだぶんも含める）
+      const u = j.message?.usage;
+      if (u) r.context = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) || r.context;
       for (const b of j.message?.content ?? []) {
         if (b.type === "text" && b.text?.trim()) this.log.add("talk", { session: id, text: b.text });
         if (b.type === "tool_use") this.log.add("tool", { session: id, line: toolLine(b) });

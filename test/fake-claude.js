@@ -28,6 +28,8 @@ function routeSays(prompt) {
     const named = text.match(/^([A-Z]+)\s*[はにへのも、]/)?.[1];
     const done = [...prompt.matchAll(/^- (#\d+)「(.*?)」/gm)].find((m) => text.includes(m[2]))?.[1];
     if (/^(うーん|独り言)/.test(text)) says.push({ id, text, to: "none" });
+    else if (/^(戻って|閉じて)$/.test(text)) says.push({ id, text, to: "back" });
+    else if (named && /済みにして|片付けて/.test(text)) says.push({ id, text, to: "fold", session: named });
     else if (done) says.push({ id, text, to: "session", session: done });
     else if (named && syms.includes(named)) says.push({ id, text, to: "session", session: named });
     else if (peek && /続き|それ|あと/.test(text)) says.push({ id, text, to: "session", session: peek });
@@ -84,7 +86,7 @@ async function turn() {
   const id = after("--resume") ?? `fake-${process.pid}-${Date.now()}`;
   const slow = /ゆっくり/.test(prompt) ? Number(process.env.FAKE_SLOW_MS ?? 1500) : 0;
   out({ type: "system", subtype: "init", session_id: id, cwd: process.cwd(), permissionMode: after("--permission-mode") });
-  const say = (text) => out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: id });
+  const say = (text) => out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }], usage: { input_tokens: 3, cache_read_input_tokens: 18000, cache_creation_input_tokens: 400 } }, parent_tool_use_id: null, session_id: id });
   say("調べはじめます。");
   await sleep(slow);
   out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "README.md" } }] }, parent_tool_use_id: null, session_id: id });

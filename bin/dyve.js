@@ -97,7 +97,7 @@ try {
 }
 // 開発の作業場：部屋が git のリポジトリのときだけ（そうでなければ開発は選べない）
 const works = new Works({ log, room, dir: path.resolve(v.work ?? path.join(place, "work")) }).start();
-const sessions = new Sessions({ log, roles, room, panels, works, spawn: claudeSpawn(v.claude), slots }).start();
+const sessions = new Sessions({ log, roles, room, panels, works, spawn: claudeSpawn(v.claude), slots, ...(conf.sessions.renew != null ? { renew: conf.sessions.renew } : {}) }).start();
 // 係：道具を持たない Claude Code。起きる場所は置き場の中の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(place, "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });

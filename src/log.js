@@ -10,6 +10,8 @@ export class Log {
     this.state = empty();
     this.skipped = 0; // 読めなかった行の数（書きかけなど）。消さずに残し、飛ばして読む
     this.listeners = new Set();
+    this.anews = new Set();
+    this.era = 0; // 新しく始めた回数（前の記録のために始めた仕事が、新しい記録に書かないように見分ける）
     if (!file) return;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const raw = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
@@ -38,6 +40,29 @@ export class Log {
     step(this.state, record);
     for (const fn of this.listeners) fn(record);
     return { ok: true, record };
+  }
+
+  // 新しく始める：いまの記録を隣に退けて（消さない）、空の記録から始め直す。退けた先を返す（メモリだけなら null）。
+  // 前の記録は読み直さない。onAnew で受けた部品は、前の記録のために持っていたものを捨てる
+  anew(now = new Date()) {
+    let moved = null;
+    if (this.file && fs.existsSync(this.file)) {
+      const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
+      const ext = path.extname(this.file), base = this.file.slice(0, this.file.length - ext.length);
+      moved = `${base}-${stamp}${ext}`;
+      for (let i = 2; fs.existsSync(moved); i++) moved = `${base}-${stamp}-${i}${ext}`;
+      fs.renameSync(this.file, moved);
+    }
+    this.state = empty();
+    this.skipped = 0;
+    this.era++;
+    for (const fn of this.anews) fn(moved);
+    return moved;
+  }
+
+  onAnew(fn) {
+    this.anews.add(fn);
+    return () => this.anews.delete(fn);
   }
 
   on(fn) {

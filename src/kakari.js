@@ -126,7 +126,7 @@ export const SAID_SCHEMA = {
         properties: {
           id: { type: "integer" },
           text: { type: "string" },
-          to: { type: "string", enum: ["session", "new", "none"] },
+          to: { type: "string", enum: ["session", "new", "none", "back", "fold"] },
           session: { type: "string" },
           role: { type: "string" },
           name: { type: "string" },
@@ -203,6 +203,7 @@ export class SaidMouth {
 
   start() {
     this.off = this.log.on((r) => r.kind === "say" && this.kick());
+    this.offAnew = this.log.onAnew(() => this.anew());
     if (this._undecided().length) this.kick();
     return this;
   }
@@ -210,13 +211,22 @@ export class SaidMouth {
   stop() {
     this.stopped = true;
     this.off?.();
+    this.offAnew?.();
     clearTimeout(this.timer);
+    this.conv.kill?.();
+  }
+
+  // 新しく始めた：前の記録の会話を捨てる。読んでいる途中のものは、返っても新しい記録には置かない
+  anew() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.reading.clear();
     this.conv.kill?.();
   }
 
   // 届け先の決まっていない発言（いま読んでいるものは除く）
   _undecided() {
-    return this.log.state.said.filter((p) => p.session == null && !p.aside && !this.reading.has(p.id));
+    return this.log.state.said.filter((p) => p.session == null && !p.aside && !p.order && !this.reading.has(p.id));
   }
 
   // 読んでいるあいだに来た発言は、終わってから次の回にまとめて読む
@@ -234,7 +244,7 @@ export class SaidMouth {
     this.timer = null;
     const batch = this._undecided().slice(-this.most);
     if (this.stopped || !batch.length) return;
-    const first = batch[0].id;
+    const era = this.log.era, first = batch[0].id;
     const again = this.log.state.said.filter((p) => p.aside && p.session == null && p.id < first).slice(-AGAIN);
     this.busy = true;
     for (const p of batch) this.reading.add(p.id);
@@ -244,16 +254,32 @@ export class SaidMouth {
     } catch (e) {
       res = { ok: false, error: e.message };
     }
-    if (!this.stopped) {
+    const same = !this.stopped && this.log.era === era;
+    if (same) {
       if (res.ok) this._apply(batch, res.json, again);
       else this.log.add("miss", { says: batch.map((p) => p.id), reason: `係が読めなかった：${res.error}` });
+      for (const p of batch) this.reading.delete(p.id);
     }
-    for (const p of batch) this.reading.delete(p.id);
     this.busy = false;
     if (this.again) {
       this.again = false;
       this.kick();
     }
+  }
+
+  // 言いつけ（画面への発言）を置く。back：覗いているのをやめる（覗いていなかったら、やめるものがない）。
+  // fold：出ているカードを済みに畳む。動いているもの・渡す発言を待たせているものは畳まない
+  _order(p, it) {
+    if (it.to === "back") {
+      const x = p.peek != null ? this.log.state.sessions.find((s) => s.id === p.peek) : null;
+      this.log.add("order", { said: p.id, act: "back", session: x?.id ?? null, ...(x ? {} : { reason: "覗いていなかった" }) });
+      return;
+    }
+    const key = String(it.session ?? "").trim().toUpperCase();
+    const x = this.log.state.sessions.find((s) => s.sym === key || `#${s.id}` === key);
+    const reason = !x ? `ありもしないセッション「${it.session ?? ""}」` : x.folded ? "もう済みにしてある" : x.running || x.pending.length ? "動いているので畳まない" : null;
+    this.log.add("order", { said: p.id, act: "fold", session: x?.id ?? null, ...(reason ? { reason } : {}) });
+    if (!reason) this.log.add("fold", { session: x.id, by: p.id });
   }
 
   // 返ったものを記録に置く：清書（変わったときだけ）→ 届け先。読めないもの・ありもしない届け先は miss にして、未定のまま残す。
@@ -276,6 +302,10 @@ export class SaidMouth {
       let r = null;
       if (it.to === "none") {
         this.log.add("aside", { said: p.id });
+        continue;
+      } else if (it.to === "back" || it.to === "fold") {
+        if (old) continue; // 前の発言を言いつけとして読み直さない
+        this._order(p, it);
         continue;
       } else if (it.to === "session") {
         // 出ているものは記号で、済みのものは #id で指す（済みに届けば戻る）
@@ -426,6 +456,7 @@ export class SessionMouth {
 
   start() {
     this.off = this.log.on((r) => r.kind === "end" && this.kick());
+    this.offAnew = this.log.onAnew(() => this.anew());
     this.kick();
     return this;
   }
@@ -433,7 +464,16 @@ export class SessionMouth {
   stop() {
     this.stopped = true;
     this.off?.();
+    this.offAnew?.();
     clearTimeout(this.timer);
+    this.conv.kill?.();
+  }
+
+  // 新しく始めた：前の記録の会話を捨てる。読んでいる途中のものは、返っても新しい記録には置かない
+  anew() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.reading.clear();
     this.conv.kill?.();
   }
 
@@ -461,7 +501,7 @@ export class SessionMouth {
     if (this.stopped || !x) return;
     this.busy = true;
     this.reading.add(x.id);
-    const turn = x.turn;
+    const turn = x.turn, era = this.log.era;
     let res, views = [];
     try {
       views = this.views();
@@ -469,13 +509,14 @@ export class SessionMouth {
     } catch (e) {
       res = { ok: false, error: e.message };
     }
-    if (!this.stopped) {
+    const same = !this.stopped && this.log.era === era;
+    if (same) {
       const cur = this.log.state.sessions.find((s) => s.id === x.id);
       const card = res.ok ? cardOf(res.json, cur, new Set(views.map((v) => v.name))) : null;
       if (card) this.log.add("card", { session: x.id, turn, ...card });
       else this.log.add("nocard", { session: x.id, turn, reason: res.ok ? "係の返したカードが読めない" : `係が読めなかった：${res.error}` });
+      this.reading.delete(x.id);
     }
-    this.reading.delete(x.id);
     this.busy = false;
     this.again = false;
     this.kick(); // 読んでいるあいだに止まったほかのセッションを、順に

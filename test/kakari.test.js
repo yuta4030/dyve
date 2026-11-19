@@ -43,7 +43,7 @@ test("係の定義は役割だけ。決まった形の JSON で返させる", ()
   assert.match(def, /清書/);
   assert.match(def, /迷ったら届けるほうに倒します/);
   assert.match(def, /意味は変えない。足さない。要約しない/);
-  assert.deepEqual(SAID_SCHEMA.properties.says.items.properties.to.enum, ["session", "new", "none"]);
+  assert.deepEqual(SAID_SCHEMA.properties.says.items.properties.to.enum, ["session", "new", "none", "back", "fold"]);
 });
 
 test("係に渡す一通：選べる役割・辞書・いまのセッション・直前の発言・新しい発言", async () => {

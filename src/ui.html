@@ -112,6 +112,11 @@ dyve-overview.zone, dyve-peek.zone { overflow-y: auto; }
 .wres.conflict, .wres.failed, .wres.dirty { color: var(--you); }
 .act { margin-top: 6px; background: var(--accent); color: var(--surface); border: 0; border-radius: 8px; padding: 3px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .act:disabled { opacity: .5; cursor: default; }
+.anew { margin-left: auto; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 1px 10px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.anew.again { border-color: var(--you); color: var(--you); }
+.anew:disabled { opacity: .5; cursor: default; }
+.anewmsg { font-size: 12px; color: var(--you); margin: 2px 0 6px; }
+.ctx { margin-left: 6px; font-family: var(--font-mono); font-size: 11px; }
 .cyours .act { background: var(--you); }
 /* カードの中のパネルは、行を一行に切る（覗けば全部） */
 .pfit .item span:first-child, .pfit .tbl td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
@@ -272,6 +277,14 @@ const L = {
   none: (why) => `結果を出さずに終わった：${why}`,
   also: (t) => `・${t}`,
   resent: (n) => `前の発言を届け直した${n > 1 ? `（${n} 件）` : ""}`,
+  orderBack: "覗くのをやめた", orderFold: (name) => `${name} を済みにした`, orderNot: (why) => `しなかった：${why}`,
+  tokens: (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)),
+  context: (n) => `会話 ${L.tokens(n)}`, contextCap: "いまの会話の大きさ（トークン）。長くなると、次の続きはまっさらで起こし直す",
+  renewed: (n) => `（会話が長くなったので（${L.tokens(n)}）、引き継がずに起こし直した）`,
+  anew: "新しく始める", anewCap: "いまの記録を退けて、空のオーバービューから始める。前の記録は開き直さない",
+  anewRunning: "動いているセッションがあるので、止まってから押す",
+  anewUnmerged: (names) => `取り込んでいない作業場がある（${names}）。もう一度押すと、そのまま新しく始める（作業場とブランチは残る）`,
+  anewFailed: "新しく始められなかった", sep: "・",
 };
 
 // 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
@@ -297,6 +310,11 @@ const dayOf = (d) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDat
 function chipOf(s, state) {
   const x = s.session != null ? state.sessions.find((y) => y.id === s.session) : null;
   const again = s.resent?.length ? L.resent(s.resent.length) : "";
+  if (s.order) {
+    const y = state.sessions.find((z) => z.id === s.order.session);
+    if (s.order.reason) return { text: L.orderNot(s.order.reason), quiet: true };
+    return s.order.act === "back" ? { text: L.orderBack, quiet: true } : { ...(y ? { go: y.id } : {}), text: L.orderFold(y?.name ?? y?.role ?? "") };
+  }
   if (x?.folded) return { go: x.id, text: L.toDone(x.name ?? x.role) + (again ? L.also(again) : "") };
   if (x) return { go: x.id, text: L.to(x.sym, x.name ?? x.role) + (x.asked[0] === s.id ? L.made(x.role) : "") + (again ? L.also(again) : "") };
   if (again) return { text: again, quiet: true };
@@ -440,6 +458,9 @@ function put(el, html) {
   el.hidden = !html;
 }
 
+// いまの会話の大きさ（わかっているときだけ）
+const contextHtml = (x) => (x.context ? `<span class="ctx" title="${L.contextCap}">${esc(L.context(x.context))}</span>` : "");
+
 // 開発の作業場のありさまと「取り込む」。取り込んだあとは、取り込んだとわかる
 function workHtml(x) {
   const w = x.work, m = x.merged;
@@ -460,7 +481,7 @@ function acceptHtml(x) {
 // ── オーバービュー：セッションごとにカードが一枚。できた順に並び、動かない ──
 class Overview extends HTMLElement {
   connectedCallback() {
-    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}</p><p class="noses empty">${L.noSession}</p><div class="cards"></div>
+    this.innerHTML = `<p class="cap"><b>${L.overview}</b>${L.overviewCap}<button class="anew" data-anew="1" title="${L.anewCap}">${L.anew}</button></p><p class="anewmsg" aria-live="polite" hidden></p><p class="noses empty">${L.noSession}</p><div class="cards"></div>
       <div class="shelf"><p class="cap"><b>${L.shelf}</b>${L.shelfCap}</p><div class="drows"></div><button class="shelfmore" data-more="1"></button></div>`;
     this.cards = this.querySelector(".cards");
   }
@@ -468,6 +489,13 @@ class Overview extends HTMLElement {
   render(state, ui) {
     const live = state.sessions.filter((x) => !x.folded).sort((a, b) => a.shown - b.shown);
     this.querySelector(".noses").hidden = live.length > 0;
+    // 新しく始める：記録が空なら出さない。断られたわけは、ボタンの下に出す（もう一度押すまで、ほかのことはしない）
+    const btn = this.querySelector(".anew"), msg = this.querySelector(".anewmsg");
+    btn.hidden = !state.said.length && !state.sessions.length;
+    btn.disabled = ui.busy.has("anew");
+    btn.classList.toggle("again", ui.anew?.code === "unmerged");
+    msg.hidden = !ui.anew;
+    if (ui.anew && msg.textContent !== ui.anew.text) msg.textContent = ui.anew.text;
     // 畳まれたカードは外す。残りの順は変えない
     for (const c of this.cards.querySelectorAll(".card")) if (!live.some((x) => String(x.id) === c.dataset.go)) c.remove();
     this.shelf(state, ui);
@@ -490,7 +518,7 @@ class Overview extends HTMLElement {
       c.querySelector(".tag").hidden = !ui.hits.has(x.id);
       c.querySelector(".mark").hidden = !ui.marks.has(x.id);
       put(c.querySelector(".chead"), `<span class="sym">${esc(x.sym)}</span><span class="cname">${esc(x.name ?? x.role)}</span>${pillHtml(x)}`);
-      put(c.querySelector(".roles"), `<span>${L.roleLabel}</span><span class="role">${esc(x.role)}</span>`);
+      put(c.querySelector(".roles"), `<span>${L.roleLabel}</span><span class="role">${esc(x.role)}</span>${contextHtml(x)}`);
       const line = c.querySelector(".cline");
       if (line.textContent !== nowOf(x)) line.textContent = nowOf(x);
       // 小：動いているあいだ、使った道具の新しい 3 行。中・大：段取りと問い、右にパネルを全部（作業場もパネルの一枚）
@@ -551,16 +579,16 @@ class Peek extends HTMLElement {
     if (!x) return;
     const said = (n) => state.said.find((p) => p.id === n);
     const text = (p) => p?.body ?? p?.fair ?? p?.text ?? "";
-    put(this.querySelector(".ph"), `<span class="sym">${esc(x.sym)}</span><span class="cname">${esc(x.name ?? x.role)}</span>${pillHtml(x)}<p class="roles"><span>${L.roleLabel}</span><span class="role">${esc(x.role)}</span></p>`);
+    put(this.querySelector(".ph"), `<span class="sym">${esc(x.sym)}</span><span class="cname">${esc(x.name ?? x.role)}</span>${pillHtml(x)}<p class="roles"><span>${L.roleLabel}</span><span class="role">${esc(x.role)}</span>${contextHtml(x)}</p>`);
     put(this.querySelector(".pwhat"), esc(x.card?.what ?? ""));
     // やりとりは足すだけ。いちばん下を見ているときだけ追いかける
     const fresh = x.flow.slice(this.shown);
     const follow = this.flow.scrollHeight - this.flow.scrollTop - this.flow.clientHeight < 40;
     for (const f of fresh) {
       const el = document.createElement("div");
-      el.className = `msg ${f.said || f.accept ? "you" : f.tool ? "tool" : "ai"}`;
+      el.className = `msg ${f.said || f.accept ? "you" : f.tool || f.renew ? "tool" : "ai"}`;
       el.dataset.at = f.said ?? f.seq;
-      el.textContent = f.said ? text(said(f.said)) : f.accept ? L.acceptedMsg : f.tool ?? f.talk;
+      el.textContent = f.said ? text(said(f.said)) : f.accept ? L.acceptedMsg : f.renew ? L.renewed(f.renew) : f.tool ?? f.talk;
       this.msgs.append(el);
     }
     this.shown = x.flow.length;
@@ -773,13 +801,21 @@ const chat = document.querySelector("dyve-chat");
 const overview = document.querySelector("dyve-overview");
 const peekView = document.querySelector("dyve-peek");
 // 画面の中だけで持つもの（記録には持たない。開き直せば消えてよい）：peek 覗いているセッション、marks 見てほしい印、hits いま届いた、
-// seen 前に見たステートと渡した数、folded いま畳んだ、allDone 済みを全部出すか、busy 押した結果を待っている取り込む・受け入れる
-const ui = { peek: null, marks: new Set(), hits: new Set(), seen: new Map(), folded: new Set(), allDone: false, busy: new Set() };
+// seen 前に見たステートと渡した数、folded いま畳んだ、allDone 済みを全部出すか、busy 押した結果を待っている取り込む・受け入れる・新しく始める、
+// orders 当てた言いつけ（覗くのをやめる）、anew 新しく始めるが断られたわけ（{ code, text }）
+const blank = () => ({ peek: null, marks: new Set(), hits: new Set(), seen: new Map(), folded: new Set(), allDone: false, busy: new Set(), orders: new Set(), anew: null });
+const ui = blank();
 
 let state = null;
 
 // 印：覗いていないあいだに人待ち・帰ったになったカードに付ける。発言が届いたカードは一瞬わかるように
 function notice(first) {
+  // 「戻って」と言われたら、そのとき覗いていたものを覗いているあいだだけ、オーバービューに戻す
+  for (const p of state.said) {
+    if (p.order?.act !== "back" || ui.orders.has(p.id)) continue;
+    ui.orders.add(p.id);
+    if (!first && ui.peek != null && ui.peek === p.order.session) peek(null);
+  }
   for (const x of state.sessions) {
     const g = stageOf(x).stage, before = ui.seen.get(x.id);
     ui.seen.set(x.id, { stage: g, asked: x.asked.length });
@@ -802,6 +838,12 @@ function draw() {
   chat.sync(state);
 }
 function reset(s) {
+  // 新しく始めた（記録が前より短い）：画面の中だけで持っていたものも捨てる
+  if (state && s.seq < state.seq) {
+    Object.assign(ui, blank());
+    overview.hidden = false;
+    peekView.hidden = true;
+  }
   state = s;
   notice(true);
   chat.reset(state);
@@ -826,9 +868,10 @@ function peek(id) {
 }
 document.addEventListener("click", (e) => {
   if (!state) return;
-  const t = e.target.closest("[data-back],[data-ref],[data-go],[data-more],[data-integrate],[data-accept]");
+  const t = e.target.closest("[data-back],[data-ref],[data-go],[data-more],[data-integrate],[data-accept],[data-anew]");
   if (!t) return;
-  if (t.dataset.integrate) act(`i${t.dataset.integrate}`, "/api/integrate", { session: Number(t.dataset.integrate) });
+  if (t.dataset.anew) anew();
+  else if (t.dataset.integrate) act(`i${t.dataset.integrate}`, "/api/integrate", { session: Number(t.dataset.integrate) });
   else if (t.dataset.accept) act(`a${t.dataset.accept}`, "/api/accept", { session: Number(t.dataset.accept), card: Number(t.dataset.card) });
   else if (t.dataset.more) { ui.allDone = !ui.allDone; overview.render(state, ui); }
   else if (t.dataset.back) peek(null);
@@ -844,6 +887,24 @@ async function act(key, url, body) {
     await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   } catch {}
   ui.busy.delete(key);
+  draw();
+}
+// 新しく始める：押すことが決めること。取り込んでいない作業場があると言われたら、もう一度押したときだけそのまま進める
+async function anew() {
+  if (ui.busy.has("anew")) return;
+  const confirm = ui.anew?.code === "unmerged";
+  ui.busy.add("anew");
+  draw();
+  let r = null;
+  try {
+    r = await (await fetch("/api/anew", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm }) })).json();
+  } catch {}
+  ui.busy.delete("anew");
+  const names = (ids) => ids.map((n) => state.sessions.find((x) => x.id === n)).filter(Boolean).map((x) => x.sym ?? x.name ?? x.role).join(L.sep);
+  if (r?.ok) ui.anew = null;
+  else if (r?.code === "running") ui.anew = { code: r.code, text: L.anewRunning };
+  else if (r?.code === "unmerged") ui.anew = { code: r.code, text: L.anewUnmerged(names(r.sessions ?? [])) };
+  else ui.anew = { code: "failed", text: L.anewFailed };
   draw();
 }
 async function say(text) {

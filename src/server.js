@@ -23,6 +23,11 @@ export function createServer({ log, panels = null, works = null, sessions = null
     const chunk = `event: record\ndata: ${JSON.stringify(record)}\n\n`;
     for (const res of clients) res.write(chunk);
   });
+  // 新しく始めたら、空の状態をまるごと送り直す
+  const offAnew = log.onAnew(() => {
+    const chunk = `event: state\ndata: ${JSON.stringify(log.state)}\n\n`;
+    for (const res of clients) res.write(chunk);
+  });
 
   const server = http.createServer(async (req, res) => {
     const json = (code, body) => {
@@ -64,6 +69,13 @@ export function createServer({ log, panels = null, works = null, sessions = null
         const r = log.add("say", { text: body.text, peek });
         return json(r.ok ? 200 : 400, r);
       }
+      // 新しく始める：画面で押したときだけ。動いているものがあれば断り、取り込んでいない作業場があれば confirm のときだけ
+      if (route === "POST /api/anew") {
+        if (!own) return json(403, { ok: false, code: "forbidden", message: "画面から押したときだけ" });
+        const body = await readJson(req);
+        const r = sessions ? sessions.anew({ confirm: body.confirm === true }) : { ok: false, code: "unavailable", message: "セッションがない" };
+        return json(r.ok ? 200 : 409, r);
+      }
       // 取り込む・受け入れる：画面で押したときだけ（チャットの発言や係からは呼ばない）。押されたときに、いまのありさまを確かめ直す
       if (route === "POST /api/integrate" || route === "POST /api/accept") {
         // 人が画面で押したときだけの口。ブラウザは書くときに必ず Origin を付けるので、ないものは通さない
@@ -95,6 +107,7 @@ export function createServer({ log, panels = null, works = null, sessions = null
   });
   server.closeAll = () => {
     off();
+    offAnew();
     for (const res of clients) res.end();
     clients.clear();
     server.close();

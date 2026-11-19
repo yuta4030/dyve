@@ -40,8 +40,8 @@ export const KINDS = {
     },
     apply(s, r) {
       // fair：清書した文（なければ null。元の文 text は残る）。届け先は session か aside（どこにも届けない）。miss：係が届け先を決められなかった理由。
-      // body：セッションに渡した文が違ったとき。resent：この発言で届け直した発言
-      s.said.push({ id: r.seq, at: r.at, text: r.text, peek: r.peek ?? null, fair: null, session: null, aside: false, miss: null, body: null, resent: [] });
+      // body：セッションに渡した文が違ったとき。resent：この発言で届け直した発言。order：セッションではなく画面への言いつけ（覗くのをやめる・畳む）
+      s.said.push({ id: r.seq, at: r.at, text: r.text, peek: r.peek ?? null, fair: null, session: null, aside: false, miss: null, body: null, resent: [], order: null });
     },
   },
 
@@ -82,6 +82,21 @@ export const KINDS = {
     },
   },
 
+  // 言いつけ：人が発言で、セッションではなく画面に言ったこと。act は back（覗いているのをやめる）か fold（カードを済みに畳む）。
+  // session：その相手（back なら覗いていたセッション）。reason：言われたとおりにしなかった理由（なければ言われたとおりにした）
+  order: {
+    make({ said, act, session = null, reason = null }) {
+      if (act !== "back" && act !== "fold") throw new Error("act は back か fold");
+      return { said: id(said, "said"), act, session: session == null ? null : id(session, "session"), ...(reason != null ? { reason: text(reason, "reason") } : {}) };
+    },
+    apply(s, r) {
+      const p = saidOf(s, r.said);
+      if (!p) return;
+      p.order = { act: r.act, session: r.session, reason: r.reason ?? null };
+      p.miss = null;
+    },
+  },
+
   // 係が届け先を決められなかった（係が動かない・返したものが読めない・ありもしない届け先）。発言は未定のまま、次の回に読み直す
   miss: {
     make({ says, reason }) {
@@ -105,9 +120,10 @@ export const KINDS = {
     // folded：済みに畳んだ記録（{ seq, at, by }。出ていれば null）。backAt：帰った（カード・読めなかった・結果なし）記録の通し番号。
     // work：開発の作業場のありさま。merged：いちばん新しい取り込みの結果。accepted：受け入れたカードの通し番号。
     // asked：渡した発言の id（順に）。turn：いちばん新しく終わったターン（end の通し番号）。
-    // read：係が読んだターン（カードを書いたか、読めなかったか）。card：いちばん新しいカード
+    // read：係が読んだターン（カードを書いたか、読めなかったか）。card：いちばん新しいカード。
+    // context：いまの会話の大きさ（いちばん新しいターンの最後の一回でモデルが読んだトークン。わからなければ null）
     apply(s, r) {
-      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), shown: r.seq, folded: null, backAt: null, name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, work: null, merged: null, accepted: null, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage() });
+      s.sessions.push({ id: r.seq, at: r.at, sym: freeSymbol(s), shown: r.seq, folded: null, backAt: null, name: r.name ?? null, role: r.role, cwd: r.cwd, claude: null, running: false, work: null, merged: null, accepted: null, asked: [], pending: [], flow: [], last: null, failed: null, turn: null, read: null, card: null, usage: usage(), context: null });
     },
   },
 
@@ -138,7 +154,7 @@ export const KINDS = {
     },
   },
 
-  // 済みに畳んだ：帰ったあと、人が別の話へ進んだ。by はそのきっかけの発言（別のセッションに届いた発言）
+  // 済みに畳んだ：帰ったあと、人が別の話へ進んだか、人が畳むように言った。by はそのきっかけの発言（別のセッションに届いた発言か、言いつけ）
   fold: {
     make({ session, by }) {
       return { session: id(session, "session"), by: id(by, "by") };
@@ -152,11 +168,12 @@ export const KINDS = {
   },
 
   // ターンが始まった：待っていた発言をまとめて渡した。resume は引き継いだ Claude の session_id（まっさらなら null）。
-  // accept：人がカードの伺いを受け入れて始めたターン（受け入れたカードの通し番号。発言は渡さない）
+  // accept：人がカードの伺いを受け入れて始めたターン（受け入れたカードの通し番号。発言は渡さない）。
+  // renew：会話が長くなったので、引き継がずにまっさらで起こし直したターン（そのときの会話の大きさ）
   start: {
-    make({ session, says = [], resume = null, accept = null }) {
+    make({ session, says = [], resume = null, accept = null, renew = null }) {
       if (!Array.isArray(says) || (!says.length && accept == null)) throw new Error("says がない");
-      return { session: id(session, "session"), says: says.map((x) => id(x, "says")), resume, ...(accept != null ? { accept: id(accept, "accept") } : {}) };
+      return { session: id(session, "session"), says: says.map((x) => id(x, "says")), resume, ...(accept != null ? { accept: id(accept, "accept") } : {}), ...(renew != null ? { renew: id(renew, "renew") } : {}) };
     },
     apply(s, r) {
       const x = sessionOf(s, r);
@@ -164,6 +181,8 @@ export const KINDS = {
       x.running = true;
       x.failed = null;
       x.pending = x.pending.filter((p) => !r.says.includes(p));
+      if (r.resume == null) x.context = null; // 引き継がずに起こした会話は、また小さいところから
+      if (r.renew != null) x.flow.push({ seq: r.seq, at: r.at, renew: r.renew });
       for (const said of r.says) if (!x.flow.some((f) => f.said === said)) x.flow.push({ seq: r.seq, at: r.at, said });
       if (r.accept != null) x.flow.push({ seq: r.seq, at: r.at, accept: r.accept });
     },
@@ -236,10 +255,10 @@ export const KINDS = {
     },
   },
 
-  // ターンが終わった：最後の言葉と使った量。claude は Claude の session_id（続きはこれを引き継ぐ）
+  // ターンが終わった：最後の言葉と使った量。claude は Claude の session_id（続きはこれを引き継ぐ）。context：会話の大きさ（わかれば）
   end: {
-    make({ session, claude, last = null, usage: u }) {
-      return { session: id(session, "session"), claude: text(claude, "claude"), last, usage: usage(u) };
+    make({ session, claude, last = null, usage: u, context = null }) {
+      return { session: id(session, "session"), claude: text(claude, "claude"), last, usage: usage(u), ...(Number.isInteger(context) && context > 0 ? { context } : {}) };
     },
     apply(s, r) {
       const x = sessionOf(s, r);
@@ -248,6 +267,7 @@ export const KINDS = {
       x.claude = r.claude;
       x.last = r.last;
       x.turn = r.seq;
+      if (r.context) x.context = r.context;
       for (const k of Object.keys(x.usage)) x.usage[k] += r.usage[k];
     },
   },
