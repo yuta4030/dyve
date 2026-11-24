@@ -1,5 +1,5 @@
 // 記録：追記だけのログ（JSON Lines）。一件は { seq, at, kind, ...中身 }
-// 立ち上げるときにファイルを頭から読み、当て直していまの状態を作る。file を渡さなければメモリだけで持つ（テスト用）
+// 立てるときにファイルを頭から読み、当て直していまの状態を作る。file を渡さなければメモリだけで持つ（テスト用）
 import fs from "node:fs";
 import path from "node:path";
 import { KINDS, empty, step } from "./state.js";
@@ -23,21 +23,14 @@ export class Log {
     if (raw && !raw.endsWith("\n")) fs.appendFileSync(file, "\n");
   }
 
-  // 一件足す。通し番号と時刻はここで振る
+  // 一件足す。通し番号と時刻はここで振る。足りないものは例外にする（呼ぶのは dyve の中だけ）
   add(kind, body = {}) {
-    const k = Object.hasOwn(KINDS, kind) ? KINDS[kind] : null;
-    if (!k) return { ok: false, code: "invalid", message: `知らない種類：${kind}` };
-    let fields;
-    try {
-      fields = k.make(body);
-    } catch (e) {
-      return { ok: false, code: "invalid", message: e.message };
-    }
-    const record = { seq: this.state.seq + 1, at: new Date().toISOString(), kind, ...fields };
+    if (!Object.hasOwn(KINDS, kind)) throw new Error(`知らない種類：${kind}`);
+    const record = { seq: this.state.seq + 1, at: new Date().toISOString(), kind, ...KINDS[kind](body) };
     if (this.file) fs.appendFileSync(this.file, JSON.stringify(record) + "\n");
     step(this.state, record);
     for (const fn of this.listeners) fn(record);
-    return { ok: true, record };
+    return record;
   }
 
   on(fn) {
