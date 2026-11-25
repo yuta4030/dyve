@@ -91,3 +91,31 @@ test("設定を変える。決まっていない値は断る", async () => {
   assert.equal((await set({ key: "send", value: "later" })).status, 400);
   close();
 });
+
+test("覗いているあいだの発言は、係を通さず覗いている先へ。記号で別を呼んだときは係に任せる", async () => {
+  const log = new Log(), sent = [];
+  log.add("open", { session: 1, name: "a" });
+  log.add("open", { session: 2, name: "b" });
+  const server = createServer({ log, sessions: { send: (s, say) => sent.push([s, say]) } });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const say = (b) => fetch(`http://127.0.0.1:${server.address().port}/api/say`, { method: "POST", body: JSON.stringify(b) }).then((r) => r.json());
+  const x = await say({ text: "それも見て", peek: 1 });
+  const y = await say({ text: "B は年払いも", peek: 1 });
+  assert.deepEqual(sent, [[1, x.record.seq]]);
+  assert.equal(log.state.said[1].session, undefined);
+  server.closeAll();
+});
+
+test("押したシェルを、その場所で動かして結果を返す。画面から押したときだけ", async () => {
+  const log = new Log();
+  const dir = (await import("node:os")).tmpdir();
+  const server = createServer({ log, room: dir, shell: "/bin/sh" });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const runIt = (cmd, origin = base) => fetch(`${base}/api/run`, { method: "POST", headers: origin ? { origin } : {}, body: JSON.stringify({ cmd }) });
+  const r = await (await runIt("pwd; echo oops >&2; exit 3")).json();
+  assert.equal(r.code, 3);
+  assert.match(r.out, /oops/);
+  assert.equal((await runIt("echo x", null)).status, 403);
+  server.closeAll();
+});

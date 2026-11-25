@@ -39,7 +39,8 @@ export function quick(text, sessions) {
 export function routePrompt(state, batch) {
   const symOf = (id) => state.sessions.find((x) => x.id === id)?.sym ?? "?";
   const first = (x) => state.said.find((p) => p.session === x.id)?.text ?? "";
-  const before = state.said.filter((p) => p.id > state.since && p.id < batch[0].id && p.session !== undefined).slice(-CONTEXT);
+  // 取り消した発言は見せない（取り消す前の届け先を後押ししてしまうため）
+  const before = state.said.filter((p) => p.id > state.since && p.id < batch[0].id && p.session !== undefined && !p.canceled).slice(-CONTEXT);
   const live = shown(state);
   return [
     "いまのセッション：",

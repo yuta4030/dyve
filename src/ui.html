@@ -27,6 +27,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top button:hover { color: var(--ink); }
 #top [data-undo] { color: var(--run); }
 #top .brand { margin-right: 0; }
+#quota { font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default; }
+#quota .hi { color: var(--mark); }
+#quota .out { color: var(--fail); }
 #top [data-gear] { margin-right: auto; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; }
 #top [data-gear]:hover, #top [data-gear][aria-pressed="true"] { background: var(--soft); color: var(--ink); }
 #settings { border-bottom: 1px solid var(--line); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; background: var(--bg); }
@@ -114,6 +117,25 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .md ul, .md ol { padding-left: 1.4em; }
 .md code { font: .92em ui-monospace, Menlo, monospace; background: var(--soft); padding: 1px 4px; border-radius: 4px; }
 .md pre { background: var(--soft); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
+.turns .ai { position: relative; padding-right: 32px; }
+.ai > .copy { position: absolute; top: 6px; right: 6px; opacity: 0; color: var(--sub); }
+.ai:hover > .copy { opacity: 1; }
+.code { position: relative; margin: 0 0 .7em; }
+.code pre { margin: 0; }
+.code .cbar { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; opacity: .35; }
+.code:hover .cbar { opacity: 1; }
+.code .cbar button { color: var(--sub); }
+.code .cbar [data-run] { color: var(--wait); }
+.code .run-out { margin-top: 4px; font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; border-left: 3px solid var(--wait); padding: 4px 8px; color: var(--sub); }
+.code .run-out.bad { border-color: var(--fail); }
+.code .run-out .rc { display: block; font-size: 11px; opacity: .8; margin-bottom: 2px; }
+.say a, .human a { color: var(--run); }
+#settings .links { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+#settings .links .lr { display: flex; gap: 4px; align-items: center; }
+#settings .links input { flex: 1; min-width: 0; font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+#settings .links input:first-child { flex: .6; }
+#settings .links button { color: var(--sub); white-space: nowrap; }
+#settings .links .hint { color: var(--sub); }
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; display: block; overflow-x: auto; }
 .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
@@ -128,7 +150,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </head>
 <body>
 <section id="chat">
-  <div id="top"><span class="brand">dyve</span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-reset></button></div>
+  <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
   <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div>
@@ -159,6 +181,26 @@ const L = {
   moveQuit: "やめる",
   stop: "止める",
   gear: "設定",
+  copy: "マークダウンのままコピー",
+  copyCode: "コードをコピー",
+  copied: "コピーした",
+  copyFail: "コピーできなかった（ブラウザが許していない）",
+  run: "この場所で実行する",
+  running: "実行している…",
+  exit: (c) => `終了コード ${c}`,
+  links: "リンク",
+  linkPattern: "当てはまる言葉（正規表現）",
+  linkUrl: "開く URL（$0 が言葉）",
+  linkAdd: "＋ 決まりを足す",
+  linkDel: "この決まりを消す",
+  linkHint: "例：[A-Z]+-\\d+ → https://xxx.atlassian.net/browse/$0",
+  linkBad: (m) => `リンクの決まりを置けなかった：${m}`,
+  quota: (five, week) => [five, week].filter(Boolean).join("・"),
+  quotaFive: (p) => `5h ${p}%`,
+  quotaWeek: (p) => `週 ${p}%`,
+  quotaTitle: (rows) => `Claude の利用枠（使った割合）\n${rows.join("\n")}`,
+  quotaRow: (name, p, at) => `${name}：${p}%${at ? `（${at} に戻る）` : ""}`,
+  quotaNames: { five: "5 時間の枠", week: "7 日の枠" },
   settings: {
     send: { label: "声の送り方", values: { pause: "間があいたらまとめて", each: "区切りごとにすぐ" } },
     pause: { label: "間", values: { 1: "1 秒", 2: "2 秒", 3: "3 秒", 5: "5 秒" } },
@@ -199,15 +241,42 @@ function headOf(s) {
   return line.length > 140 ? line.slice(0, 139) + "…" : line;
 }
 
-// 一行の中のマークダウン：コード・太字・斜体・リンク（http と https だけ）。先にエスケープしてから形を付ける
+// リンクの決まり（設定から作る）：{ re, url }。画面の中だけで持つ
+let LINK_RULES = [];
+
+// エスケープ済みの HTML の、地の文だけに決まりを当てて押せるようにする（タグ・リンク・コードの中には当てない）。
+// まず http・https の URL、次に利用者の決まり。url の $0 は当たった言葉全体、$1… は括弧の中
+function linkify(html, rules) {
+  const SKIP = /(<a\b[^>]*>[\s\S]*?<\/a>|<code>[\s\S]*?<\/code>|<[^>]+>)/;
+  const apply = (h, re, toUrl) => h.split(SKIP).map((part, i) => (i % 2 ? part : part.replace(re, (...m) => `<a href="${toUrl(m)}" target="_blank" rel="noopener">${m[0]}</a>`))).join("");
+  let out = apply(html, /https?:\/\/[^\s<>"]+[^\s<>".,、。)）]/g, (m) => m[0]);
+  for (const r of rules) out = apply(out, r.re, (m) => r.url.replace(/\$(\d)/g, (_, n) => m[Number(n)] ?? ""));
+  return out;
+}
+
+// 一行の中のマークダウン：コード・太字・斜体・リンク（http と https だけ）。先にエスケープしてから形を付け、最後にリンクの決まりを当てる
 function inline(t) {
-  return String(t ?? "").split(/(`[^`\n]+`)/).map((part, i) => i % 2
+  return linkify(String(t ?? "").split(/(`[^`\n]+`)/).map((part, i) => i % 2
     ? `<code>${esc(part.slice(1, -1))}</code>`
     : esc(part)
         .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
         .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, "$1<i>$2</i>")
         .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-  ).join("");
+  ).join(""), LINK_RULES);
+}
+
+// 押したシェルの結果（コードの文 -> { busy } か { code, out }）。画面の中だけで持つ
+const runs = new Map();
+const SHELL = /^(sh|bash|zsh|shell|console|terminal)$/i;
+
+// コードの塊：コピーのボタン。シェルなら実行のボタンと、押したあとの結果
+function codeBlock(lang, text) {
+  const r = runs.get(text);
+  const icon = (d) => `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const copy = `<button class="icon" data-copy-code title="${esc(L.copyCode)}" aria-label="${esc(L.copyCode)}">${icon('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>')}</button>`;
+  const runBtn = SHELL.test(lang) ? `<button class="icon" data-run title="${esc(L.run)}" aria-label="${esc(L.run)}">${icon('<path d="M7 4l12 8-12 8z"/>')}</button>` : "";
+  const out = !r ? "" : r.busy ? `<div class="run-out">${esc(L.running)}</div>` : `<div class="run-out${r.code === 0 ? "" : " bad"}"><span class="rc">${esc(L.exit(r.code))}</span>${esc(r.out)}</div>`;
+  return `<div class="code"><div class="cbar">${runBtn}${copy}</div><pre><code>${esc(text)}</code></pre>${out}</div>`;
 }
 
 // マークダウンを HTML に：見出し・段落・箇条書き・番号つき・コードの塊・表・引用・区切り線
@@ -221,10 +290,10 @@ function md(src) {
     const l = lines[i];
     let m;
     if (/^```/.test(l)) {
-      const buf = [];
+      const lang = l.slice(3).trim().split(/\s/)[0], buf = [];
       for (i++; i < lines.length && !/^```/.test(lines[i]); i++) buf.push(lines[i]);
       i++;
-      out.push(`<pre><code>${esc(buf.join("\n"))}</code></pre>`);
+      out.push(codeBlock(lang, buf.join("\n")));
     } else if ((m = l.match(/^(#{1,6})\s+(.*)$/))) {
       const n = Math.min(m[1].length + 2, 6);
       out.push(`<h${n}>${inline(m[2])}</h${n}>`);
@@ -261,7 +330,9 @@ function turnsOf(x, opened, label) {
   for (let i = 0; i < x.flow.length;) {
     const f = x.flow[i];
     if (f.who !== "tool") {
-      out.push(f.who === "ai" ? `<div class="ai md">${md(f.text)}</div>` : `<div class="${f.who}">${esc(f.text)}</div>`);
+      out.push(f.who === "ai"
+        ? `<div class="ai md"><button class="copy icon" data-copy-flow="${x.id}:${i}" title="${esc(L.copy)}" aria-label="${esc(L.copy)}">${ICON.copy}</button>${md(f.text)}</div>`
+        : `<div class="${f.who}">${f.who === "human" ? linkify(esc(f.text), LINK_RULES) : esc(f.text)}</div>`);
       i++;
       continue;
     }
@@ -284,6 +355,8 @@ const svg = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
 const ICON = {
   // 送り先を変える：行き先を入れ替える矢印
   move: svg('<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>'),
+  // コピー：重なった紙
+  copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>'),
   // 取り消す：丸にバツ
   cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
 };
@@ -323,7 +396,7 @@ function renderChat() {
     if (c.say != null) {
       const s = said.get(c.say);
       // 清書した文を出し、元の文は title に残す
-      return `<div class="say${s.canceled ? " canceled" : ""}"><p${s.fair ? ` title="${esc(L.original(s.text))}"` : ""}>${esc(s.fair ?? s.text)}</p>${actsOf(s)}</div>`;
+      return `<div class="say${s.canceled ? " canceled" : ""}"><p${s.fair ? ` title="${esc(L.original(s.text))}"` : ""}>${linkify(esc(s.fair ?? s.text), LINK_RULES)}</p>${actsOf(s)}</div>`;
     }
     const x = ses(c.reply);
     return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><span class="rs">${esc(x.sym)}</span>${inline(headOf(c.text))}</button>`;
@@ -368,21 +441,54 @@ function renderPeek() {
 }
 
 let gear = false; // 設定を開いているか（画面の中だけ）
+let linkRows = null; // 書きかけのリンクの決まり（開いているあいだだけ。置けたものは記録に、書きかけはここに残る）
+let shownSettings = ""; // いま描いている設定（同じなら描き直さない。打っている欄を消さないため）
 function renderSettings() {
   const el = $("#settings");
   $("[data-gear]").setAttribute("aria-pressed", String(gear));
   el.hidden = !gear;
-  if (!gear) return;
+  if (!gear) { linkRows = null; shownSettings = ""; return; }
+  linkRows ??= (state.links ?? []).map((r) => ({ ...r }));
   const cur = state.settings ?? {};
+  const key = JSON.stringify([cur, linkRows.length, state.links]);
+  if (key === shownSettings) return;
+  shownSettings = key;
+  const links = `<div class="row"><span class="label">${esc(L.links)}</span><div class="links">` +
+    linkRows.map((r, i) => `<div class="lr"><input data-link="${i}" data-part="pattern" value="${esc(r.pattern)}" placeholder="${esc(L.linkPattern)}" spellcheck="false"><input data-link="${i}" data-part="url" value="${esc(r.url)}" placeholder="${esc(L.linkUrl)}" spellcheck="false"><button class="icon" data-link-del="${i}" title="${esc(L.linkDel)}" aria-label="${esc(L.linkDel)}">${ICON.cancel}</button></div>`).join("") +
+    `<div class="lr"><button data-link-add>${esc(L.linkAdd)}</button><span class="hint">${esc(L.linkHint)}</span></div></div></div>`;
   el.innerHTML = Object.entries(L.settings)
     // 間の長さは、間があいたら送るときだけ
     .filter(([k]) => k !== "pause" || cur.send !== "each")
     .map(([k, d]) => `<div class="row"><span class="label">${esc(d.label)}</span><span class="seg">${Object.entries(d.values).map(([v, t]) => `<button data-set="${k}" data-value="${esc(v)}" aria-pressed="${String(cur[k]) === v}">${esc(t)}</button>`).join("")}</span></div>`)
-    .join("");
+    .join("") + links;
+}
+
+// 書けているリンクの決まりだけを置く（書きかけは画面に残す）
+function saveLinks() {
+  const ok = linkRows.filter((r) => r.pattern.trim() && r.url.trim());
+  post("/api/links", { rules: ok }).then((r) => { $("#note").textContent = r ? "" : L.linkBad(""); });
+}
+
+// タイトルの横の利用枠：使った割合。8 割を超えたら目立たせ、止められていたら赤
+function renderQuota() {
+  const el = $("#quota"), q = state.quota;
+  el.hidden = !q || (q.five == null && q.week == null);
+  if (el.hidden) return;
+  const pct = (v) => Math.round(v * 100);
+  const cls = (v) => (q.status !== "allowed" && v >= 1 ? "out" : v >= 0.8 ? "hi" : "");
+  const part = (v, f) => (v == null ? "" : `<span class="${cls(v)}">${esc(f(pct(v)))}</span>`);
+  el.innerHTML = L.quota(part(q.five, L.quotaFive), part(q.week, L.quotaWeek));
+  const when = (s) => {
+    if (!s) return "";
+    const d = new Date(s * 1000), two = (n) => String(n).padStart(2, "0");
+    return `${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`;
+  };
+  el.title = L.quotaTitle([["five", q.five, q.fiveAt], ["week", q.week, q.weekAt]].filter(([, v]) => v != null).map(([k, v, at]) => L.quotaRow(L.quotaNames[k], pct(v), when(at))));
 }
 
 function render() {
   renderSettings();
+  renderQuota();
   $("[data-undo]").hidden = !state.undo;
   renderChat();
   // 覗いていたセッションが一覧から外れていたら、一覧に戻る（renderPeek が peek を空にする）
@@ -403,6 +509,25 @@ document.addEventListener("click", (e) => {
   const t = (sel) => e.target.closest(sel);
   // カードの中のボタンは、カードを開くより先に見る
   if (t("[data-stop]")) return void post("/api/stop", { session: Number(t("[data-stop]").dataset.stop) });
+  if (t("[data-link-add]")) { linkRows.push({ pattern: "", url: "" }); return renderSettings(); }
+  if (t("[data-link-del]")) { linkRows.splice(Number(t("[data-link-del]").dataset.linkDel), 1); renderSettings(); return saveLinks(); }
+  // AI の返事を、描く前のマークダウンのままコピーする
+  if (t("[data-copy-flow]")) {
+    const [sid, i] = t("[data-copy-flow]").dataset.copyFlow.split(":").map(Number);
+    return void copyText(ses(sid)?.flow[i]?.text ?? "");
+  }
+  if (t("[data-copy-code]")) return void copyText(t(".code").querySelector("code").textContent);
+  // シェルを押したら、この場所で動かして結果をその下に出す
+  if (t("[data-run]")) {
+    const cmd = t(".code").querySelector("code").textContent;
+    if (runs.get(cmd)?.busy) return;
+    runs.set(cmd, { busy: true });
+    render();
+    fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cmd }) })
+      .then((r) => r.json()).catch((e) => ({ code: -1, out: String(e) }))
+      .then((r) => { runs.set(cmd, { code: r.code ?? -1, out: r.out ?? r.message ?? "" }); render(); });
+    return;
+  }
   if (t("[data-choice]")) {
     const b = t("[data-choice]"), x = ses(Number(b.dataset.session)), c = x?.brief?.choices?.[Number(b.dataset.choice)];
     if (c) post("/api/say", { text: c.say, to: x.id });
@@ -440,11 +565,29 @@ document.addEventListener("toggle", (e) => {
   if (k) e.target.open ? opened.add(k) : opened.delete(k);
 }, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && peek != null) open(null); });
+// リンクの決まりの欄：打ったものは書きかけに残し、欄を離れたら（または Enter で）置く
+document.addEventListener("input", (e) => {
+  const el = e.target.closest?.("[data-link]");
+  if (el) linkRows[Number(el.dataset.link)][el.dataset.part] = el.value;
+});
+document.addEventListener("change", (e) => { if (e.target.closest?.("[data-link]")) saveLinks(); });
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    $("#note").textContent = L.copied;
+  } catch {
+    $("#note").textContent = L.copyFail;
+  }
+  setTimeout(() => { if ($("#note").textContent === L.copied) $("#note").textContent = ""; }, 1500);
+}
 
 function connect() {
   const es = new EventSource("/api/events");
   es.addEventListener("state", (e) => {
     state = JSON.parse(e.data);
+    // リンクの決まりを作り直す（読めないものは飛ばす）
+    LINK_RULES = (state.links ?? []).flatMap((r) => { try { return [{ re: new RegExp(r.pattern, "g"), url: r.url }]; } catch { return []; } });
     // 開いたときに終わっていたものには印を付けない
     if (first) for (const x of state.sessions) seen.set(x.id, x.endedAt);
     render();

@@ -41,7 +41,8 @@ async function kakari() {
 }
 
 async function turn() {
-  const prompt = (await readAll()).trim();
+  // dyve が頭に添える一行（記号と名前）は読み飛ばす
+  const prompt = (await readAll()).trim().replace(/^［dyve：[^\n]*］\n\n/, "");
   const id = after("--resume") ?? `fake-${process.pid}-${Date.now()}`;
   const slow = /ゆっくり/.test(prompt) ? Number(process.env.FAKE_SLOW_MS ?? 800) : 0;
   out({ type: "system", subtype: "init", session_id: id, cwd: process.cwd(), permissionMode: after("--permission-mode") });
@@ -50,6 +51,7 @@ async function turn() {
     process.stderr.write("fake: 失敗した\n");
     process.exit(2);
   }
+  out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", unifiedWindows: { five_hour: { utilization: 0.21, resetsAt: 1795602000 }, seven_day: { utilization: 0.39, resetsAt: 1795680000 } } } });
   say("調べはじめます。");
   await sleep(slow);
   out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "README.md" } }] }, parent_tool_use_id: null, session_id: id });

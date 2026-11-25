@@ -5,8 +5,11 @@
 //   brief { session, summary, choices }    まとめが書いた、セッションの要約と、人が押すだけで答えられる選択肢
 //   open  { session, name }                新しいセッション
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
+//   bind  { session, claude }              Claude Code の会話の ID が届いた（立て直しても続きを頼めるように、すぐ書く）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
+//   quota { five, fiveAt, week, weekAt, status } Claude の利用枠（使った割合 0〜1 と、戻る時刻の秒）。変わったときだけ
+//   links { rules }                        リンクの決まり（当てはまる言葉を押せるようにする）。まるごと置き換える
 //   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
 //   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
@@ -23,8 +26,21 @@ export function symOf(n) {
 export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true] };
 const defaults = () => Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, v[0]]));
 
+// リンクの決まりを確かめる：pattern は正規表現（空の文字に当たらないもの）、url は http か https で、$0（当たった言葉全体）や $1… を差し込める
+export function linkRules(rules) {
+  if (!Array.isArray(rules) || rules.length > 20) throw new Error("リンクの決まりは 20 個まで");
+  return rules.map((r) => {
+    const pattern = String(r?.pattern ?? "").trim(), url = String(r?.url ?? "").trim();
+    let re;
+    try { re = new RegExp(pattern); } catch (e) { throw new Error(`正規表現として読めない：${pattern}`); }
+    if (!pattern || re.test("")) throw new Error(`空の文字に当たる決まりは使えない：${pattern}`);
+    if (!/^https?:\/\/[^\s"<>]+$/.test(url)) throw new Error(`URL は http か https で、空白や " < > を含まない：${url}`);
+    return { pattern, url };
+  });
+}
+
 // since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
-export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults() });
+export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null, links: [] });
 
 // 一覧に出ているセッション
 export const shown = (state) => state.sessions.filter((x) => !x.hidden);
@@ -45,12 +61,18 @@ const need = (v, what) => {
 export const KINDS = {
   say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null, ...(Number.isInteger(b.to) ? { to: b.to } : {}) }),
   route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}) }),
+  quota: (b) => {
+    const n = (v) => (Number.isFinite(v) ? v : null);
+    return { five: n(b.five), fiveAt: n(b.fiveAt), week: n(b.week), weekAt: n(b.weekAt), status: String(b.status ?? "allowed") };
+  },
+  links: (b) => ({ rules: linkRules(b.rules) }),
   set: (b) => {
     if (!Object.hasOwn(SETTINGS, b.key) || !SETTINGS[b.key].includes(b.value)) throw new Error(`変えられない設定：${b.key}=${b.value}`);
     return { key: b.key, value: b.value };
   },
   open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと" }),
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
+  bind: (b) => ({ session: need(b.session, "セッション"), claude: need(b.claude, "会話") }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
@@ -122,6 +144,11 @@ export function step(state, r) {
       }
       break;
     }
+    case "bind": {
+      const x = ses(r.session);
+      if (x) x.claude = r.claude;
+      break;
+    }
     case "step": {
       const x = ses(r.session);
       if (!x) break;
@@ -144,11 +171,19 @@ export function step(state, r) {
         break;
       }
       x.status = r.error ? "fail" : "wait";
-      x.last = r.error ? r.error : r.result ?? x.last;
+      // 返事が空のターン（裏でサブエージェントを待ったときなど）は、最後の本文を返事にする
+      const said = x.flow.filter((f) => f.who === "ai").at(-1)?.text;
+      x.last = r.error ? r.error : r.result?.trim() ? r.result : said ?? x.last;
       if (r.error) x.flow.push({ who: "error", text: r.error });
       if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;
     }
+    case "quota":
+      state.quota = { five: r.five, fiveAt: r.fiveAt, week: r.week, weekAt: r.weekAt, status: r.status, at: r.at };
+      break;
+    case "links":
+      state.links = r.rules;
+      break;
     case "set":
       state.settings[r.key] = r.value;
       break;

@@ -67,6 +67,21 @@ export function claudeMissing(cmd, run = spawnSync) {
   return `Claude Code（${cmd}）が動きません${r.error ? `（${r.error.code || r.error.message}）` : ""}。入れてログインしてから立て直してください：https://docs.claude.com/en/docs/claude-code/setup`;
 }
 
+// rate_limit_event の中身から、記録に置く利用枠（使った割合は 1% 刻みにまるめる）
+export function quotaOf(info) {
+  const w = info?.unifiedWindows ?? {};
+  const pct = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+  return { five: pct(w.five_hour?.utilization), fiveAt: w.five_hour?.resetsAt ?? null, week: pct(w.seven_day?.utilization), weekAt: w.seven_day?.resetsAt ?? null, status: info?.status ?? "allowed" };
+}
+
+// ほかのセッションの一覧（一行）。一覧に出ているものだけ、新しいほうから 8 つ
+export function rosterOf(state, self) {
+  const others = shown(state).filter((x) => x.id !== self).slice(-8).reverse();
+  if (!others.length) return "ほかのセッションはない";
+  const last = (x) => clip(oneLine(x.last).replace(/[［］]/g, ""), 60);
+  return `ほかのセッション：${others.map((x) => `${x.sym}「${x.name}」${x.last ? `（最後：${last(x)}）` : ""}`).join("／")}`;
+}
+
 // 道具を使ったことの一行（「Read README.md」など）
 export function toolLine(name, input = {}) {
   const arg = input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.url ?? input.command ?? input.description ?? "";
@@ -112,7 +127,10 @@ export class Sessions {
     this.log.add("turn", { session, says });
     let claude = x.claude, result = null, failed = null;
     const emit = (ev) => {
-      if (ev.session_id) claude = ev.session_id;
+      if (ev.session_id && ev.session_id !== claude) {
+        claude = ev.session_id;
+        this.log.add("bind", { session, claude });
+      }
       // 行の中で呼ばれたもの（サブエージェント）の出来事は出さない
       if (ev.type === "assistant" && !ev.parent_tool_use_id) {
         for (const c of ev.message?.content ?? []) {
@@ -120,12 +138,20 @@ export class Sessions {
           if (c.type === "tool_use") this.log.add("step", { session, what: "tool", text: toolLine(c.name, c.input) });
         }
       }
+      // 利用枠は、変わったときだけ記録に置く
+      if (ev.type === "rate_limit_event") {
+        const q = quotaOf(ev.rate_limit_info), cur = this.log.state.quota;
+        if (!cur || ["five", "fiveAt", "week", "weekAt", "status"].some((k) => cur[k] !== q[k])) this.log.add("quota", q);
+      }
       if (ev.type === "result") {
         if (ev.is_error) failed = oneLine(ev.result || ev.subtype || "失敗した");
         else result = String(ev.result ?? "").trim();
       }
     };
-    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: text };
+    // セッションは dyve のことを知らないので、毎ターン一行で添える：自分の記号と名前、ほかのセッションの記号・名前・最後の一行
+    // （「C の続き」「B のやつ」と呼ばれても通じるように）
+    const head = `［dyve：このセッションは ${x.sym}「${x.name}」。${rosterOf(this.log.state, session)}］`;
+    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: `${head}\n\n${text}` };
     const h = this.spawn(job, emit);
     const run = { kill: h.kill, says, stopped: false };
     this.running.set(session, run);
