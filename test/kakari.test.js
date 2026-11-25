@@ -97,3 +97,16 @@ test("係が読む前に取り消された発言は、届けない", async () =>
   assert.equal(asked.length, 0);
   assert.deepEqual(sessions.sent, []);
 });
+
+test("係に聞いているあいだに人が届け先を決めた発言は、上書きしない", async () => {
+  const { log, kakari } = setup(async () => {
+    // 係が考えているあいだに、人が選択肢を押して届け先を決めた
+    log.add("route", { say: s, session: 1 });
+    return { ok: true, json: { says: [{ id: s, to: "new", name: "x" }] } };
+  });
+  log.add("open", { session: 1, name: "a" });
+  const s = log.add("say", { text: "これ" }).seq;
+  await kakari.kick();
+  assert.equal(log.state.sessions.length, 1);
+  assert.equal(log.state.said[0].session, 1);
+});

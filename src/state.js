@@ -1,7 +1,8 @@
 // 状態：記録を頭から一件ずつ当てて作る。データに持つのは記録だけで、状態はいつも作り直せる
-//   say   { id, text, peek }               人の発言
+//   say   { id, text, peek, to }           人の発言（to は、人が選択肢を押して届け先を決めて言ったもの）
 //   route { say, session | null, error }   届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
 //   cancel { say }                         人が発言を取り消した
+//   brief { session, summary, choices }    まとめが書いた、セッションの要約と、人が押すだけで答えられる選択肢
 //   open  { session, name }                新しいセッション
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
@@ -36,13 +37,18 @@ const need = (v, what) => {
 
 // 種類ごとの、記録に書く中身の作り方（足りなければ断る）
 export const KINDS = {
-  say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null }),
+  say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null, ...(Number.isInteger(b.to) ? { to: b.to } : {}) }),
   route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}) }),
   open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと" }),
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
+  brief: (b) => ({
+    session: need(b.session, "セッション"),
+    summary: String(b.summary ?? "").trim(),
+    choices: (Array.isArray(b.choices) ? b.choices : []).map((c) => ({ label: String(c?.label ?? "").trim(), say: String(c?.say ?? c?.label ?? "").trim() })).filter((c) => c.label && c.say).slice(0, 6),
+  }),
   reset: () => ({}),
   undo: () => ({}),
 };
@@ -60,7 +66,7 @@ export function step(state, r) {
   };
   switch (r.kind) {
     case "say": {
-      const s = { id: r.seq, at: r.at, text: r.text, peek: r.peek, session: undefined, done: false, canceled: false };
+      const s = { id: r.seq, at: r.at, text: r.text, peek: r.peek, session: r.to ?? undefined, done: false, canceled: false };
       state.said.push(s);
       state.chat.push({ say: s.id });
       state.undo = null;
@@ -74,6 +80,11 @@ export function step(state, r) {
       s.error = r.error ?? null;
       s.done = false;
       if (old != null && old !== s.session) orphan(old);
+      break;
+    }
+    case "brief": {
+      const x = ses(r.session);
+      if (x) x.brief = { summary: r.summary, choices: x.status === "wait" ? r.choices : [], at: r.at };
       break;
     }
     case "cancel": {
@@ -91,6 +102,8 @@ export function step(state, r) {
       if (!x) break;
       x.status = "run";
       x.turn = r.says;
+      // 選択肢は、そのとき聞かれていたことへの答え。次のターンが始まったら古い
+      if (x.brief) x.brief.choices = [];
       for (const id of r.says) {
         const s = state.said.find((p) => p.id === id);
         if (s) x.flow.push({ who: "human", text: s.text, say: id });

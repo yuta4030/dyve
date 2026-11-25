@@ -67,3 +67,18 @@ test("取り消す・止める・届け先を変えるの口は、セッショ�
   assert.deepEqual(calls, [["cancel", 3], ["stop", 1], ["move", 3, "new"], ["move", 3, 2]]);
   server.closeAll();
 });
+
+test("選択肢を押した発言は、係を通さずそのセッションへ直に渡す", async () => {
+  const log = new Log(), sent = [];
+  log.add("open", { session: 1, name: "x" });
+  const server = createServer({ log, sessions: { send: (s, say) => sent.push([s, say]) } });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/api/say`, { method: "POST", body: JSON.stringify({ text: "甲で進めて", to: 1 }) });
+  const { record } = await r.json();
+  assert.equal(log.state.said[0].session, 1);
+  assert.deepEqual(sent, [[1, record.seq]]);
+  // ないセッションへは直に渡さず、係に任せる
+  await fetch(`http://127.0.0.1:${server.address().port}/api/say`, { method: "POST", body: JSON.stringify({ text: "y", to: 9 }) });
+  assert.equal(log.state.said[1].session, undefined);
+  server.closeAll();
+});

@@ -74,6 +74,17 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 #peek .bar { display: flex; align-items: baseline; gap: 10px; position: sticky; top: -14px; z-index: 1; margin: -14px -14px 12px; padding: 12px 14px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
 #peek .bar button { color: var(--sub); }
 #peek .bar button:hover { color: var(--ink); }
+.body { display: grid; grid-template-columns: minmax(0, 860px) minmax(240px, 320px); gap: 16px; align-items: start; }
+.side { position: sticky; top: 56px; display: flex; flex-direction: column; gap: 12px; }
+.side section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.side h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--sub); }
+.side .quiet { color: var(--sub); font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choices button { border: 1px solid var(--run); color: var(--run); border-radius: 999px; padding: 4px 12px; }
+.choices button:hover { background: var(--run); color: var(--panel); }
+@media (max-width: 1100px) { .body { grid-template-columns: minmax(0, 1fr); } .side { position: static; order: -1; } }
+.icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; vertical-align: middle; }
+.icon:hover { background: var(--soft); text-decoration: none; }
 .turns { display: flex; flex-direction: column; gap: 8px; max-width: 860px; }
 .turns > div { overflow-wrap: anywhere; }
 .turns .human, .turns .error { white-space: pre-wrap; }
@@ -135,6 +146,10 @@ const L = {
   moveNew: "新しく起こす",
   moveQuit: "やめる",
   stop: "止める",
+  brief: "要約",
+  briefWait: "ターンが終わると、ここにまとまる",
+  briefRun: "動いているあいだは、前の要約のまま",
+  choose: "押すだけで答える",
   lost: "つながりが切れた。つなぎ直している",
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
@@ -244,6 +259,14 @@ let first = true;
 
 const ses = (id) => state.sessions.find((x) => x.id === id);
 
+const svg = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  // 送り先を変える：行き先を入れ替える矢印
+  move: svg('<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>'),
+  // 取り消す：丸にバツ
+  cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+};
+
 // 取り消せるか（サーバーの cancelable と同じ決まり）
 const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
 const busy = (x) => x.status === "run" || x.status === "idle";
@@ -254,8 +277,8 @@ function actsOf(s) {
   // 係が読んでいるあいだは付け替えさせない（係の答えとぶつかるため）
   const movable = s.session !== undefined || s.error;
   return `<div class="acts">${chipOf(s)}` +
-    (movable ? `<button class="act" data-move="${s.id}">${esc(L.move)}</button>` : "") +
-    (cancelable(s) ? `<button class="act" data-cancel="${s.id}">${esc(L.cancel)}</button>` : "") +
+    (movable ? `<button class="act icon" data-move="${s.id}" title="${esc(L.move)}" aria-label="${esc(L.move)}">${ICON.move}</button>` : "") +
+    (cancelable(s) ? `<button class="act icon" data-cancel="${s.id}" title="${esc(L.cancel)}" aria-label="${esc(L.cancel)}">${ICON.cancel}</button>` : "") +
     `</div>` + (moving === s.id ? moveTo(s) : "");
 }
 
@@ -300,6 +323,17 @@ function renderCards() {
     </div>`).join("") : `<div class="empty">${esc(L.emptyCards)}</div>`;
 }
 
+// 右のパネル：要約と、押すだけで答える選択肢（どちらもまとめが書く）
+function sideOf(x) {
+  const b = x.brief;
+  const note = x.status === "run" ? L.briefRun : L.briefWait;
+  const brief = `<section><h2>${esc(L.brief)}</h2>${b?.summary ? `<div class="md">${md(b.summary)}</div>` : ""}${!b?.summary || x.status === "run" ? `<div class="quiet">${esc(note)}</div>` : ""}</section>`;
+  const choices = x.status === "wait" && b?.choices?.length
+    ? `<section><h2>${esc(L.choose)}</h2><div class="choices">${b.choices.map((c, i) => `<button data-choice="${i}" data-session="${x.id}" title="${esc(c.say)}">${esc(c.label)}</button>`).join("")}</div></section>`
+    : "";
+  return choices + brief;
+}
+
 function renderPeek() {
   const el = $("#peek"), x = ses(peek);
   if (!x || x.hidden) { peek = null; return renderCards(); }
@@ -307,7 +341,7 @@ function renderPeek() {
   const main = $("main"), keep = atBottom(main);
   el.innerHTML = `
     <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
-    <div class="turns">${turnsOf(x, opened, L.tools)}</div>`;
+    <div class="body"><div class="turns">${turnsOf(x, opened, L.tools)}</div><aside class="side">${sideOf(x)}</aside></div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
@@ -332,6 +366,11 @@ document.addEventListener("click", (e) => {
   const t = (sel) => e.target.closest(sel);
   // カードの中のボタンは、カードを開くより先に見る
   if (t("[data-stop]")) return void post("/api/stop", { session: Number(t("[data-stop]").dataset.stop) });
+  if (t("[data-choice]")) {
+    const b = t("[data-choice]"), x = ses(Number(b.dataset.session)), c = x?.brief?.choices?.[Number(b.dataset.choice)];
+    if (c) post("/api/say", { text: c.say, to: x.id });
+    return;
+  }
   if (t("[data-cancel]")) return void post("/api/cancel", { say: Number(t("[data-cancel]").dataset.cancel) });
   if (t("[data-to]")) {
     const b = t("[data-to]");
