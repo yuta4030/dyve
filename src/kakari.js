@@ -4,6 +4,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { shown } from "./state.js";
+import { withUser } from "./user.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/係.md", import.meta.url));
 const TIMEOUT = 60 * 1000;
@@ -58,16 +59,18 @@ export function routePrompt(state, batch) {
 
 // 本物の聞き方：道具を持たない Claude Code を一回ごとに起こし、決まった形の JSON で受ける（係とまとめで使う）
 // prompt：指示のファイル。schema：返す形。key：返したものに必ずある項目。返すもの：Promise<{ ok, json?, error? }>
-export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIMEOUT, prompt = PROMPT, schema = SCHEMA, key = "says" }) {
-  const system = fs.readFileSync(prompt, "utf8").trim();
-  const args = [
+// user：利用者の書き足し（用語.md と <name>.md）を置くフォルダ。呼ぶたびに読み直す
+export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIMEOUT, prompt = PROMPT, schema = SCHEMA, key = "says", user = null, name = "係" }) {
+  const base = fs.readFileSync(prompt, "utf8").trim();
+  const argsOf = () => [
     "-p", "--output-format", "json",
-    "--tools", "", "--system-prompt", system,
+    "--tools", "", "--system-prompt", withUser(base, user, name),
     "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
     "--json-schema", JSON.stringify(schema),
     ...(model ? ["--model", model] : []),
   ];
   return (text) => new Promise((resolve) => {
+    const args = argsOf();
     let out = "", err = "", child;
     try {
       child = nodeSpawn(cmd, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });

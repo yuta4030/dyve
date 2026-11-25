@@ -14,6 +14,7 @@
 - `src/kakari.js`：係（発言の届け先を決める）
 - `src/matome.js`：まとめ（ターンが終わるたびに、要約と選択肢を書く）
 - `src/sessions.js`：セッション（Claude Code を起こし、続きを頼む）
+- `src/user.js`：利用者の書き足し（用語.md と、係・まとめ・セッションごとの指示）
 - `src/server.js`・`src/ui.html`：サーバーと画面
 - `prompts/`：係・まとめ・セッションへの指示
 - `test/`：テスト。`test/fake-claude.js` が Claude Code のふりをする

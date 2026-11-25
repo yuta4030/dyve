@@ -5,6 +5,7 @@ import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cancelable, shown } from "./state.js";
+import { withUser } from "./user.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/セッション.md", import.meta.url));
 // 答え終えてから、この間だれも話しかけなければ閉じる（ミリ秒）
@@ -96,8 +97,9 @@ export function toolLine(name, input = {}) {
 }
 
 export class Sessions {
-  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE }) {
-    Object.assign(this, { log, spawn, room, model, slots, idle });
+  // user：利用者の書き足し（用語.md とセッション.md）を置くフォルダ。起こすたびに読み直す
+  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE, user = null }) {
+    Object.assign(this, { log, spawn, room, model, slots, idle, user });
     this.prompt = prompt ?? fs.readFileSync(PROMPT, "utf8").trim();
     this.pending = new Map(); // セッション -> 空きを待っている発言（動いているセッションが slots に達しているとき）
     this.procs = new Map(); // セッション -> 起きている Claude Code { h, busy, says（いまのターンで渡した発言）, stopped, quiet, timer }
@@ -182,7 +184,7 @@ export class Sessions {
         this.pump();
       }
     };
-    p.h = this.spawn({ args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room }, emit);
+    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, model: this.model }), cwd: this.room }, emit);
     this.procs.set(session, p);
     p.h.done.then(({ code, stderr }) => {
       clearTimeout(p.timer);

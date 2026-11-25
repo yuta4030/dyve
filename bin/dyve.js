@@ -79,7 +79,9 @@ if (missing) process.stderr.write(`注意：${missing}\n`);
 // 止まる前に走っていたターンは、もう帰ってこない。そうとわかるように終わらせる（続きを頼めば同じ会話で動く）
 for (const x of log.state.sessions) if (x.status === "run") log.add("end", { session: x.id, error: "dyve を立て直したので止まった。続きを頼めば再開する" });
 
-const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude) });
+// 利用者の書き足し（用語.md・係.md・まとめ.md・セッション.md）は、記録と同じフォルダに置く
+const place = path.dirname(file);
+const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude), user: place });
 // 届け先は決まったのに、空きを待っていてまだ渡せていなかった発言は、いま渡す
 for (const s of log.state.said) {
   const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
@@ -88,10 +90,10 @@ for (const s of log.state.said) {
 // 係は道具を持たない。起きる場所は記録の隣の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(path.dirname(file), "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
-const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir }) }).start();
+const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, user: place, name: "係" }) }).start();
 
 // まとめ：ターンが終わるたびに、要約と選択肢を書く。係と同じ場所・同じモデル
-const matome = new Matome({ log, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, prompt: BRIEF, schema: BRIEF_SCHEMA, key: "summary" }) }).start();
+const matome = new Matome({ log, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, prompt: BRIEF, schema: BRIEF_SCHEMA, key: "summary", user: place, name: "まとめ" }) }).start();
 const server = createServer({ log, sessions, room });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
