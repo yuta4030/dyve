@@ -47,7 +47,16 @@ export function createServer({ log, sessions = null }) {
       if (route === "POST /api/say") {
         const body = await readJson(req);
         const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;
-        return json(200, { ok: true, record: log.add("say", { text: body.text, peek }) });
+        // to：選択肢を押したときの届け先。係を通さず、そのセッションへ直に渡す
+        const to = Number.isInteger(body.to) && sessions && log.state.sessions.some((x) => x.id === body.to && !x.hidden) ? body.to : null;
+        const record = log.add("say", { text: body.text, peek, ...(to ? { to } : {}) });
+        if (to) sessions.send(to, record.seq);
+        return json(200, { ok: true, record });
+      }
+      // 設定を変える（決まった名前と値だけ）
+      if (route === "POST /api/set") {
+        const b = await readJson(req);
+        return json(200, { ok: true, record: log.add("set", { key: b.key, value: b.value }) });
       }
       // リセットと、それを戻す。どちらも記録に一件足すだけで、何も消さない
       if (route === "POST /api/reset") return json(200, { ok: true, record: log.add("reset") });

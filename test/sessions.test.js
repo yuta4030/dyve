@@ -164,3 +164,12 @@ test("届け先を変える：前のセッションで動いていれば止め�
   // 料金のセッションには料金の発言が残るので外さない
   assert.ok(!log.state.sessions.find((x) => x.id === a).hidden);
 });
+
+test("清書したものがあれば、セッションにはそれを渡す", () => {
+  const { log, sessions, jobs } = setup();
+  const id = sessions.open("a");
+  const s = log.add("say", { text: "えー料金を" }).seq;
+  log.add("route", { say: s, session: id, fair: "料金を" });
+  sessions.send(id, s);
+  assert.equal(jobs[0].job.prompt, "料金を");
+});

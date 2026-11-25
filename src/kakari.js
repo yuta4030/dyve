@@ -21,7 +21,7 @@ export const SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { id: { type: "integer" }, to: { type: "string" }, name: { type: "string" } },
+        properties: { id: { type: "integer" }, to: { type: "string" }, name: { type: "string" }, text: { type: "string" } },
         required: ["id", "to"],
       },
     },
@@ -48,19 +48,22 @@ export function routePrompt(state, batch) {
       : ["（なし）"]),
     ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- （${p.session == null ? "届けていない" : `→ ${symOf(p.session)}`}）${clip(oneLine(p.text), 120)}`)] : []),
     "",
+    `清書：${state.settings?.fair ? "する" : "しない"}`,
+    "",
     "新しい発言：",
     ...batch.map((p) => `- ${p.id}${p.peek != null ? `（${symOf(p.peek)} を覗いていた）` : ""}：${p.text}`),
   ].join("\n");
 }
 
-// 本物の聞き方：一回ごとに起こす。返すもの：Promise<{ ok, json?, error? }>
-export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIMEOUT }) {
-  const system = fs.readFileSync(PROMPT, "utf8").trim();
+// 本物の聞き方：道具を持たない Claude Code を一回ごとに起こし、決まった形の JSON で受ける（係とまとめで使う）
+// prompt：指示のファイル。schema：返す形。key：返したものに必ずある項目。返すもの：Promise<{ ok, json?, error? }>
+export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIMEOUT, prompt = PROMPT, schema = SCHEMA, key = "says" }) {
+  const system = fs.readFileSync(prompt, "utf8").trim();
   const args = [
     "-p", "--output-format", "json",
     "--tools", "", "--system-prompt", system,
     "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
-    "--json-schema", JSON.stringify(SCHEMA),
+    "--json-schema", JSON.stringify(schema),
     ...(model ? ["--model", model] : []),
   ];
   return (text) => new Promise((resolve) => {
@@ -83,7 +86,7 @@ export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIME
       if (!j) return resolve({ ok: false, error: clip(oneLine(err.trim().split("\n").at(-1) || `終了コード ${code}`), 200) });
       if (j.is_error) return resolve({ ok: false, error: clip(oneLine(j.result || j.subtype), 200) });
       const json = j.structured_output ?? (() => { try { return JSON.parse(j.result); } catch { return null; } })();
-      resolve(json?.says ? { ok: true, json } : { ok: false, error: "決まった形で返らなかった" });
+      resolve(json?.[key] != null ? { ok: true, json } : { ok: false, error: "決まった形で返らなかった" });
     });
   });
 }
@@ -132,25 +135,29 @@ export class Kakari {
     if (!ask.length) return;
     const r = await this.ask(routePrompt(state, ask));
     if (!r.ok) {
-      for (const p of ask) this.log.add("route", { say: p.id, error: r.error });
+      for (const p of ask) if (p.session === undefined && !p.canceled) this.log.add("route", { say: p.id, error: r.error });
       return;
     }
     const made = new Map(); // 同じ回の新しいセッション（名前 -> 番号）
     for (const p of ask) {
+      // 聞いているあいだに人が届け先を決めたり、取り消したりしたものは触らない
+      if (p.session !== undefined || p.canceled) continue;
       const d = r.json.says.find((s) => s.id === p.id) ?? { to: "new" };
       const to = String(d.to ?? "new").trim();
-      if (to === "none") { this.log.add("route", { say: p.id, session: null }); continue; }
+      // 清書は、清書する設定のときだけ受け取る
+      const fair = state.settings?.fair && typeof d.text === "string" && d.text.trim() ? d.text.trim() : null;
+      if (to === "none") { this.log.add("route", { say: p.id, session: null, fair }); continue; }
       const x = shown(state).find((y) => y.sym === to);
-      if (x) { this.deliver(p.id, x.id); continue; }
+      if (x) { this.deliver(p.id, x.id, fair); continue; }
       // 知らない記号や形の崩れは、新しく起こすほうに倒す（落とさない）
-      const name = clip(oneLine(d.name) || oneLine(p.text), 20);
+      const name = clip(oneLine(d.name) || oneLine(fair ?? p.text), 20);
       if (!made.has(name)) made.set(name, this.sessions.open(name));
-      this.deliver(p.id, made.get(name));
+      this.deliver(p.id, made.get(name), fair);
     }
   }
 
-  deliver(say, session) {
-    this.log.add("route", { say, session });
+  deliver(say, session, fair = null) {
+    this.log.add("route", { say, session, fair });
     this.sessions.send(session, say);
   }
 }

@@ -6,6 +6,7 @@
 <title>dyve</title>
 <style>
 :root {
+  color-scheme: light dark; /* スクロールバーや入力欄など、ブラウザが描くものも暗いときは暗く */
   --bg: #fafaf8; --panel: #ffffff; --ink: #1d1d1b; --sub: #6b6b66; --line: #e4e3de;
   --run: #2f6fdb; --wait: #1f8a4c; --fail: #c0392b; --mark: #e08a00; --soft: #f1f0ec;
   font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
@@ -13,7 +14,7 @@
 @media (prefers-color-scheme: dark) {
   :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --sub: #9a9992; --line: #33322f; --soft: #292926; --run: #6c9cf0; --wait: #4cc07e; --fail: #e8695b; }
 }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); }
 body { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; height: 100vh; }
@@ -25,6 +26,17 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top .brand { font-weight: 700; color: var(--ink); margin-right: auto; }
 #top button:hover { color: var(--ink); }
 #top [data-undo] { color: var(--run); }
+#top .brand { margin-right: 0; }
+#top [data-gear] { margin-right: auto; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; }
+#top [data-gear]:hover, #top [data-gear][aria-pressed="true"] { background: var(--soft); color: var(--ink); }
+#settings { border-bottom: 1px solid var(--line); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; background: var(--bg); }
+#settings .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#settings .label { color: var(--sub); min-width: 6.5em; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { padding: 2px 10px; color: var(--sub); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.say p[title] { cursor: help; }
 #flow { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 #flow .empty { color: var(--sub); }
 .say p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -73,6 +85,17 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 #peek .bar { display: flex; align-items: baseline; gap: 10px; position: sticky; top: -14px; z-index: 1; margin: -14px -14px 12px; padding: 12px 14px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
 #peek .bar button { color: var(--sub); }
 #peek .bar button:hover { color: var(--ink); }
+.body { display: grid; grid-template-columns: minmax(0, 860px) minmax(240px, 320px); gap: 16px; align-items: start; }
+.side { position: sticky; top: 56px; display: flex; flex-direction: column; gap: 12px; }
+.side section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.side h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--sub); }
+.side .quiet { color: var(--sub); font-size: 13px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.choices button { border: 1px solid var(--run); color: var(--run); border-radius: 999px; padding: 4px 12px; }
+.choices button:hover { background: var(--run); color: var(--panel); }
+@media (max-width: 1100px) { .body { grid-template-columns: minmax(0, 1fr); } .side { position: static; order: -1; } }
+.icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; vertical-align: middle; }
+.icon:hover { background: var(--soft); text-decoration: none; }
 .turns { display: flex; flex-direction: column; gap: 8px; max-width: 860px; }
 .turns > div { overflow-wrap: anywhere; }
 .turns .human, .turns .error { white-space: pre-wrap; }
@@ -105,7 +128,8 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </head>
 <body>
 <section id="chat">
-  <div id="top"><span class="brand">dyve</span><button data-undo hidden></button><button data-reset></button></div>
+  <div id="top"><span class="brand">dyve</span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-reset></button></div>
+  <div id="settings" hidden></div>
   <div id="flow"></div>
   <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div>
 </section>
@@ -115,7 +139,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </main>
 <script type="module">
 const L = {
-  emptyChat: "話すか書くと、ここに流れる。マイクを押して話すと、ひと区切りごとに置かれる。打ったものは Enter で置かれる（改行は Shift+Enter）",
+  emptyChat: "話すか書くと、ここに流れる。マイクを押して話すと、間があいたところでまとめて置かれる（歯車で変えられる）。打ったものは Enter で置かれる（改行は Shift+Enter）",
   emptyCards: "頼んだ仕事が、ここに一枚ずつ並ぶ",
   placeholder: "話すか書く",
   micOff: "押して話す（ひと区切りごとに置かれる）",
@@ -134,6 +158,17 @@ const L = {
   moveNew: "新しく起こす",
   moveQuit: "やめる",
   stop: "止める",
+  gear: "設定",
+  settings: {
+    send: { label: "声の送り方", values: { pause: "間があいたらまとめて", each: "区切りごとにすぐ" } },
+    pause: { label: "間", values: { 1: "1 秒", 2: "2 秒", 3: "3 秒", 5: "5 秒" } },
+    fair: { label: "清書", values: { false: "しない", true: "する（係が直す）" } },
+  },
+  original: (t) => `元の文：${t}`,
+  brief: "要約",
+  briefWait: "ターンが終わると、ここにまとまる",
+  briefRun: "動いているあいだは、前の要約のまま",
+  choose: "押すだけで答える",
   lost: "つながりが切れた。つなぎ直している",
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
@@ -142,7 +177,9 @@ const L = {
 };
 
 // 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
-const PAUSE = 2500;
+const PAUSE = 2000;
+// 間の長さは設定から（設定がまだ届いていないときは PAUSE）
+const pauseMs = () => (state.settings?.pause ?? PAUSE / 1000) * 1000;
 // いちばん下を見ているか（このくらいの差なら下にいるとみなす）
 const NEAR = 40;
 
@@ -243,6 +280,14 @@ let first = true;
 
 const ses = (id) => state.sessions.find((x) => x.id === id);
 
+const svg = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  // 送り先を変える：行き先を入れ替える矢印
+  move: svg('<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>'),
+  // 取り消す：丸にバツ
+  cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+};
+
 // 取り消せるか（サーバーの cancelable と同じ決まり）
 const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
 const busy = (x) => x.status === "run" || x.status === "idle";
@@ -253,8 +298,8 @@ function actsOf(s) {
   // 係が読んでいるあいだは付け替えさせない（係の答えとぶつかるため）
   const movable = s.session !== undefined || s.error;
   return `<div class="acts">${chipOf(s)}` +
-    (movable ? `<button class="act" data-move="${s.id}">${esc(L.move)}</button>` : "") +
-    (cancelable(s) ? `<button class="act" data-cancel="${s.id}">${esc(L.cancel)}</button>` : "") +
+    (movable ? `<button class="act icon" data-move="${s.id}" title="${esc(L.move)}" aria-label="${esc(L.move)}">${ICON.move}</button>` : "") +
+    (cancelable(s) ? `<button class="act icon" data-cancel="${s.id}" title="${esc(L.cancel)}" aria-label="${esc(L.cancel)}">${ICON.cancel}</button>` : "") +
     `</div>` + (moving === s.id ? moveTo(s) : "");
 }
 
@@ -277,7 +322,8 @@ function renderChat() {
   el.innerHTML = state.chat.length ? state.chat.map((c) => {
     if (c.say != null) {
       const s = said.get(c.say);
-      return `<div class="say${s.canceled ? " canceled" : ""}"><p>${esc(s.text)}</p>${actsOf(s)}</div>`;
+      // 清書した文を出し、元の文は title に残す
+      return `<div class="say${s.canceled ? " canceled" : ""}"><p${s.fair ? ` title="${esc(L.original(s.text))}"` : ""}>${esc(s.fair ?? s.text)}</p>${actsOf(s)}</div>`;
     }
     const x = ses(c.reply);
     return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><span class="rs">${esc(x.sym)}</span>${inline(headOf(c.text))}</button>`;
@@ -299,6 +345,17 @@ function renderCards() {
     </div>`).join("") : `<div class="empty">${esc(L.emptyCards)}</div>`;
 }
 
+// 右のパネル：要約と、押すだけで答える選択肢（どちらもまとめが書く）
+function sideOf(x) {
+  const b = x.brief;
+  const note = x.status === "run" ? L.briefRun : L.briefWait;
+  const brief = `<section><h2>${esc(L.brief)}</h2>${b?.summary ? `<div class="md">${md(b.summary)}</div>` : ""}${!b?.summary || x.status === "run" ? `<div class="quiet">${esc(note)}</div>` : ""}</section>`;
+  const choices = x.status === "wait" && b?.choices?.length
+    ? `<section><h2>${esc(L.choose)}</h2><div class="choices">${b.choices.map((c, i) => `<button data-choice="${i}" data-session="${x.id}" title="${esc(c.say)}">${esc(c.label)}</button>`).join("")}</div></section>`
+    : "";
+  return choices + brief;
+}
+
 function renderPeek() {
   const el = $("#peek"), x = ses(peek);
   if (!x || x.hidden) { peek = null; return renderCards(); }
@@ -306,11 +363,26 @@ function renderPeek() {
   const main = $("main"), keep = atBottom(main);
   el.innerHTML = `
     <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
-    <div class="turns">${turnsOf(x, opened, L.tools)}</div>`;
+    <div class="body"><div class="turns">${turnsOf(x, opened, L.tools)}</div><aside class="side">${sideOf(x)}</aside></div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
+let gear = false; // 設定を開いているか（画面の中だけ）
+function renderSettings() {
+  const el = $("#settings");
+  $("[data-gear]").setAttribute("aria-pressed", String(gear));
+  el.hidden = !gear;
+  if (!gear) return;
+  const cur = state.settings ?? {};
+  el.innerHTML = Object.entries(L.settings)
+    // 間の長さは、間があいたら送るときだけ
+    .filter(([k]) => k !== "pause" || cur.send !== "each")
+    .map(([k, d]) => `<div class="row"><span class="label">${esc(d.label)}</span><span class="seg">${Object.entries(d.values).map(([v, t]) => `<button data-set="${k}" data-value="${esc(v)}" aria-pressed="${String(cur[k]) === v}">${esc(t)}</button>`).join("")}</span></div>`)
+    .join("");
+}
+
 function render() {
+  renderSettings();
   $("[data-undo]").hidden = !state.undo;
   renderChat();
   // 覗いていたセッションが一覧から外れていたら、一覧に戻る（renderPeek が peek を空にする）
@@ -331,6 +403,11 @@ document.addEventListener("click", (e) => {
   const t = (sel) => e.target.closest(sel);
   // カードの中のボタンは、カードを開くより先に見る
   if (t("[data-stop]")) return void post("/api/stop", { session: Number(t("[data-stop]").dataset.stop) });
+  if (t("[data-choice]")) {
+    const b = t("[data-choice]"), x = ses(Number(b.dataset.session)), c = x?.brief?.choices?.[Number(b.dataset.choice)];
+    if (c) post("/api/say", { text: c.say, to: x.id });
+    return;
+  }
   if (t("[data-cancel]")) return void post("/api/cancel", { say: Number(t("[data-cancel]").dataset.cancel) });
   if (t("[data-to]")) {
     const b = t("[data-to]");
@@ -348,6 +425,13 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("[data-close]")) open(null);
   // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
   if (e.target.closest("[data-reset]")) post("/api/reset").then(() => open(null));
+  if (t("[data-gear]")) { gear = !gear; return renderSettings(); }
+  if (t("[data-set]")) {
+    const b = t("[data-set]"), raw = b.dataset.value;
+    // 値の形は設定ごと：数・真偽・文字
+    const value = /^\d+$/.test(raw) ? Number(raw) : raw === "true" ? true : raw === "false" ? false : raw;
+    return void post("/api/set", { key: b.dataset.set, value });
+  }
   if (e.target.closest("[data-undo]")) post("/api/undo");
 });
 // 道具のまとまりを開け閉めしたら覚える（描き直しても閉じないように。toggle は泡立たないので捕まえる側で聞く）
@@ -404,7 +488,7 @@ const input = {
   },
   arm() {
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.send(), PAUSE);
+    this.timer = setTimeout(() => this.send(), pauseMs());
   },
   async send() {
     const m = this.m;
@@ -431,6 +515,8 @@ const input = {
   },
 };
 
+$("[data-gear]").title = L.gear;
+$("[data-gear]").setAttribute("aria-label", L.gear);
 $("[data-reset]").textContent = L.reset;
 $("[data-reset]").title = L.resetTitle;
 $("[data-undo]").textContent = L.undo;
@@ -466,7 +552,9 @@ const mic = {
       this.interim = mid.length;
       input.grow();
       clearTimeout(input.timer);
-      if (fin && !mid && !input.typed) input.send();
+      if (!fin || mid || input.typed) return;
+      // 区切りごとにすぐ送るか、話が途切れるまでためてまとめて送るか（設定）
+      if (state.settings?.send === "each") input.send(); else input.arm();
     };
     // 黙っていると止まるので、押されているあいだは聞き直す
     rec.onend = () => { if (this.on && this.rec === rec) rec.start(); };
@@ -481,6 +569,8 @@ const mic = {
   stop() {
     this.on = false;
     this.rec?.stop();
+    // ためていたものは、止めたときにすぐ送る
+    if (input.m.value.trim() && !input.typed) { clearTimeout(input.timer); input.send(); }
     this.rec = null;
     this.interim = 0;
     this.show();

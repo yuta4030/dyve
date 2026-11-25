@@ -107,7 +107,8 @@ export class Sessions {
 
   start(session, says) {
     const x = this.log.state.sessions.find((y) => y.id === session);
-    const text = says.map((id) => this.log.state.said.find((p) => p.id === id)?.text).filter(Boolean).join("\n\n");
+    // 清書したものがあればそれを渡す
+    const text = says.map((id) => { const p = this.log.state.said.find((q) => q.id === id); return p?.fair ?? p?.text; }).filter(Boolean).join("\n\n");
     this.log.add("turn", { session, says });
     let claude = x.claude, result = null, failed = null;
     const emit = (ev) => {

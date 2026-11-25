@@ -67,3 +67,17 @@ test("走っているあいだに止めたセッションは、立て直すと�
   assert.match(s.sessions[0].last, /立て直した/);
   await stop();
 });
+
+test("選ばせる答えには選択肢が出て、押すと同じセッションに届く", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-e2e-"));
+  const { base, stop } = await serve(dir);
+  await say(base, "候補を選ばせて");
+  let s = await until(base, (s) => s.sessions[0]?.brief?.choices?.length === 2);
+  assert.match(s.sessions[0].brief.summary, /どちら/);
+  const c = s.sessions[0].brief.choices[0];
+  await fetch(`${base}/api/say`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: c.say, to: 1 }) });
+  s = await until(base, (s) => s.sessions[0].flow.filter((f) => f.who === "human").length === 2 && s.sessions[0].status === "wait");
+  assert.equal(s.sessions.length, 1);
+  assert.equal(s.said[1].text, "甲で進めて");
+  await stop();
+});

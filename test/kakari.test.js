@@ -97,3 +97,29 @@ test("係が読む前に取り消された発言は、届けない", async () =>
   assert.equal(asked.length, 0);
   assert.deepEqual(sessions.sent, []);
 });
+
+test("係に聞いているあいだに人が届け先を決めた発言は、上書きしない", async () => {
+  const { log, kakari } = setup(async () => {
+    // 係が考えているあいだに、人が選択肢を押して届け先を決めた
+    log.add("route", { say: s, session: 1 });
+    return { ok: true, json: { says: [{ id: s, to: "new", name: "x" }] } };
+  });
+  log.add("open", { session: 1, name: "a" });
+  const s = log.add("say", { text: "これ" }).seq;
+  await kakari.kick();
+  assert.equal(log.state.sessions.length, 1);
+  assert.equal(log.state.said[0].session, 1);
+});
+
+test("清書する設定のときだけ、係の清書を受け取る", async () => {
+  const { log, kakari, asked } = setup((t) => ({ ok: true, json: { says: [{ id: Number(t.match(/^- (\d+)：/m)[1]), to: "new", name: "料金", text: "料金を調べて" }] } }));
+  log.add("say", { text: "えー料金を調べて" });
+  await kakari.kick();
+  assert.match(asked[0], /清書：しない/);
+  assert.equal(log.state.said[0].fair, undefined);
+  log.add("set", { key: "fair", value: true });
+  log.add("say", { text: "えー料金を調べて" });
+  await kakari.kick();
+  assert.match(asked[1], /清書：する/);
+  assert.equal(log.state.said[1].fair, "料金を調べて");
+});

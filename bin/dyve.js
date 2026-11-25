@@ -8,6 +8,7 @@ import { Log } from "../src/log.js";
 import { createServer } from "../src/server.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
 import { Kakari, claudeAsk } from "../src/kakari.js";
+import { Matome, PROMPT as BRIEF, SCHEMA as BRIEF_SCHEMA } from "../src/matome.js";
 
 const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
@@ -18,7 +19,7 @@ const USAGE = `使い方:
   --data FILE     記録（既定：~/.dyve/record.jsonl）
   --room DIR      セッションが起きる場所（既定：いまの場所）
   --model NAME    セッションのモデル（既定：Claude Code の既定）
-  --kakari NAME   係のモデル（既定：haiku）
+  --kakari NAME   係とまとめのモデル（既定：haiku）
   --slots N       同時に走るセッションの数（既定：3）
   --claude CMD    Claude Code のコマンド（既定：claude）
   -h, --help      この使い方を出す`;
@@ -89,6 +90,8 @@ const kakariDir = path.join(path.dirname(file), "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
 const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir }) }).start();
 
+// まとめ：ターンが終わるたびに、要約と選択肢を書く。係と同じ場所・同じモデル
+const matome = new Matome({ log, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, prompt: BRIEF, schema: BRIEF_SCHEMA, key: "summary" }) }).start();
 const server = createServer({ log, sessions });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
@@ -96,6 +99,7 @@ server.listen(port, "127.0.0.1", () => {
 });
 const quit = () => {
   kakari.stop();
+  matome.stop();
   sessions.stopAll();
   server.closeAll();
   process.exit(0);
