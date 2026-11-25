@@ -105,3 +105,17 @@ test("覗いているあいだの発言は、係を通さず覗いている先�
   assert.equal(log.state.said[1].session, undefined);
   server.closeAll();
 });
+
+test("押したシェルを、その場所で動かして結果を返す。画面から押したときだけ", async () => {
+  const log = new Log();
+  const dir = (await import("node:os")).tmpdir();
+  const server = createServer({ log, room: dir, shell: "/bin/sh" });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const runIt = (cmd, origin = base) => fetch(`${base}/api/run`, { method: "POST", headers: origin ? { origin } : {}, body: JSON.stringify({ cmd }) });
+  const r = await (await runIt("pwd; echo oops >&2; exit 3")).json();
+  assert.equal(r.code, 3);
+  assert.match(r.out, /oops/);
+  assert.equal((await runIt("echo x", null)).status, 403);
+  server.closeAll();
+});

@@ -9,6 +9,7 @@
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
 //   quota { five, fiveAt, week, weekAt, status } Claude の利用枠（使った割合 0〜1 と、戻る時刻の秒）。変わったときだけ
+//   links { rules }                        リンクの決まり（当てはまる言葉を押せるようにする）。まるごと置き換える
 //   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
 //   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
@@ -25,8 +26,21 @@ export function symOf(n) {
 export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true] };
 const defaults = () => Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, v[0]]));
 
+// リンクの決まりを確かめる：pattern は正規表現（空の文字に当たらないもの）、url は http か https で、$0（当たった言葉全体）や $1… を差し込める
+export function linkRules(rules) {
+  if (!Array.isArray(rules) || rules.length > 20) throw new Error("リンクの決まりは 20 個まで");
+  return rules.map((r) => {
+    const pattern = String(r?.pattern ?? "").trim(), url = String(r?.url ?? "").trim();
+    let re;
+    try { re = new RegExp(pattern); } catch (e) { throw new Error(`正規表現として読めない：${pattern}`); }
+    if (!pattern || re.test("")) throw new Error(`空の文字に当たる決まりは使えない：${pattern}`);
+    if (!/^https?:\/\/[^\s"<>]+$/.test(url)) throw new Error(`URL は http か https で、空白や " < > を含まない：${url}`);
+    return { pattern, url };
+  });
+}
+
 // since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
-export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null });
+export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null, links: [] });
 
 // 一覧に出ているセッション
 export const shown = (state) => state.sessions.filter((x) => !x.hidden);
@@ -51,6 +65,7 @@ export const KINDS = {
     const n = (v) => (Number.isFinite(v) ? v : null);
     return { five: n(b.five), fiveAt: n(b.fiveAt), week: n(b.week), weekAt: n(b.weekAt), status: String(b.status ?? "allowed") };
   },
+  links: (b) => ({ rules: linkRules(b.rules) }),
   set: (b) => {
     if (!Object.hasOwn(SETTINGS, b.key) || !SETTINGS[b.key].includes(b.value)) throw new Error(`変えられない設定：${b.key}=${b.value}`);
     return { key: b.key, value: b.value };
@@ -165,6 +180,9 @@ export function step(state, r) {
     }
     case "quota":
       state.quota = { five: r.five, fiveAt: r.fiveAt, week: r.week, weekAt: r.weekAt, status: r.status, at: r.at };
+      break;
+    case "links":
+      state.links = r.rules;
       break;
     case "set":
       state.settings[r.key] = r.value;

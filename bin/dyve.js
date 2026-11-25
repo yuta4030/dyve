@@ -92,7 +92,7 @@ const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: 
 
 // まとめ：ターンが終わるたびに、要約と選択肢を書く。係と同じ場所・同じモデル
 const matome = new Matome({ log, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, prompt: BRIEF, schema: BRIEF_SCHEMA, key: "summary" }) }).start();
-const server = createServer({ log, sessions });
+const server = createServer({ log, sessions, room });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
   process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}\n`);

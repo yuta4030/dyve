@@ -64,10 +64,17 @@ test("返ってきた文の最初の一行", () => {
 });
 
 // 画面の関数を取り出して、まとめて動かす（esc と inline と md）
-const mdOf = new Function(`const esc = ${html.match(/^const esc = (.*);$/m)[1]};\n${["inline", "md"].map((n) => html.match(new RegExp(`^function ${n}\\([\\s\\S]*?^}$`, "m"))[0]).join("\n")}; return { inline, md };`)();
+const grab = (name) => html.match(new RegExp(`^function ${name}\\([\\s\\S]*?^}$`, "m"))[0];
+const mdOf = (rules = []) => new Function(`const esc = ${html.match(/^const esc = (.*);$/m)[1]};
+const L = { copyCode: "c", run: "r", running: "…", exit: (c) => "exit " + c };
+const runs = new Map();
+const SHELL = ${html.match(/^const SHELL = (.*);$/m)[1]};
+let LINK_RULES = [];
+${["linkify", "inline", "codeBlock", "md"].map(grab).join("\n")};
+return (rules) => { LINK_RULES = rules; return { inline, md, linkify, runs }; };`)()(rules);
 
 test("マークダウン：一行の中", () => {
-  const { inline } = mdOf;
+  const { inline } = mdOf();
   assert.equal(inline("**月 20 ドル**と `a<b` と *少し*"), "<b>月 20 ドル</b>と <code>a&lt;b</code> と <i>少し</i>");
   assert.equal(inline("[出典](https://example.com/a?b=1&c=2)"), '<a href="https://example.com/a?b=1&amp;c=2" target="_blank" rel="noopener">出典</a>');
   // http と https のほかはリンクにしない。属性を閉じさせない
@@ -78,10 +85,33 @@ test("マークダウン：一行の中", () => {
 });
 
 test("マークダウン：塊", () => {
-  const { md } = mdOf;
+  const { md } = mdOf();
   assert.equal(md("## 結論\n本文の一行目\n二行目"), "<h4>結論</h4><p>本文の一行目<br>二行目</p>");
   assert.equal(md("- a\n- **b**\n\n1. x\n2. y"), "<ul><li>a</li><li><b>b</b></li></ul><ol><li>x</li><li>y</li></ol>");
-  assert.equal(md("```js\nif (a < b) {}\n```"), "<pre><code>if (a &lt; b) {}</code></pre>");
+  assert.match(md("```js\nif (a < b) {}\n```"), /<div class="code">.*data-copy-code.*<pre><code>if \(a &lt; b\) \{\}<\/code><\/pre><\/div>/);
+  assert.doesNotMatch(md("```js\nx\n```"), /data-run/);
   assert.equal(md("| 名前 | 数 |\n|---|---:|\n| 甲 | 3 |"), "<table><thead><tr><th>名前</th><th>数</th></tr></thead><tbody><tr><td>甲</td><td>3</td></tr></tbody></table>");
   assert.equal(md("> 引用\n\n---"), "<blockquote><p>引用</p></blockquote><hr>");
+});
+
+test("シェルのコードの塊には実行のボタンを付け、押した結果をその下に出す", () => {
+  const { md, runs } = mdOf();
+  assert.match(md("```sh\nls -la\n```"), /data-run/);
+  assert.match(md("```bash\nls\n```"), /data-run/);
+  runs.set("ls", { code: 2, out: "<なし>" });
+  const h = md("```sh\nls\n```");
+  assert.match(h, /run-out bad/);
+  assert.match(h, /exit 2/);
+  assert.match(h, /&lt;なし&gt;/);
+});
+
+test("リンク：URL と利用者の決まりに当てはまる言葉を押せるようにする。コードやリンクの中には当てない", () => {
+  const { inline } = mdOf([{ re: /[A-Z][A-Z0-9]+-\d+/g, url: "https://x.atlassian.net/browse/$0" }]);
+  assert.equal(inline("PROJ-12 を見て"), '<a href="https://x.atlassian.net/browse/PROJ-12" target="_blank" rel="noopener">PROJ-12</a> を見て');
+  assert.equal(inline("`PROJ-12`"), "<code>PROJ-12</code>");
+  assert.equal(inline("[票](https://a.example/PROJ-1)"), '<a href="https://a.example/PROJ-1" target="_blank" rel="noopener">票</a>');
+  assert.equal(inline("詳しくは https://a.example/x?y=1&z=2。"), '詳しくは <a href="https://a.example/x?y=1&amp;z=2" target="_blank" rel="noopener">https://a.example/x?y=1&amp;z=2</a>。');
+  // 括弧の中を差し込む
+  const g = mdOf([{ re: /#(\d+)/g, url: "https://github.com/o/r/issues/$1" }]).inline;
+  assert.match(g("#42 を直す"), /href="https:\/\/github\.com\/o\/r\/issues\/42"/);
 });

@@ -117,3 +117,13 @@ test("清書した文は元の文と別に持ち、セッションには清書�
   assert.equal(log.state.said[0].fair, "料金を調べて");
   assert.equal(log.state.sessions[0].flow[0].text, "料金を調べて");
 });
+
+test("リンクの決まり：読めない正規表現・空に当たるもの・http でない URL は断る", () => {
+  const log = new Log();
+  log.add("links", { rules: [{ pattern: "[A-Z]+-\\d+", url: "https://x.atlassian.net/browse/$0" }] });
+  assert.equal(log.state.links.length, 1);
+  assert.throws(() => log.add("links", { rules: [{ pattern: "(", url: "https://a" }] }));
+  assert.throws(() => log.add("links", { rules: [{ pattern: "a*", url: "https://a" }] }));
+  assert.throws(() => log.add("links", { rules: [{ pattern: "a", url: "javascript:alert(1)" }] }));
+  assert.throws(() => log.add("links", { rules: [{ pattern: "a", url: 'https://a/"x' }] }));
+});

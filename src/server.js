@@ -1,6 +1,7 @@
 // サーバー：画面を返し、発言を受け取り、いまの状態を返し、記録が増えるたびに状態を画面へ流す（SSE）
 import http from "node:http";
 import fs from "node:fs";
+import { spawn } from "node:child_process";
 import { shown } from "./state.js";
 import { quick } from "./kakari.js";
 
@@ -17,7 +18,8 @@ const LOCAL_HOST = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const BATCH = 50;
 
 // sessions：取り消す・止める・届け先を変える（なければその口は断る）
-export function createServer({ log, sessions = null }) {
+// room：押したシェルを動かす場所（なければその口は断る）
+export function createServer({ log, sessions = null, room = null, shell = process.env.SHELL || "/bin/sh" }) {
   const clients = new Set();
   let timer = null;
   const push = () => {
@@ -58,6 +60,20 @@ export function createServer({ log, sessions = null }) {
         const record = log.add("say", { text: body.text, peek, ...(to ? { to } : {}) });
         if (to) sessions.send(to, record.seq);
         return json(200, { ok: true, record });
+      }
+      // リンクの決まりを置き換える
+      if (route === "POST /api/links") {
+        const b = await readJson(req);
+        return json(200, { ok: true, record: log.add("links", { rules: b.rules }) });
+      }
+      // 返事の中のシェルを、人が押したときに動かす。画面から押したときだけ（Origin のない呼び出しは断る）
+      if (route === "POST /api/run") {
+        if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
+        if (!room) return json(409, { ok: false, message: "動かす場所がない" });
+        const b = await readJson(req);
+        const cmd = String(b.cmd ?? "").trim();
+        if (!cmd) return json(400, { ok: false, message: "コマンドがない" });
+        return json(200, { ok: true, ...(await run(shell, cmd, room)) });
       }
       // 設定を変える（決まった名前と値だけ）
       if (route === "POST /api/set") {
@@ -104,6 +120,28 @@ export function createServer({ log, sessions = null }) {
     server.close();
   };
   return server;
+}
+
+// シェルを動かして、終了コードと出力（標準出力と標準エラーを混ぜたもの）を返す。長いものは後ろを残し、止まらなければ切る
+const RUN_MS = 120 * 1000;
+const RUN_MAX = 20000;
+export function run(shell, cmd, cwd, ms = RUN_MS) {
+  return new Promise((resolve) => {
+    let out = "", done = false;
+    const keep = (c) => { out = (out + c).slice(-RUN_MAX); };
+    let child;
+    try {
+      child = spawn(shell, ["-c", cmd], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      return resolve({ code: -1, out: e.message });
+    }
+    const timer = setTimeout(() => { child.kill("SIGTERM"); keep(`\n（${ms / 1000} 秒で止めた）`); }, ms);
+    child.stdout.setEncoding("utf8").on("data", keep);
+    child.stderr.setEncoding("utf8").on("data", keep);
+    const finish = (code) => { if (done) return; done = true; clearTimeout(timer); resolve({ code, out }); };
+    child.on("error", (e) => { keep(e.message); finish(-1); });
+    child.on("close", (code) => finish(code ?? -1));
+  });
 }
 
 function readJson(req) {
