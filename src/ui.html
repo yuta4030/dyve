@@ -100,15 +100,50 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 #peek .bar { display: flex; align-items: baseline; gap: 10px; position: sticky; top: -14px; z-index: 1; margin: -14px -14px 12px; padding: 12px 14px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
 #peek .bar button { color: var(--sub); }
 #peek .bar button:hover { color: var(--ink); }
-.body { display: grid; grid-template-columns: minmax(0, 860px) minmax(240px, 320px); gap: 16px; align-items: start; }
-.side { position: sticky; top: 56px; display: flex; flex-direction: column; gap: 12px; }
-.side section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-.side h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--sub); }
-.side .quiet { color: var(--sub); font-size: 13px; }
-.choices { display: flex; flex-wrap: wrap; gap: 6px; }
-.choices button { border: 1px solid var(--run); color: var(--run); border-radius: 999px; padding: 4px 12px; }
-.choices button:hover { background: var(--run); color: var(--panel); }
+.body { display: grid; grid-template-columns: minmax(0, 860px) minmax(220px, 300px); gap: 16px; align-items: start; }
+.body.solo { grid-template-columns: minmax(0, 860px); }
+.side { position: sticky; top: 56px; }
 @media (max-width: 1100px) { .body { grid-template-columns: minmax(0, 1fr); } .side { position: static; order: -1; } }
+/* 見出しの帯の右：情報の札（アイコンと短い名前） */
+.info { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.info a { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 12px; text-decoration: none; }
+.info a:hover { border-color: var(--sub); }
+.info a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info svg { flex: none; }
+/* 右：決まったこと・まだのことの木 */
+.tree { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.tree .gh { display: flex; align-items: center; gap: 4px; width: 100%; font-size: 12px; font-weight: 600; }
+.tree .gh .c { margin-left: auto; font-weight: 400; color: var(--sub); font-size: 11.5px; }
+.tree .arrow { color: var(--sub); width: 1em; }
+.tree ul { margin: 2px 0 0; padding: 0 0 0 1em; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.tree li { display: flex; gap: 6px; }
+.tree .mk { width: 1em; flex: none; }
+.tree .mk.done { color: var(--wait); }
+.tree .mk.open { color: var(--run); }
+.tree .why { font-size: 11.5px; color: var(--sub); }
+.tree .pick { color: var(--run); }
+.tree .qref { font-size: 11px; color: var(--run); border: 1px solid color-mix(in srgb, var(--run) 35%, var(--line)); border-radius: 999px; padding: 0 6px; }
+/* 下：答えを待っている質問（会話の下に留まる） */
+.asks { position: sticky; bottom: 0; margin-top: 12px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--run) 40%, var(--line)); border-radius: 12px; box-shadow: 0 -6px 16px rgba(0, 0, 0, .06); }
+.asks .tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.asks .tab { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; color: var(--sub); }
+.asks .tab.got { color: var(--ink); }
+.asks .tab.on { border-color: var(--run); background: color-mix(in srgb, var(--run) 8%, var(--panel)); color: var(--ink); font-weight: 600; }
+.asks .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--sub); }
+.asks .dot.got { background: var(--wait); border-color: var(--wait); }
+.asks .n { margin-left: auto; font-size: 11.5px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.asks .send { margin-left: 6px; padding: 1px 10px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; }
+.asks .send.all { background: var(--run); color: #fff; }
+.asks .x { color: var(--sub); padding: 0 4px; }
+.asks .q { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.asks .qt { font-weight: 600; font-size: 14px; }
+.asks .qw { font-size: 12.5px; color: var(--sub); white-space: pre-wrap; }
+.asks .opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+.asks .opt { display: flex; flex-direction: column; text-align: left; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--run) 30%, var(--line)); border-radius: 8px; }
+.asks .opt:hover { border-color: var(--run); }
+.asks .opt.on { border: 1.5px solid var(--run); background: color-mix(in srgb, var(--run) 8%, var(--panel)); }
+.asks .opt b { font-size: 12.5px; color: var(--run); }
+.asks .opt span { font-size: 11.5px; color: var(--sub); }
 .icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; vertical-align: middle; }
 .icon:hover { background: var(--soft); text-decoration: none; }
 .turns { display: flex; flex-direction: column; gap: 8px; max-width: 860px; }
@@ -229,10 +264,12 @@ const L = {
     opener: { label: "ファイルを開く", values: { os: "OS の既定", vscode: "VS Code", cursor: "Cursor" } },
   },
   original: (t) => `元の文：${t}`,
-  brief: "要約",
-  briefWait: "ターンが終わると、ここにまとまる",
-  briefRun: "動いているあいだは、前の要約のまま",
-  choose: "押すだけで答える",
+  infoNav: "見たもの・書いたもの",
+  askSend: "送る ↵",
+  askSendTitle: "選んだ答えを、まとめてこのセッションに送る",
+  askDrop: "質問を下げる",
+  askRef: (n) => `質問 ${n}`,
+  best: "★ ",
   lost: "つながりが切れた。つなぎ直している",
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
@@ -463,15 +500,67 @@ function renderCards() {
     : `<div class="empty">${esc(L.emptyCards)}</div>`;
 }
 
-// 右のパネル：要約と、押すだけで答える選択肢（どちらもまとめが書く）
-function sideOf(x) {
-  const b = x.brief;
-  const note = x.status === "run" ? L.briefRun : L.briefWait;
-  const brief = `<section><h2>${esc(L.brief)}</h2>${b?.summary ? `<div class="md">${md(b.summary)}</div>` : ""}${!b?.summary || x.status === "run" ? `<div class="quiet">${esc(note)}</div>` : ""}</section>`;
-  const choices = x.status === "wait" && b?.choices?.length
-    ? `<section><h2>${esc(L.choose)}</h2><div class="choices">${b.choices.map((c, i) => `<button data-choice="${i}" data-session="${x.id}" title="${esc(c.say)}">${esc(c.label)}</button>`).join("")}</div></section>`
-    : "";
-  return choices + brief;
+// 質問への答え（送るまでは画面の中だけ）：セッション -> { seq（どの質問の束か）, at（いま見ている質問）, picked（質問 -> 選んだ名前） }
+const answers = new Map();
+const closedGroups = new Set(); // 閉じた木の話題（セッション:名前）
+const answerOf = (x) => {
+  let a = answers.get(x.id);
+  if (!a || a.seq !== x.asks?.seq) answers.set(x.id, (a = { seq: x.asks?.seq, at: 0, picked: {} }));
+  return a;
+};
+
+// 見出しの帯の右の情報：見たページ・書いたファイル（道具から）と、返事に出てきたリンクの決まりの言葉（課題の番号など）
+function infoOf(x) {
+  const icon = { page: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>', file: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>', rule: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>' };
+  const ico = (k) => `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon[k]}</svg>`;
+  const items = (x.info ?? []).map((i) => {
+    if (i.kind === "page") {
+      let host = i.ref;
+      try { host = new URL(i.ref).host.replace(/^www\./, ""); } catch {}
+      return `<a href="${esc(i.ref)}" target="_blank" rel="noopener" title="${esc(i.ref)}" style="color: var(--ink)">${ico("page")}<span>${esc(host)}</span></a>`;
+    }
+    return `<a href="#" class="file" data-open="${esc(i.ref)}" title="${esc(i.ref)}" style="color: var(--ink); text-decoration: none">${ico("file")}<span>${esc(i.ref.split("/").pop())}</span></a>`;
+  });
+  // リンクの決まりに当てはまる言葉（新しく出たものから 6 つ）
+  const seenRef = new Set(), rules = [];
+  for (const f of [...x.flow].reverse()) {
+    if (f.who !== "ai") continue;
+    for (const r of LINK_RULES) for (const m of f.text.matchAll(r.re)) {
+      if (seenRef.has(m[0]) || rules.length >= 6) continue;
+      seenRef.add(m[0]);
+      rules.push(`<a href="${esc(r.url.replace(/\$(\d)/g, (_, n) => m[Number(n)] ?? ""))}" target="_blank" rel="noopener" title="${esc(m[0])}">${ico("rule")}<span>${esc(m[0])}</span></a>`);
+    }
+  }
+  const all = [...items.reverse(), ...rules];
+  return all.length ? `<nav class="info" aria-label="${esc(L.infoNav)}">${all.join("")}</nav>` : "";
+}
+
+// 右の木：話題ごとに、決まったこと（✓）とまだのこと（?）。? は下の質問とつながり、選んだ答えも仮に出す
+function treeOf(x) {
+  if (!x.tree?.length) return "";
+  const a = x.asks ? answerOf(x) : null;
+  return `<div class="tree">${x.tree.map((g) => {
+    const key = `${x.id}:${g.name}`, open = !closedGroups.has(key);
+    const done = g.items.filter((it) => it.done).length;
+    return `<div><button class="gh" data-group="${esc(key)}" aria-expanded="${open}"><span class="arrow">${open ? "▾" : "▸"}</span>${esc(g.name)}<span class="c">${done}/${g.items.length}</span></button>` +
+      (open ? `<ul>${g.items.map((it) => {
+        const pick = !it.done && it.ask && a?.picked[it.ask - 1];
+        return `<li><span class="mk ${it.done ? "done" : "open"}">${it.done ? "✓" : "?"}</span><div><div><b>${inline(it.name)}</b> ${inline(it.value ?? "")}${pick ? ` <span class="pick">→ ${esc(pick)}</span>` : ""}${!it.done && it.ask && x.asks?.questions[it.ask - 1] ? ` <button class="qref" data-qtab="${it.ask - 1}" data-session="${x.id}">${esc(L.askRef(it.ask))}</button>` : ""}</div>${it.why ? `<div class="why">${inline(it.why)}</div>` : ""}</div></li>`;
+      }).join("")}</ul>` : "") + "</div>";
+  }).join("")}</div>`;
+}
+
+// 下の質問：一問ずつ。上の一行に番号と答え、送る。選んだら、まだ答えていない次の質問へ
+function asksOf(x) {
+  if (!x.asks) return "";
+  const qs = x.asks.questions, a = answerOf(x), q = qs[Math.min(a.at, qs.length - 1)];
+  const got = Object.keys(a.picked).length;
+  const tabs = qs.map((it, i) => `<button class="tab${i === a.at ? " on" : ""}${a.picked[i] ? " got" : ""}" data-qtab="${i}" data-session="${x.id}"><span class="dot${a.picked[i] ? " got" : ""}"></span>${i + 1} ${esc(a.picked[i] ?? it.title)}</button>`).join("");
+  return `<section class="asks" aria-label="${esc(q.title)}">
+    <div class="tabs">${qs.length > 1 ? tabs : ""}<span class="n">${got}/${qs.length}</span><button class="send${got === qs.length ? " all" : ""}" data-send="${x.id}" title="${esc(L.askSendTitle)}">${esc(L.askSend)}</button><button class="x" data-drop="${x.id}" title="${esc(L.askDrop)}" aria-label="${esc(L.askDrop)}">×</button></div>
+    <div class="q"><div class="qt">${inline(q.title)}</div>${q.why ? `<div class="qw">${inline(q.why)}</div>` : ""}
+      <div class="opts">${q.options.map((o) => `<button class="opt${a.picked[a.at] === o.label ? " on" : ""}" data-opt="${esc(o.label)}" data-session="${x.id}"><b>${o.recommended ? esc(L.best) : ""}${esc(o.label)}</b>${o.effect ? `<span>${inline(o.effect)}</span>` : ""}</button>`).join("")}</div>
+    </div></section>`;
 }
 
 function renderPeek() {
@@ -480,8 +569,8 @@ function renderPeek() {
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main);
   el.innerHTML = `
-    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
-    <div class="body"><div class="turns">${turnsOf(x, opened, L.tools)}</div><aside class="side">${sideOf(x)}</aside></div>`;
+    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}</div>
+    <div class="body${x.tree?.length ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${asksOf(x)}</div>${x.tree?.length ? `<aside class="side">${treeOf(x)}</aside>` : ""}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
@@ -587,10 +676,32 @@ document.addEventListener("click", (e) => {
       .then((r) => { runs.set(cmd, { code: r.code ?? -1, out: r.out ?? r.message ?? "" }); render(); });
     return;
   }
-  if (t("[data-choice]")) {
-    const b = t("[data-choice]"), x = ses(Number(b.dataset.session)), c = x?.brief?.choices?.[Number(b.dataset.choice)];
-    if (c) post("/api/say", { text: c.say, to: x.id });
-    return;
+  // 質問：番号を押したら切り替え、選択肢を押したら選んでまだの次へ、送るでまとめて送る、× で下げる
+  if (t("[data-qtab]")) {
+    const b = t("[data-qtab]"), x = ses(Number(b.dataset.session));
+    if (x?.asks) answerOf(x).at = Number(b.dataset.qtab);
+    return renderPeek();
+  }
+  if (t("[data-opt]")) {
+    const b = t("[data-opt]"), x = ses(Number(b.dataset.session));
+    if (!x?.asks) return;
+    const a = answerOf(x), n = x.asks.questions.length;
+    a.picked[a.at] = b.dataset.opt;
+    const next = [...Array(n).keys()].find((i) => i > a.at && !a.picked[i]);
+    if (next != null) a.at = next;
+    return renderPeek();
+  }
+  if (t("[data-send]")) {
+    const x = ses(Number(t("[data-send]").dataset.send));
+    if (!x?.asks) return;
+    const a = answerOf(x);
+    return void post("/api/answer", { session: x.id, answers: Object.entries(a.picked).map(([q, v]) => ({ q: Number(q), a: v })) });
+  }
+  if (t("[data-drop]")) return void post("/api/answer", { session: Number(t("[data-drop]").dataset.drop), answers: [] });
+  if (t("[data-group]")) {
+    const k = t("[data-group]").dataset.group;
+    closedGroups.has(k) ? closedGroups.delete(k) : closedGroups.add(k);
+    return renderPeek();
   }
   if (t("[data-fold]")) return void post("/api/fold", { session: Number(t("[data-fold]").dataset.fold), on: true });
   if (t("[data-unfold]")) return void post("/api/fold", { session: Number(t("[data-unfold]").dataset.unfold), on: false });

@@ -3,7 +3,8 @@
 //   route { say, session | null, error }   届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
 //   fold  { session, on }                  人がカードを畳んだ（on）・広げた
 //   cancel { say }                         人が発言を取り消した
-//   brief { session, summary, choices }    まとめが書いた、セッションの要約と、人が押すだけで答えられる選択肢
+//   asks  { session, questions }           セッションが dyve の道具（ask）で人に聞いた。前の質問は置き換わる。空なら質問を下げる
+//   tree  { session, groups }              セッションが dyve の道具（state）で書いた、決まったこと・まだのことの木
 //   open  { session, name }                新しいセッション
 //   turn  { session, says }                セッションに発言を渡した（答えている途中なら差し込み）。says が空なら、差し込まれた発言でまた動きだした
 //   bind  { session, claude }              Claude Code の会話の ID が届いた（立て直しても続きを頼めるように、すぐ書く）
@@ -79,14 +80,21 @@ export const KINDS = {
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
   fold: (b) => ({ session: need(b.session, "セッション"), on: !!b.on }),
-  brief: (b) => ({
-    session: need(b.session, "セッション"),
-    summary: String(b.summary ?? "").trim(),
-    choices: (Array.isArray(b.choices) ? b.choices : []).map((c) => ({ label: String(c?.label ?? "").trim(), say: String(c?.say ?? c?.label ?? "").trim() })).filter((c) => c.label && c.say).slice(0, 6),
-  }),
+  asks: (b) => ({ session: need(b.session, "セッション"), questions: Array.isArray(b.questions) ? b.questions : [] }),
+  tree: (b) => ({ session: need(b.session, "セッション"), groups: Array.isArray(b.groups) ? b.groups : [] }),
   reset: () => ({}),
   undo: () => ({}),
 };
+
+// 右上の情報：道具の一行から、見たページと書いたファイルを拾う（新しいものを後ろに、同じものは一つに、12 まで）
+const PAGE = /^(WebFetch) (https?:\/\/\S+)/;
+const FILE = /^(Edit|Write|MultiEdit|NotebookEdit) (\S.*)$/;
+function noteInfo(x, line) {
+  const m = line.match(PAGE) ?? line.match(FILE);
+  if (!m) return;
+  const it = { kind: PAGE.test(line) ? "page" : "file", ref: m[2].trim() };
+  x.info = [...(x.info ?? []).filter((i) => i.ref !== it.ref), it].slice(-12);
+}
 
 // まだ取り消せる発言：届けていて（または届け先を決めているところで）、セッションがまだ答え終えていないもの
 export const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
@@ -119,9 +127,14 @@ export function step(state, r) {
       if (old != null && old !== s.session) orphan(old);
       break;
     }
-    case "brief": {
+    case "asks": {
       const x = ses(r.session);
-      if (x) x.brief = { summary: r.summary, choices: x.status === "wait" ? r.choices : [], at: r.at };
+      if (x) x.asks = r.questions.length ? { questions: r.questions, at: r.at, seq: r.seq } : null;
+      break;
+    }
+    case "tree": {
+      const x = ses(r.session);
+      if (x) x.tree = r.groups;
       break;
     }
     case "fold": {
@@ -148,8 +161,6 @@ export function step(state, r) {
       // 畳んでいたものも、また動きだしたら広げる（もう終わっていないので）
       x.folded = false;
       x.status = "run";
-      // 選択肢は、そのとき聞かれていたことへの答え。次のターンが始まったら古い
-      if (x.brief) x.brief.choices = [];
       for (const id of r.says) {
         const s = state.said.find((p) => p.id === id);
         if (s) x.flow.push({ who: "human", text: s.fair ?? s.text, say: id });
@@ -166,6 +177,7 @@ export function step(state, r) {
       if (!x) break;
       x.flow.push({ who: r.what === "tool" ? "tool" : "ai", text: r.text });
       x.last = r.text;
+      if (r.what === "tool") noteInfo(x, r.text);
       break;
     }
     case "end": {

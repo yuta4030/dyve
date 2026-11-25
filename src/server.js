@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { shown } from "./state.js";
 import { quick } from "./kakari.js";
+import { answer as mcpAnswer } from "./mcp.js";
 
 const UI = new URL("./ui.html", import.meta.url);
 // 画面は一枚。外のものを読まず、ほかのページに埋め込ませない
@@ -22,7 +23,8 @@ const BATCH = 50;
 // sessions：取り消す・止める・届け先を変える（なければその口は断る）
 // room：押したシェルを動かす場所（なければその口は断る）
 // opener：ファイルを開く関数（テストで差し替える）
-export function createServer({ log, sessions = null, room = null, shell = process.env.SHELL || "/bin/sh", opener = openFile }) {
+// mcpKey：セッションに貸す道具の口の鍵（/mcp/<鍵>/<セッション>）。なければその口は開けない
+export function createServer({ log, sessions = null, room = null, shell = process.env.SHELL || "/bin/sh", opener = openFile, mcpKey = null }) {
   const clients = new Set();
   let timer = null;
   const push = () => {
@@ -51,6 +53,32 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         return res.end(fs.readFileSync(UI));
       }
       if (route === "GET /api/state") return json(200, log.state);
+      // セッションに貸す道具（MCP）。鍵の合うものだけ。返事は JSON で一通ずつ（SSE は使わない）
+      const mcp = pathname.match(/^\/mcp\/([^/]+)\/(\d+)$/);
+      if (mcp) {
+        if (!mcpKey || mcp[1] !== mcpKey) return json(404, { ok: false, message: "ない" });
+        if (req.method !== "POST") { res.writeHead(405, { allow: "POST" }); return res.end(); }
+        const m = await readJson(req);
+        const out = mcpAnswer(log, Number(mcp[2]), m);
+        if (!out) { res.writeHead(202); return res.end(); }
+        return json(200, out);
+      }
+      // 質問に答える：答えを一通の発言にしてそのセッションへ直に渡し、質問を下げる。answers が空なら下げるだけ
+      if (route === "POST /api/answer") {
+        const b = await readJson(req);
+        const x = log.state.sessions.find((y) => y.id === b.session && !y.hidden);
+        if (!x || !sessions) return json(404, { ok: false, message: "そのセッションはない" });
+        const qs = x.asks?.questions ?? [];
+        const lines = (Array.isArray(b.answers) ? b.answers : [])
+          .filter((a) => Number.isInteger(a?.q) && qs[a.q] && String(a.a ?? "").trim())
+          .map((a) => `${a.q + 1}. ${qs[a.q].title}：${String(a.a).trim()}`);
+        if (lines.length) {
+          const record = log.add("say", { text: `質問への答え\n${lines.join("\n")}`, to: x.id });
+          sessions.send(x.id, record.seq);
+        }
+        log.add("asks", { session: x.id, questions: [] });
+        return json(200, { ok: true });
+      }
       if (route === "POST /api/say") {
         const body = await readJson(req);
         const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;

@@ -16,7 +16,8 @@ const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
 // 起こすときの引数。発言は標準入力に stream-json で一通ずつ流す
 // 道具は絞らない。人に聞かずに進め、危ない操作だけを Claude Code の判定（auto）が止める
-export function claudeArgs({ prompt, resume = null, model = null }) {
+// mcp：dyve が貸す道具の口の URL（あれば --mcp-config で足し、その道具だけは聞かずに使えるようにする）
+export function claudeArgs({ prompt, resume = null, model = null, mcp = null }) {
   return [
     "-p",
     "--input-format", "stream-json",
@@ -26,6 +27,7 @@ export function claudeArgs({ prompt, resume = null, model = null }) {
     "--append-system-prompt", prompt,
     ...(model ? ["--model", model] : []),
     "--permission-mode", "auto",
+    ...(mcp ? ["--mcp-config", JSON.stringify({ mcpServers: { dyve: { type: "http", url: mcp } } }), "--allowedTools", "mcp__dyve__ask", "mcp__dyve__state"] : []),
   ];
 }
 
@@ -98,8 +100,9 @@ export function toolLine(name, input = {}) {
 
 export class Sessions {
   // user：利用者の書き足し（用語.md とセッション.md）を置くフォルダ。起こすたびに読み直す
-  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE, user = null }) {
-    Object.assign(this, { log, spawn, room, model, slots, idle, user });
+  // mcpUrl(session)：そのセッションに貸す道具の口の URL（サーバーが待ちはじめてから決まる）
+  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE, user = null, mcpUrl = null }) {
+    Object.assign(this, { log, spawn, room, model, slots, idle, user, mcpUrl });
     this.prompt = prompt ?? fs.readFileSync(PROMPT, "utf8").trim();
     this.pending = new Map(); // セッション -> 空きを待っている発言（動いているセッションが slots に達しているとき）
     this.procs = new Map(); // セッション -> 起きている Claude Code { h, busy, says（いまのターンで渡した発言）, stopped, quiet, timer }
@@ -184,7 +187,7 @@ export class Sessions {
         this.pump();
       }
     };
-    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, model: this.model }), cwd: this.room }, emit);
+    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
     this.procs.set(session, p);
     p.h.done.then(({ code, stderr }) => {
       clearTimeout(p.timer);

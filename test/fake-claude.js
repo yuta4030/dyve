@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Claude Code のふりをする小さなスクリプト。外につながず、決まった返事を返す（serve --claude にこれを渡して、通しで確かめる）
 //   --version：版を出す
-//   --json-schema：係かまとめ（schema に summary があればまとめ）。係は発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）
+//   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）
 //   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）
 const args = process.argv.slice(2);
 const after = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
@@ -14,13 +14,12 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 
-// まとめ：要約は決まった形。「どちら」を含めば選択肢を返す
-async function matome() {
-  const prompt = await readAll();
-  const last = prompt.trim().split("\n").at(-1);
-  const json = { summary: `- まとめ：${last.slice(0, 40)}`, choices: /どちら/.test(last) ? [{ label: "甲", say: "甲で進めて" }, { label: "乙", say: "乙で進めて" }] : [] };
-  await sleep(Number(process.env.FAKE_KAKARI_MS ?? 10));
-  process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(json), structured_output: json }));
+// dyve が貸す道具（MCP）を呼ぶ。--mcp-config の URL に tools/call を送る
+async function callTool(name, args) {
+  const conf = after("--mcp-config");
+  if (!conf) return;
+  const url = JSON.parse(conf).mcpServers.dyve.url;
+  await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
 }
 
 async function kakari() {
@@ -68,6 +67,12 @@ async function session() {
       // 道具の合間に届いた発言は、このターンで一緒に答える
       asked.push(...take());
       const first = asked[0].split("\n")[0];
+      // 「選ばせて」と頼まれたら、dyve の道具で質問と木を出す
+      if (/選ばせて/.test(first)) {
+        out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t2", name: "mcp__dyve__ask", input: {} }] }, parent_tool_use_id: null, session_id: id });
+        await callTool("ask", { questions: [{ title: "案", why: "値段が違う", options: [{ label: "甲", effect: "安い", recommended: true }, { label: "乙", effect: "速い" }] }, { title: "時期", options: [{ label: "今月" }, { label: "来月" }] }] });
+        await callTool("state", { groups: [{ name: "契約", items: [{ done: true, name: "人数", value: "8 人", why: "会話で決めた" }, { done: false, name: "案", ask: 1 }] }] });
+      }
       let answer = /選ばせて/.test(first) ? "候補は甲と乙です。どちらにしますか？" : `「${first.slice(0, 30)}」の答えは 42 です。${turns ? "（続き）" : ""}`;
       if (asked.length > 1) answer += `（途中で：${asked.slice(1).map((t) => t.split("\n")[0]).join("／")}）`;
       turns++;
@@ -91,5 +96,5 @@ async function session() {
   process.stdin.on("end", () => { closed = true; if (!working) process.exit(0); });
 }
 
-if (args.includes("--json-schema")) (JSON.parse(after("--json-schema")).properties.summary ? matome() : kakari());
+if (args.includes("--json-schema")) kakari();
 else session();

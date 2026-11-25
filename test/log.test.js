@@ -143,3 +143,10 @@ test("畳む：止まっているカードだけ畳め、また動きだした�
   log.add("turn", { session: 1, says: [] });
   assert.equal(log.state.sessions[0].folded, false);
 });
+
+test("右上の情報：見たページと書いたファイルを、道具の一行から拾う", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  for (const t of ["WebFetch https://claude.com/pricing", "Read README.md", "Edit src/a.js", "WebSearch 料金", "WebFetch https://claude.com/pricing", "Write docs/見積もり.md"]) log.add("step", { session: 1, what: "tool", text: t });
+  assert.deepEqual(log.state.sessions[0].info, [{ kind: "file", ref: "src/a.js" }, { kind: "page", ref: "https://claude.com/pricing" }, { kind: "file", ref: "docs/見積もり.md" }]);
+});

@@ -48,6 +48,10 @@ test("起こしっぱなしで発言を流し込む形。道具を絞らず、�
   const b = claudeArgs({ prompt: "P", resume: "c1", model: "sonnet" });
   assert.equal(b[b.indexOf("--resume") + 1], "c1");
   assert.equal(b[b.indexOf("--model") + 1], "sonnet");
+  // dyve の道具の口を足すときは、その道具だけ聞かずに使える
+  const c = claudeArgs({ prompt: "P", mcp: "http://127.0.0.1:1/mcp/k/3" });
+  assert.deepEqual(JSON.parse(c[c.indexOf("--mcp-config") + 1]), { mcpServers: { dyve: { type: "http", url: "http://127.0.0.1:1/mcp/k/3" } } });
+  assert.deepEqual(c.slice(c.indexOf("--allowedTools") + 1), ["mcp__dyve__ask", "mcp__dyve__state"]);
 });
 
 test("一ターン：出来事を記録し、結果で待ちになる。中で呼ばれたものは出さない。プロセスは起きたまま", async () => {

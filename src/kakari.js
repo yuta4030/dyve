@@ -57,7 +57,7 @@ export function routePrompt(state, batch) {
   ].join("\n");
 }
 
-// 本物の聞き方：道具を持たない Claude Code を一回ごとに起こし、決まった形の JSON で受ける（係とまとめで使う）
+// 本物の聞き方：道具を持たない Claude Code を一回ごとに起こし、決まった形の JSON で受ける
 // prompt：指示のファイル。schema：返す形。key：返したものに必ずある項目。返すもの：Promise<{ ok, json?, error? }>
 // user：利用者の書き足し（用語.md と <name>.md）を置くフォルダ。呼ぶたびに読み直す
 export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIMEOUT, prompt = PROMPT, schema = SCHEMA, key = "says", user = null, name = "係" }) {
