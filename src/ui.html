@@ -6,6 +6,7 @@
 <title>dyve</title>
 <style>
 :root {
+  color-scheme: light dark; /* スクロールバーや入力欄など、ブラウザが描くものも暗いときは暗く */
   --bg: #fafaf8; --panel: #ffffff; --ink: #1d1d1b; --sub: #6b6b66; --line: #e4e3de;
   --run: #2f6fdb; --wait: #1f8a4c; --fail: #c0392b; --mark: #e08a00; --soft: #f1f0ec;
   font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
@@ -13,7 +14,7 @@
 @media (prefers-color-scheme: dark) {
   :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --sub: #9a9992; --line: #33322f; --soft: #292926; --run: #6c9cf0; --wait: #4cc07e; --fail: #e8695b; }
 }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); }
 body { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; height: 100vh; }
