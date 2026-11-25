@@ -28,10 +28,10 @@ test("追記して、立て直すと同じ状態に戻る。読めない行は�
   assert.deepEqual(b.state, a.state);
   const x = b.state.sessions[0];
   assert.equal(x.sym, "A");
-  assert.equal(x.status, "back");
+  assert.equal(x.status, "wait");
   assert.equal(x.claude, "c1");
   assert.deepEqual(x.flow.map((f) => f.who), ["human", "tool"]);
-  assert.deepEqual(b.state.chat, [{ say: 1 }, { back: 1, text: "答えは 42", error: false }]);
+  assert.deepEqual(b.state.chat, [{ say: 1 }, { reply: 1, text: "答えは 42", error: false }]);
   // 書きかけの行のあとにも足せる
   b.add("say", { text: "次" });
   assert.equal(new Log(file).state.said.length, 2);
@@ -49,4 +49,36 @@ test("失敗したターンは失敗として残り、チャットにも帰る",
   log.add("end", { session: 1, error: "止まった" });
   assert.equal(log.state.sessions[0].status, "fail");
   assert.equal(log.state.chat.at(-1).error, true);
+});
+
+test("リセット：チャットを空にし、動いていないセッションを外す。記号は空いたものから振り直す", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "済んだ" });
+  log.add("end", { session: 1, result: "答え" });
+  log.add("open", { session: 2, name: "動いている" });
+  log.add("turn", { session: 2, says: [] });
+  log.add("say", { text: "前の話" });
+  log.add("reset");
+  const s = log.state;
+  assert.deepEqual(s.chat, []);
+  assert.deepEqual(s.sessions.map((x) => !!x.hidden), [true, false]);
+  log.add("open", { session: 3, name: "新しい" });
+  assert.deepEqual(s.sessions.map((x) => x.sym), ["A", "B", "A"]);
+});
+
+test("リセットは、次に話すまで戻せる。そのあいだに帰った結果も残る", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  log.add("end", { session: 1, result: "答え" });
+  log.add("open", { session: 2, name: "b" });
+  log.add("turn", { session: 2, says: [] });
+  log.add("reset");
+  log.add("end", { session: 2, result: "帰った" });
+  log.add("undo");
+  assert.equal(log.state.sessions[0].hidden, false);
+  assert.deepEqual(log.state.chat.map((c) => c.reply), [1, 2]);
+  assert.equal(log.state.since, 0);
+  log.add("reset");
+  log.add("say", { text: "次" });
+  assert.equal(log.state.undo, null);
 });

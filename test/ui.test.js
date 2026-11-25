@@ -45,7 +45,31 @@ test("声は間があいたら置き、打ったものは Enter まで待つ", (
 
 test("返ってきた文の最初の一行", () => {
   const headOf = fn("headOf");
-  assert.equal(headOf("## 結論\n\n本文"), "結論");
-  assert.equal(headOf("\n**月 20 ドル**です\n詳細"), "月 20 ドルです");
+  assert.equal(headOf("## 結論\n\n本文"), "本文");
+  assert.equal(headOf("## 結論だけ"), "結論だけ");
+  assert.equal(headOf("\n- **月 20 ドル**です\n詳細"), "**月 20 ドル**です");
   assert.equal(headOf(""), "");
+});
+
+// 画面の関数を取り出して、まとめて動かす（esc と inline と md）
+const mdOf = new Function(`const esc = ${html.match(/^const esc = (.*);$/m)[1]};\n${["inline", "md"].map((n) => html.match(new RegExp(`^function ${n}\\([\\s\\S]*?^}$`, "m"))[0]).join("\n")}; return { inline, md };`)();
+
+test("マークダウン：一行の中", () => {
+  const { inline } = mdOf;
+  assert.equal(inline("**月 20 ドル**と `a<b` と *少し*"), "<b>月 20 ドル</b>と <code>a&lt;b</code> と <i>少し</i>");
+  assert.equal(inline("[出典](https://example.com/a?b=1&c=2)"), '<a href="https://example.com/a?b=1&amp;c=2" target="_blank" rel="noopener">出典</a>');
+  // http と https のほかはリンクにしない。属性を閉じさせない
+  assert.doesNotMatch(inline("[x](javascript:alert(1))"), /<a/);
+  assert.doesNotMatch(inline('[x](https://a.example/"onmouseover=")'), /"onmouseover/);
+  assert.equal(inline("<script>"), "&lt;script&gt;");
+  assert.equal(inline("2 * 3 * 4"), "2 * 3 * 4");
+});
+
+test("マークダウン：塊", () => {
+  const { md } = mdOf;
+  assert.equal(md("## 結論\n本文の一行目\n二行目"), "<h4>結論</h4><p>本文の一行目<br>二行目</p>");
+  assert.equal(md("- a\n- **b**\n\n1. x\n2. y"), "<ul><li>a</li><li><b>b</b></li></ul><ol><li>x</li><li>y</li></ol>");
+  assert.equal(md("```js\nif (a < b) {}\n```"), "<pre><code>if (a &lt; b) {}</code></pre>");
+  assert.equal(md("| 名前 | 数 |\n|---|---:|\n| 甲 | 3 |"), "<table><thead><tr><th>名前</th><th>数</th></tr></thead><tbody><tr><td>甲</td><td>3</td></tr></tbody></table>");
+  assert.equal(md("> 引用\n\n---"), "<blockquote><p>引用</p></blockquote><hr>");
 });

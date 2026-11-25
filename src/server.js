@@ -48,6 +48,12 @@ export function createServer({ log }) {
         const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;
         return json(200, { ok: true, record: log.add("say", { text: body.text, peek }) });
       }
+      // リセットと、それを戻す。どちらも記録に一件足すだけで、何も消さない
+      if (route === "POST /api/reset") return json(200, { ok: true, record: log.add("reset") });
+      if (route === "POST /api/undo") {
+        if (!log.state.undo) return json(409, { ok: false, message: "戻せるリセットがない" });
+        return json(200, { ok: true, record: log.add("undo") });
+      }
       if (route === "GET /api/events") {
         // つないだときに、いまの状態をまるごと送る。あとは増えるたびにまるごと
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });

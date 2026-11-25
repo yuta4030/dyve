@@ -73,3 +73,18 @@ test("係に渡す文：覗いていたセッションを添える", () => {
   log.add("say", { text: "それも", peek: 1 });
   assert.match(routePrompt(log.state, log.state.said), /- 2（A を覗いていた）：それも/);
 });
+
+test("リセットのあとは、一覧から外れたセッションにも前の発言にも届けない", async () => {
+  const { log, sessions, kakari, asked } = setup((t) => ({ ok: true, json: { says: [{ id: Number(t.match(/^- (\d+)：/m)[1]), to: "A" }] } }));
+  log.add("open", { session: 1, name: "料金" });
+  log.add("end", { session: 1, result: "x" });
+  const a = log.add("say", { text: "前の話" }).seq;
+  log.add("route", { say: a, session: 1 });
+  log.add("reset");
+  const b = log.add("say", { text: "A は年払いも" }).seq;
+  await kakari.kick();
+  // A はもう一覧にいないので、係に聞き、知らない記号として新しく起こす
+  assert.equal(asked.length, 1);
+  assert.doesNotMatch(asked[0], /料金|前の話/);
+  assert.deepEqual(sessions.sent, [[2, b]]);
+});

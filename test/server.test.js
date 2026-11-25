@@ -39,3 +39,15 @@ test("画面を返す", async () => {
   assert.match(await r.text(), /<title>dyve<\/title>/);
   close();
 });
+
+test("リセットして戻す。戻せるものがなければ断る", async () => {
+  const { log, base, close } = await up();
+  const post = (p) => fetch(`${base}${p}`, { method: "POST" });
+  assert.equal((await post("/api/undo")).status, 409);
+  log.add("say", { text: "x" });
+  assert.equal((await post("/api/reset")).status, 200);
+  assert.deepEqual(log.state.chat, []);
+  assert.equal((await post("/api/undo")).status, 200);
+  assert.equal(log.state.chat.length, 1);
+  close();
+});

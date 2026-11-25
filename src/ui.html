@@ -7,11 +7,11 @@
 <style>
 :root {
   --bg: #fafaf8; --panel: #ffffff; --ink: #1d1d1b; --sub: #6b6b66; --line: #e4e3de;
-  --run: #2f6fdb; --back: #1f8a4c; --fail: #c0392b; --mark: #e08a00; --soft: #f1f0ec;
+  --run: #2f6fdb; --wait: #1f8a4c; --fail: #c0392b; --mark: #e08a00; --soft: #f1f0ec;
   font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --sub: #9a9992; --line: #33322f; --soft: #292926; --run: #6c9cf0; --back: #4cc07e; --fail: #e8695b; }
+  :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --sub: #9a9992; --line: #33322f; --soft: #292926; --run: #6c9cf0; --wait: #4cc07e; --fail: #e8695b; }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -21,14 +21,18 @@ body { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; height: 1
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 
 #chat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
+#top { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--sub); }
+#top .brand { font-weight: 700; color: var(--ink); margin-right: auto; }
+#top button:hover { color: var(--ink); }
+#top [data-undo] { color: var(--run); }
 #flow { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 #flow .empty { color: var(--sub); }
 .say p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chip { display: inline-block; margin-top: 2px; font-size: 12px; color: var(--sub); }
 button.chip:hover { color: var(--ink); text-decoration: underline; }
-.ret { border-left: 3px solid var(--back); padding: 2px 0 2px 8px; font-size: 13px; }
+.ret { border-left: 3px solid var(--wait); padding: 2px 0 2px 8px; font-size: 13px; }
 .ret.fail { border-color: var(--fail); }
-.ret b { margin-right: 4px; }
+.ret .rs { font-weight: 700; margin-right: 4px; }
 #input { border-top: 1px solid var(--line); padding: 10px 12px; }
 #input textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; color: inherit; background: var(--bg); max-height: 40vh; }
 #note { font-size: 12px; color: var(--sub); min-height: 1em; margin-top: 4px; }
@@ -44,25 +48,48 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .status { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--sub); white-space: nowrap; }
 .status.run { color: var(--run); }
-.status.back { color: var(--back); }
+.status.wait { color: var(--wait); }
 .status.fail { color: var(--fail); }
 .last { color: var(--sub); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .status.run::before { content: "● "; animation: blink 1.2s infinite; }
 @keyframes blink { 50% { opacity: .2; } }
 
-#peek .bar { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+#peek .bar { display: flex; align-items: baseline; gap: 10px; position: sticky; top: -14px; z-index: 1; margin: -14px -14px 12px; padding: 12px 14px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
 #peek .bar button { color: var(--sub); }
 #peek .bar button:hover { color: var(--ink); }
 .turns { display: flex; flex-direction: column; gap: 8px; max-width: 860px; }
-.turns > div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.turns > div { overflow-wrap: anywhere; }
+.turns .human, .turns .error { white-space: pre-wrap; }
+.tools { font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--sub); }
+.tools summary { cursor: pointer; list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tools summary::-webkit-details-marker { display: none; }
+.tools summary::before { content: "▸ "; }
+.tools[open] summary::before { content: "▾ "; }
+.tools summary span { opacity: .75; margin-left: 6px; }
+.tools div { padding-left: 14px; white-space: pre-wrap; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre, .md table, .md blockquote { margin: 0 0 .7em; }
+.md h3, .md h4, .md h5, .md h6 { margin: .9em 0 .4em; font-size: 1em; }
+.md h3 { font-size: 1.12em; }
+.md ul, .md ol { padding-left: 1.4em; }
+.md code { font: .92em ui-monospace, Menlo, monospace; background: var(--soft); padding: 1px 4px; border-radius: 4px; }
+.md pre { background: var(--soft); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
+.md pre code { background: none; padding: 0; }
+.md table { border-collapse: collapse; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
+.md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--sub); }
+.md hr { border: 0; border-top: 1px solid var(--line); }
+.md a, .last a, .ret a { color: var(--run); }
+.last code, .ret code { font: .92em ui-monospace, Menlo, monospace; }
 .turns .human { align-self: flex-end; background: var(--soft); border-radius: 10px; padding: 6px 10px; max-width: 80%; }
 .turns .ai { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
-.turns .tool { font: 12px/1.4 ui-monospace, Menlo, monospace; color: var(--sub); }
 .turns .error { color: var(--fail); }
 </style>
 </head>
 <body>
 <section id="chat">
+  <div id="top"><span class="brand">dyve</span><button data-undo hidden></button><button data-reset></button></div>
   <div id="flow"></div>
   <div id="input"><textarea rows="1"></textarea><div id="note"></div></div>
 </section>
@@ -80,9 +107,13 @@ const L = {
   missed: (e) => `届け先が決まらなかった（次に話したとき読み直す）：${e}`,
   to: (sym, name) => `→ ${sym} ${name}`,
   failed: "置けなかった。Enter でもう一度",
-  back: "← 一覧",
-  status: { idle: "まだ", run: "実行中", back: "帰った", fail: "失敗" },
+  close: "← 一覧",
+  status: { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗" },
   lost: "つながりが切れた。つなぎ直している",
+  reset: "リセット",
+  resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
+  undo: "元に戻す",
+  tools: (n) => `道具を ${n} 回`,
 };
 
 // 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
@@ -97,15 +128,92 @@ const atBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight < NEAR
 function isSendKey(e) {
   return e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229;
 }
-// 返ってきた文の最初の一行（見出しや強調の記号を外す）
+// 返ってきた文の要の一行（見出し・引用・箇条書きの頭の記号を外す）
 function headOf(s) {
-  const line = String(s ?? "").split("\n").map((l) => l.replace(/^[#>*\-\s]+|\*\*/g, "").trim()).find(Boolean) ?? "";
+  const lines = String(s ?? "").split("\n").filter((l) => l.trim() && !/^(```|\s*\|?\s*:?-{2,}|-{3,})/.test(l));
+  // 見出しだけの行（「結論」など）は飛ばし、本文の一行目を出す。本文がなければ見出し
+  const pick = lines.find((l) => !/^#+\s/.test(l)) ?? lines[0] ?? "";
+  const line = pick.replace(/^(#+|>|[-*+]|\d+[.)])\s+/, "").trim();
   return line.length > 140 ? line.slice(0, 139) + "…" : line;
+}
+
+// 一行の中のマークダウン：コード・太字・斜体・リンク（http と https だけ）。先にエスケープしてから形を付ける
+function inline(t) {
+  return String(t ?? "").split(/(`[^`\n]+`)/).map((part, i) => i % 2
+    ? `<code>${esc(part.slice(1, -1))}</code>`
+    : esc(part)
+        .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+        .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, "$1<i>$2</i>")
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+  ).join("");
+}
+
+// マークダウンを HTML に：見出し・段落・箇条書き・番号つき・コードの塊・表・引用・区切り線
+function md(src) {
+  const lines = String(src ?? "").replace(/\r/g, "").split("\n");
+  const LIST = /^\s*([-*+]|\d+[.)])\s+/;
+  const START = /^(```|#{1,6}\s|>|\s*\||\s*([-*+]|\d+[.)])\s)/;
+  const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const out = [];
+  for (let i = 0; i < lines.length;) {
+    const l = lines[i];
+    let m;
+    if (/^```/.test(l)) {
+      const buf = [];
+      for (i++; i < lines.length && !/^```/.test(lines[i]); i++) buf.push(lines[i]);
+      i++;
+      out.push(`<pre><code>${esc(buf.join("\n"))}</code></pre>`);
+    } else if ((m = l.match(/^(#{1,6})\s+(.*)$/))) {
+      const n = Math.min(m[1].length + 2, 6);
+      out.push(`<h${n}>${inline(m[2])}</h${n}>`);
+      i++;
+    } else if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)) {
+      out.push("<hr>");
+      i++;
+    } else if (LIST.test(l)) {
+      const tag = /^\s*\d/.test(l) ? "ol" : "ul", items = [];
+      while (i < lines.length && LIST.test(lines[i])) items.push(lines[i++].replace(LIST, ""));
+      out.push(`<${tag}>${items.map((t) => `<li>${inline(t)}</li>`).join("")}</${tag}>`);
+    } else if (/^\s*\|/.test(l) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? "")) {
+      const head = cells(l), rows = [];
+      for (i += 2; i < lines.length && /^\s*\|/.test(lines[i]); i++) rows.push(cells(lines[i]));
+      out.push(`<table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
+    } else if (/^>/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^>/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ""));
+      out.push(`<blockquote>${md(buf.join("\n"))}</blockquote>`);
+    } else if (!l.trim()) {
+      i++;
+    } else {
+      const buf = [l];
+      for (i++; i < lines.length && lines[i].trim() && !START.test(lines[i]); i++) buf.push(lines[i]);
+      out.push(`<p>${buf.map(inline).join("<br>")}</p>`);
+    }
+  }
+  return out.join("");
+}
+
+// やりとりを並べる。続けて使った道具は一つに畳む（開いたかどうかは画面の中だけで覚える）
+function turnsOf(x, opened, label) {
+  const out = [];
+  for (let i = 0; i < x.flow.length;) {
+    const f = x.flow[i];
+    if (f.who !== "tool") {
+      out.push(f.who === "ai" ? `<div class="ai md">${md(f.text)}</div>` : `<div class="${f.who}">${esc(f.text)}</div>`);
+      i++;
+      continue;
+    }
+    const key = `${x.id}:${i}`, tools = [];
+    while (i < x.flow.length && x.flow[i].who === "tool") tools.push(x.flow[i++].text);
+    out.push(`<details class="tools" data-key="${key}"${opened.has(key) ? " open" : ""}><summary>${esc(label(tools.length))}<span>${esc(tools.at(-1))}</span></summary><div>${tools.map(esc).join("\n")}</div></details>`);
+  }
+  return out.join("");
 }
 
 let state = { said: [], sessions: [], chat: [] };
 let peek = null;          // 覗いているセッション
 const seen = new Map();   // セッション -> 見た終わり（印を消すため。画面の中だけで持つ）
+const opened = new Set(); // 開いた道具のまとまり
 let first = true;
 
 const ses = (id) => state.sessions.find((x) => x.id === id);
@@ -125,42 +233,45 @@ function renderChat() {
       const s = said.get(c.say);
       return `<div class="say"><p>${esc(s.text)}</p>${chipOf(s)}</div>`;
     }
-    const x = ses(c.back);
-    return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><b>${esc(x.sym)}</b>${esc(headOf(c.text))}</button>`;
+    const x = ses(c.reply);
+    return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><span class="rs">${esc(x.sym)}</span>${inline(headOf(c.text))}</button>`;
   }).join("") : `<div class="empty">${esc(L.emptyChat)}</div>`;
   if (keep || first) el.scrollTop = el.scrollHeight;
 }
 
 function marked(x) {
-  return (x.status === "back" || x.status === "fail") && seen.get(x.id) !== x.endedAt;
+  return (x.status === "wait" || x.status === "fail") && seen.get(x.id) !== x.endedAt;
 }
 
 function renderCards() {
   const el = $("#cards");
-  el.innerHTML = state.sessions.length ? [...state.sessions].reverse().map((x) => `
+  const live = state.sessions.filter((x) => !x.hidden);
+  el.innerHTML = live.length ? [...live].reverse().map((x) => `
     <button class="card${marked(x) ? " mark" : ""}" data-go="${x.id}">
       <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span><span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
-      <div class="last">${esc(x.status === "run" ? x.last : headOf(x.last) || x.last)}</div>
+      <div class="last">${inline(headOf(x.last))}</div>
     </button>`).join("") : `<div class="empty">${esc(L.emptyCards)}</div>`;
 }
 
 function renderPeek() {
   const el = $("#peek"), x = ses(peek);
-  if (!x) { peek = null; return; }
+  if (!x || x.hidden) { peek = null; return renderCards(); }
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main);
   el.innerHTML = `
-    <div class="bar"><button data-close>${esc(L.back)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span><span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
-    <div class="turns">${x.flow.map((f) => `<div class="${f.who}">${esc(f.text)}</div>`).join("")}</div>`;
+    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span><span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
+    <div class="turns">${turnsOf(x, opened, L.tools)}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
 function render() {
+  $("[data-undo]").hidden = !state.undo;
   renderChat();
-  $("#cards").hidden = peek != null;
-  $("#peek").hidden = peek == null;
+  // 覗いていたセッションが一覧から外れていたら、一覧に戻る（renderPeek が peek を空にする）
   if (peek != null) renderPeek();
   if (peek == null) renderCards();
+  $("#cards").hidden = peek != null;
+  $("#peek").hidden = peek == null;
 }
 
 function open(id) {
@@ -170,10 +281,19 @@ function open(id) {
 }
 
 document.addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
   const go = e.target.closest("[data-go]");
   if (go) return open(Number(go.dataset.go));
   if (e.target.closest("[data-close]")) open(null);
+  // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
+  if (e.target.closest("[data-reset]")) post("/api/reset").then(() => open(null));
+  if (e.target.closest("[data-undo]")) post("/api/undo");
 });
+// 道具のまとまりを開け閉めしたら覚える（描き直しても閉じないように。toggle は泡立たないので捕まえる側で聞く）
+document.addEventListener("toggle", (e) => {
+  const k = e.target.dataset?.key;
+  if (k) e.target.open ? opened.add(k) : opened.delete(k);
+}, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && peek != null) open(null); });
 
 function connect() {
@@ -189,14 +309,16 @@ function connect() {
   es.onerror = () => { $("#note").textContent = L.lost; };
 }
 
-async function say(text) {
+async function post(url, body = {}) {
   try {
-    const r = await fetch("/api/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, ...(peek != null ? { peek } : {}) }) });
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return r.ok;
   } catch {
     return false;
   }
 }
+
+const say = (text) => post("/api/say", { text, ...(peek != null ? { peek } : {}) });
 
 // 声と打鍵の見分け：入力の直前にキーが押されていればキーボード（OS の音声入力はキーを押さずに文字が入る）
 // 声だけなら、間があいたら置く。書きかけに一文字でも打ったら、その書きかけは Enter まで待つ。欄が空になったら声に戻る
@@ -248,6 +370,9 @@ const input = {
   },
 };
 
+$("[data-reset]").textContent = L.reset;
+$("[data-reset]").title = L.resetTitle;
+$("[data-undo]").textContent = L.undo;
 input.listen();
 connect();
 </script>

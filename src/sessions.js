@@ -6,14 +6,13 @@ import { fileURLToPath } from "node:url";
 
 const PROMPT = fileURLToPath(new URL("../prompts/セッション.md", import.meta.url));
 
-// 許す道具：読むだけ。ほかは --allow で足す（Slack の MCP など）。許していない道具は聞かずに断られる（dontAsk）
-export const READ = ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Bash(git log:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(ls:*)"];
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
 // 起こすときの引数。頼む文は標準入力で渡す（- で始まる文が引数と取り違えられないように）
-export function claudeArgs({ prompt, resume = null, model = null, allow = [] }) {
+// 道具は絞らない。人に聞かずに進め、危ない操作だけを Claude Code の判定（auto）が止める
+export function claudeArgs({ prompt, resume = null, model = null }) {
   return [
     "-p",
     "--output-format", "stream-json",
@@ -21,9 +20,7 @@ export function claudeArgs({ prompt, resume = null, model = null, allow = [] }) 
     ...(resume ? ["--resume", resume] : []),
     "--append-system-prompt", prompt,
     ...(model ? ["--model", model] : []),
-    "--permission-mode", "dontAsk",
-    // 道具の一覧は可変長なので最後に置く
-    "--allowedTools", ...READ, ...allow,
+    "--permission-mode", "auto",
   ];
 }
 
@@ -76,8 +73,8 @@ export function toolLine(name, input = {}) {
 }
 
 export class Sessions {
-  constructor({ log, spawn, room, allow = [], model = null, slots = 3, prompt = null }) {
-    Object.assign(this, { log, spawn, room, allow, model, slots });
+  constructor({ log, spawn, room, model = null, slots = 3, prompt = null }) {
+    Object.assign(this, { log, spawn, room, model, slots });
     this.prompt = prompt ?? fs.readFileSync(PROMPT, "utf8").trim();
     this.pending = new Map(); // セッション -> まだ渡していない発言
     this.running = new Map(); // セッション -> { kill }
@@ -126,7 +123,7 @@ export class Sessions {
         else result = String(ev.result ?? "").trim();
       }
     };
-    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model, allow: this.allow }), cwd: this.room, prompt: text };
+    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: text };
     const h = this.spawn(job, emit);
     this.running.set(session, h);
     h.done.then(({ code, stderr }) => {

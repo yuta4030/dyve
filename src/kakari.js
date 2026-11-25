@@ -3,6 +3,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { shown } from "./state.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/係.md", import.meta.url));
 const TIMEOUT = 60 * 1000;
@@ -11,7 +12,7 @@ const CONTEXT = 6;
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
-const STATUS = { idle: "まだ", run: "実行中", back: "帰った", fail: "失敗" };
+const STATUS = { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗" };
 
 export const SCHEMA = {
   type: "object",
@@ -38,11 +39,12 @@ export function quick(text, sessions) {
 export function routePrompt(state, batch) {
   const symOf = (id) => state.sessions.find((x) => x.id === id)?.sym ?? "?";
   const first = (x) => state.said.find((p) => p.session === x.id)?.text ?? "";
-  const before = state.said.filter((p) => p.id < batch[0].id && p.session !== undefined).slice(-CONTEXT);
+  const before = state.said.filter((p) => p.id > state.since && p.id < batch[0].id && p.session !== undefined).slice(-CONTEXT);
+  const live = shown(state);
   return [
     "いまのセッション：",
-    ...(state.sessions.length
-      ? state.sessions.map((x) => `- ${x.sym}「${x.name}」${STATUS[x.status]}。最初の頼み：${clip(oneLine(first(x)), 80)}。最後：${clip(oneLine(x.last), 80)}`)
+    ...(live.length
+      ? live.map((x) => `- ${x.sym}「${x.name}」${STATUS[x.status]}。最初の頼み：${clip(oneLine(first(x)), 80)}。最後：${clip(oneLine(x.last), 80)}`)
       : ["（なし）"]),
     ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- （${p.session == null ? "届けていない" : `→ ${symOf(p.session)}`}）${clip(oneLine(p.text), 120)}`)] : []),
     "",
@@ -123,7 +125,7 @@ export class Kakari {
     if (!batch.length) return;
     const ask = [];
     for (const p of batch) {
-      const x = quick(p.text, state.sessions);
+      const x = quick(p.text, shown(state));
       if (x) this.deliver(p.id, x.id);
       else ask.push(p);
     }
@@ -138,7 +140,7 @@ export class Kakari {
       const d = r.json.says.find((s) => s.id === p.id) ?? { to: "new" };
       const to = String(d.to ?? "new").trim();
       if (to === "none") { this.log.add("route", { say: p.id, session: null }); continue; }
-      const x = state.sessions.find((y) => y.sym === to);
+      const x = shown(state).find((y) => y.sym === to);
       if (x) { this.deliver(p.id, x.id); continue; }
       // 知らない記号や形の崩れは、新しく起こすほうに倒す（落とさない）
       const name = clip(oneLine(d.name) || oneLine(p.text), 20);

@@ -17,7 +17,6 @@ const USAGE = `使い方:
   --port N        待つポート（既定：4750。0 なら空いているもの）
   --data FILE     記録（既定：~/.dyve/record.jsonl）
   --room DIR      セッションが起きる場所（既定：いまの場所）
-  --allow TOOL    セッションに許す道具を足す。何度でも書ける（例：--allow mcp__slack）。既定は読むだけ
   --model NAME    セッションのモデル（既定：Claude Code の既定）
   --kakari NAME   係のモデル（既定：haiku）
   --slots N       同時に走るセッションの数（既定：3）
@@ -38,7 +37,6 @@ try {
       port: { type: "string", default: "4750" },
       data: { type: "string", default: path.join(HOME, "record.jsonl") },
       room: { type: "string", default: process.cwd() },
-      allow: { type: "string", multiple: true, default: [] },
       model: { type: "string" },
       kakari: { type: "string", default: "haiku" },
       slots: { type: "string", default: "3" },
@@ -78,7 +76,7 @@ if (missing) process.stderr.write(`注意：${missing}\n`);
 // 止まる前に走っていたターンは、もう帰ってこない。そうとわかるように終わらせる（続きを頼めば同じ会話で動く）
 for (const x of log.state.sessions) if (x.status === "run") log.add("end", { session: x.id, error: "dyve を立て直したので止まった。続きを頼めば再開する" });
 
-const sessions = new Sessions({ log, room, allow: v.allow, model: v.model ?? null, slots, spawn: claudeSpawn(v.claude) });
+const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(v.claude) });
 // 届け先は決まったのに、空きを待っていてまだ渡せていなかった発言は、いま渡す
 for (const s of log.state.said) {
   const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
@@ -92,7 +90,7 @@ const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: v.claude, model
 const server = createServer({ log });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}${v.allow.length ? `（足した道具：${v.allow.join("・")}）` : ""}\n`);
+  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}\n`);
 });
 const quit = () => {
   kakari.stop();
