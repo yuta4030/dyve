@@ -81,3 +81,16 @@ test("選ばせる答えには選択肢が出て、押すと同じセッショ�
   assert.equal(s.said[1].text, "甲で進めて");
   await stop();
 });
+
+test("答えている途中の発言は差し込まれ、同じターンで答えが返る", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-e2e-"));
+  const { base, stop } = await serve(dir);
+  await say(base, "ゆっくり料金を調べて");
+  await until(base, (s) => s.sessions[0]?.status === "run");
+  await say(base, "A、やっぱり年払いで");
+  const s = await until(base, (s) => s.sessions[0]?.status === "wait");
+  assert.match(s.sessions[0].last, /途中で：A、やっぱり年払いで/);
+  assert.equal(s.chat.filter((c) => c.reply).length, 1);
+  assert.equal(s.sessions.length, 1);
+  await stop();
+});

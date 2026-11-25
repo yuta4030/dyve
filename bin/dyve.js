@@ -20,7 +20,7 @@ const USAGE = `使い方:
   --room DIR      セッションが起きる場所（既定：いまの場所）
   --model NAME    セッションのモデル（既定：Claude Code の既定）
   --kakari NAME   係とまとめのモデル（既定：haiku）
-  --slots N       同時に走るセッションの数（既定：3）
+  --slots N       同時に答えていられるセッションの数（既定：3）
   --claude CMD    Claude Code のコマンド（既定：claude）
   -h, --help      この使い方を出す`;
 

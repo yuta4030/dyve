@@ -4,7 +4,7 @@
 //   cancel { say }                         人が発言を取り消した
 //   brief { session, summary, choices }    まとめが書いた、セッションの要約と、人が押すだけで答えられる選択肢
 //   open  { session, name }                新しいセッション
-//   turn  { session, says }                セッションがターンを始めた（届いた発言）
+//   turn  { session, says }                セッションに発言を渡した（答えている途中なら差し込み）。says が空なら、差し込まれた発言でまた動きだした
 //   bind  { session, claude }              Claude Code の会話の ID が届いた（立て直しても続きを頼めるように、すぐ書く）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
@@ -135,8 +135,9 @@ export function step(state, r) {
     case "turn": {
       const x = ses(r.session);
       if (!x) break;
+      // 答えている途中に届いた発言（差し込み）は、いまのターンに足す
+      x.turn = x.status === "run" ? [...(x.turn ?? []), ...r.says] : r.says;
       x.status = "run";
-      x.turn = r.says;
       // 選択肢は、そのとき聞かれていたことへの答え。次のターンが始まったら古い
       if (x.brief) x.brief.choices = [];
       for (const id of r.says) {
