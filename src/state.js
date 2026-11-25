@@ -71,11 +71,11 @@ export function step(state, r) {
       const x = ses(r.session);
       if (!x) break;
       if (r.claude) x.claude = r.claude;
-      x.status = r.error ? "fail" : "back";
+      x.status = r.error ? "fail" : "wait";
       x.last = r.error ? r.error : r.result ?? x.last;
       if (r.error) x.flow.push({ who: "error", text: r.error });
       x.endedAt = r.at;
-      state.chat.push({ back: x.id, text: x.last, error: !!r.error });
+      state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;
     }
   }

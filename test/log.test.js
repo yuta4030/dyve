@@ -28,10 +28,10 @@ test("追記して、立て直すと同じ状態に戻る。読めない行は�
   assert.deepEqual(b.state, a.state);
   const x = b.state.sessions[0];
   assert.equal(x.sym, "A");
-  assert.equal(x.status, "back");
+  assert.equal(x.status, "wait");
   assert.equal(x.claude, "c1");
   assert.deepEqual(x.flow.map((f) => f.who), ["human", "tool"]);
-  assert.deepEqual(b.state.chat, [{ say: 1 }, { back: 1, text: "答えは 42", error: false }]);
+  assert.deepEqual(b.state.chat, [{ say: 1 }, { reply: 1, text: "答えは 42", error: false }]);
   // 書きかけの行のあとにも足せる
   b.add("say", { text: "次" });
   assert.equal(new Log(file).state.said.length, 2);

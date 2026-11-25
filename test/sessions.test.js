@@ -50,7 +50,7 @@ test("一ターン：出来事を記録し、結果で帰る。中で呼ばれ�
   assert.equal(log.state.sessions[0].status, "run");
   await finish(0, "月 20 ドル");
   const x = log.state.sessions[0];
-  assert.equal(x.status, "back");
+  assert.equal(x.status, "wait");
   assert.equal(x.claude, "c0");
   assert.equal(x.last, "月 20 ドル");
   assert.deepEqual(x.flow.map((f) => f.text), ["料金を調べて", "Grep price", "月 20 ドル"]);

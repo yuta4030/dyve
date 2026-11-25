@@ -11,7 +11,7 @@ const CONTEXT = 6;
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
-const STATUS = { idle: "まだ", run: "実行中", back: "帰った", fail: "失敗" };
+const STATUS = { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗" };
 
 export const SCHEMA = {
   type: "object",
