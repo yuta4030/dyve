@@ -89,6 +89,12 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         opener({ file, line, col, how: log.state.settings?.opener ?? "os" });
         return json(200, { ok: true, file });
       }
+      // カードを畳む・広げる（人が押したとき）
+      if (route === "POST /api/fold") {
+        const b = await readJson(req);
+        if (!log.state.sessions.some((x) => x.id === b.session)) return json(404, { ok: false, message: "そのセッションはない" });
+        return json(200, { ok: true, record: log.add("fold", { session: b.session, on: b.on }) });
+      }
       // 設定を変える（決まった名前と値だけ）
       if (route === "POST /api/set") {
         const b = await readJson(req);

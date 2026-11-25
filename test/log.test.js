@@ -127,3 +127,19 @@ test("リンクの決まり：読めない正規表現・空に当たるもの�
   assert.throws(() => log.add("links", { rules: [{ pattern: "a", url: "javascript:alert(1)" }] }));
   assert.throws(() => log.add("links", { rules: [{ pattern: "a", url: 'https://a/"x' }] }));
 });
+
+test("畳む：止まっているカードだけ畳め、また動きだしたら広がる", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  log.add("turn", { session: 1, says: [] });
+  log.add("fold", { session: 1, on: true });
+  assert.equal(log.state.sessions[0].folded, false, "動いているものは畳めない");
+  log.add("end", { session: 1, result: "x" });
+  log.add("fold", { session: 1, on: true });
+  assert.equal(log.state.sessions[0].folded, true);
+  log.add("fold", { session: 1, on: false });
+  assert.equal(log.state.sessions[0].folded, false);
+  log.add("fold", { session: 1, on: true });
+  log.add("turn", { session: 1, says: [] });
+  assert.equal(log.state.sessions[0].folded, false);
+});

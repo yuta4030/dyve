@@ -1,6 +1,7 @@
 // 状態：記録を頭から一件ずつ当てて作る。データに持つのは記録だけで、状態はいつも作り直せる
 //   say   { id, text, peek, to }           人の発言（to は、人が選択肢を押して届け先を決めて言ったもの）
 //   route { say, session | null, error }   届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
+//   fold  { session, on }                  人がカードを畳んだ（on）・広げた
 //   cancel { say }                         人が発言を取り消した
 //   brief { session, summary, choices }    まとめが書いた、セッションの要約と、人が押すだけで答えられる選択肢
 //   open  { session, name }                新しいセッション
@@ -77,6 +78,7 @@ export const KINDS = {
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
+  fold: (b) => ({ session: need(b.session, "セッション"), on: !!b.on }),
   brief: (b) => ({
     session: need(b.session, "セッション"),
     summary: String(b.summary ?? "").trim(),
@@ -122,6 +124,12 @@ export function step(state, r) {
       if (x) x.brief = { summary: r.summary, choices: x.status === "wait" ? r.choices : [], at: r.at };
       break;
     }
+    case "fold": {
+      const x = ses(r.session);
+      // 畳めるのは止まっているものだけ
+      if (x) x.folded = r.on && x.status !== "run" && x.status !== "idle";
+      break;
+    }
     case "cancel": {
       const s = state.said.find((p) => p.id === r.say);
       if (!s) break;
@@ -137,6 +145,8 @@ export function step(state, r) {
       if (!x) break;
       // 答えている途中に届いた発言（差し込み）は、いまのターンに足す
       x.turn = x.status === "run" ? [...(x.turn ?? []), ...r.says] : r.says;
+      // 畳んでいたものも、また動きだしたら広げる（もう終わっていないので）
+      x.folded = false;
       x.status = "run";
       // 選択肢は、そのとき聞かれていたことへの答え。次のターンが始まったら古い
       if (x.brief) x.brief.choices = [];

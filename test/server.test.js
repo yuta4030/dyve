@@ -147,3 +147,14 @@ test("OS の既定で開くと動いてしまうものは見分ける", async ()
   assert.equal(runnable(f("go.command")), true);
   assert.equal(runnable(f("tool", 0o755)), true);
 });
+
+test("カードを畳む・広げる。ないセッションは断る", async () => {
+  const { log, base, close } = await up();
+  log.add("open", { session: 1, name: "a" });
+  log.add("end", { session: 1, result: "x" });
+  const fold = (b) => fetch(`${base}/api/fold`, { method: "POST", body: JSON.stringify(b) });
+  assert.equal((await fold({ session: 1, on: true })).status, 200);
+  assert.equal(log.state.sessions[0].folded, true);
+  assert.equal((await fold({ session: 9, on: true })).status, 404);
+  close();
+});
