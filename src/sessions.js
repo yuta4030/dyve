@@ -67,6 +67,13 @@ export function claudeMissing(cmd, run = spawnSync) {
   return `Claude Code（${cmd}）が動きません${r.error ? `（${r.error.code || r.error.message}）` : ""}。入れてログインしてから立て直してください：https://docs.claude.com/en/docs/claude-code/setup`;
 }
 
+// rate_limit_event の中身から、記録に置く利用枠（使った割合は 1% 刻みにまるめる）
+export function quotaOf(info) {
+  const w = info?.unifiedWindows ?? {};
+  const pct = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+  return { five: pct(w.five_hour?.utilization), fiveAt: w.five_hour?.resetsAt ?? null, week: pct(w.seven_day?.utilization), weekAt: w.seven_day?.resetsAt ?? null, status: info?.status ?? "allowed" };
+}
+
 // 道具を使ったことの一行（「Read README.md」など）
 export function toolLine(name, input = {}) {
   const arg = input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.url ?? input.command ?? input.description ?? "";
@@ -119,6 +126,11 @@ export class Sessions {
           if (c.type === "text" && c.text.trim()) this.log.add("step", { session, what: "text", text: c.text.trim() });
           if (c.type === "tool_use") this.log.add("step", { session, what: "tool", text: toolLine(c.name, c.input) });
         }
+      }
+      // 利用枠は、変わったときだけ記録に置く
+      if (ev.type === "rate_limit_event") {
+        const q = quotaOf(ev.rate_limit_info), cur = this.log.state.quota;
+        if (!cur || ["five", "fiveAt", "week", "weekAt", "status"].some((k) => cur[k] !== q[k])) this.log.add("quota", q);
       }
       if (ev.type === "result") {
         if (ev.is_error) failed = oneLine(ev.result || ev.subtype || "失敗した");

@@ -1,6 +1,6 @@
 {
   "name": "dyve",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "description": "入力欄が一つのまま、いくつもの仕事を切り替えずに頼める道具",
   "type": "module",
   "bin": { "dyve": "bin/dyve.js" },

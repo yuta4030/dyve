@@ -7,6 +7,7 @@
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
+//   quota { five, fiveAt, week, weekAt, status } Claude の利用枠（使った割合 0〜1 と、戻る時刻の秒）。変わったときだけ
 //   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
 //   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
@@ -24,7 +25,7 @@ export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [f
 const defaults = () => Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, v[0]]));
 
 // since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
-export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults() });
+export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null });
 
 // 一覧に出ているセッション
 export const shown = (state) => state.sessions.filter((x) => !x.hidden);
@@ -45,6 +46,10 @@ const need = (v, what) => {
 export const KINDS = {
   say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null, ...(Number.isInteger(b.to) ? { to: b.to } : {}) }),
   route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}) }),
+  quota: (b) => {
+    const n = (v) => (Number.isFinite(v) ? v : null);
+    return { five: n(b.five), fiveAt: n(b.fiveAt), week: n(b.week), weekAt: n(b.weekAt), status: String(b.status ?? "allowed") };
+  },
   set: (b) => {
     if (!Object.hasOwn(SETTINGS, b.key) || !SETTINGS[b.key].includes(b.value)) throw new Error(`変えられない設定：${b.key}=${b.value}`);
     return { key: b.key, value: b.value };
@@ -149,6 +154,9 @@ export function step(state, r) {
       if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;
     }
+    case "quota":
+      state.quota = { five: r.five, fiveAt: r.fiveAt, week: r.week, weekAt: r.weekAt, status: r.status, at: r.at };
+      break;
     case "set":
       state.settings[r.key] = r.value;
       break;

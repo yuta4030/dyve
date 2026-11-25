@@ -173,3 +173,18 @@ test("清書したものがあれば、セッションにはそれを渡す", ()
   sessions.send(id, s);
   assert.equal(jobs[0].job.prompt, "料金を");
 });
+
+test("利用枠：rate_limit_event を、変わったときだけ記録に置く", async () => {
+  const { log, sessions, say, jobs } = setup();
+  const id = sessions.open("a");
+  say("x", id);
+  const ev = (u) => ({ type: "rate_limit_event", rate_limit_info: { status: "allowed", unifiedWindows: { five_hour: { utilization: u, resetsAt: 100 }, seven_day: { utilization: 0.394, resetsAt: 200 } } } });
+  jobs[0].emit(ev(0.21));
+  jobs[0].emit(ev(0.2101));
+  jobs[0].emit(ev(0.3));
+  const quotas = [];
+  for (const k of ["five", "week"]) quotas.push(log.state.quota[k]);
+  assert.deepEqual(quotas, [0.3, 0.39]);
+  assert.equal(log.state.quota.fiveAt, 100);
+  assert.equal(log.state.seq, 2 + 1 + 1 + 2, "open・say・route・turn・利用枠 2 回");
+});
