@@ -6,28 +6,23 @@ import os from "node:os";
 import path from "node:path";
 import { Log } from "../src/log.js";
 import { createServer } from "../src/server.js";
-import { loadRoles } from "../src/roles.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
-import { readConfig } from "../src/config.js";
-import { Words } from "../src/words.js";
-import { ensurePanels, listViews } from "../src/panels.js";
-import { Works } from "../src/work.js";
-import { Kakari, SaidMouth, SessionMouth, Folder, Conv, claudeConv, readDef, SAID_SCHEMA, CARD_SCHEMA } from "../src/kakari.js";
+import { Kakari, claudeAsk } from "../src/kakari.js";
 
-const HOME = path.join(os.homedir(), ".dyve", "next");
+const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
-  dyve serve [オプション]   チャットとオーバービューの画面を立てる（127.0.0.1 だけで待つ）
+  dyve serve [オプション]   チャットと一覧の画面を立てる（127.0.0.1 だけで待つ）
 
 オプション:
-  --port N       待つポート（既定：4750。0 なら空いているもの）
-  --data FILE    記録（既定：~/.dyve/next/record.jsonl）
-  --room DIR     セッションが起きる場所（既定：いまの場所）。git のリポジトリなら、開発の作業場をここから切り出す
-  --config FILE  利用者の設定（既定：~/.dyve/next/config.json）。役割の定義はその隣の roles/<名前>.md、辞書は words.jsonl
-  --panels DIR   パネル置き場（既定：設定の隣の panels/。なければ作る）
-  --work DIR     開発の作業場を置くところ（既定：設定の隣の work/）
-  --claude CMD   Claude Code のコマンド（既定：claude）
-  --slots N      同時に走るセッションの数（既定：3）
-  -h, --help     この使い方を出す`;
+  --port N        待つポート（既定：4750。0 なら空いているもの）
+  --data FILE     記録（既定：~/.dyve/record.jsonl）
+  --room DIR      セッションが起きる場所（既定：いまの場所）
+  --allow TOOL    セッションに許す道具を足す。何度でも書ける（例：--allow mcp__slack）。既定は読むだけ
+  --model NAME    セッションのモデル（既定：Claude Code の既定）
+  --kakari NAME   係のモデル（既定：haiku）
+  --slots N       同時に走るセッションの数（既定：3）
+  --claude CMD    Claude Code のコマンド（既定：claude）
+  -h, --help      この使い方を出す`;
 
 function die(msg) {
   process.stderr.write(msg + "\n");
@@ -43,11 +38,11 @@ try {
       port: { type: "string", default: "4750" },
       data: { type: "string", default: path.join(HOME, "record.jsonl") },
       room: { type: "string", default: process.cwd() },
-      claude: { type: "string", default: "claude" },
+      allow: { type: "string", multiple: true, default: [] },
+      model: { type: "string" },
+      kakari: { type: "string", default: "haiku" },
       slots: { type: "string", default: "3" },
-      config: { type: "string", default: path.join(HOME, "config.json") },
-      panels: { type: "string" },
-      work: { type: "string" },
+      claude: { type: "string", default: "claude" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -68,55 +63,39 @@ const slots = Number(v.slots);
 if (!Number.isInteger(slots) || slots < 1) die(`--slots は 1 以上の整数\n${USAGE}`);
 const file = path.resolve(v.data);
 const room = path.resolve(v.room);
-const config = path.resolve(v.config);
-const place = path.dirname(config);
-let log, roles, conf;
+if (!fs.statSync(room, { throwIfNoEntry: false })?.isDirectory()) die(`--room がディレクトリでない：${room}`);
+
+let log;
 try {
   log = new Log(file);
 } catch (e) {
   die(`記録が読めない：${e.message}`);
 }
-try {
-  conf = readConfig(config);
-  roles = loadRoles({ config });
-} catch (e) {
-  die(`役割が読めない：${e.message}`);
-}
 if (log.skipped) process.stderr.write(`注意：記録の ${log.skipped} 行が読めなかったので飛ばした（ファイルには残してある）\n`);
 const missing = claudeMissing(v.claude);
 if (missing) process.stderr.write(`注意：${missing}\n`);
 
-// パネル置き場：なければ作る（git の履歴つき）。あれば何も上書きしない
-let panels;
-try {
-  const made = ensurePanels(path.resolve(v.panels ?? path.join(place, "panels")));
-  panels = made.dir;
-  if (made.warn) process.stderr.write(`注意：${made.warn}\n`);
-} catch (e) {
-  die(`パネル置き場を作れない：${e.message}`);
+// 止まる前に走っていたターンは、もう帰ってこない。そうとわかるように終わらせる（続きを頼めば同じ会話で動く）
+for (const x of log.state.sessions) if (x.status === "run") log.add("end", { session: x.id, error: "dyve を立て直したので止まった。続きを頼めば再開する" });
+
+const sessions = new Sessions({ log, room, allow: v.allow, model: v.model ?? null, slots, spawn: claudeSpawn(v.claude) });
+// 届け先は決まったのに、空きを待っていてまだ渡せていなかった発言は、いま渡す
+for (const s of log.state.said) {
+  const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
+  if (x && !x.flow.some((f) => f.say === s.id)) sessions.send(x.id, s.id);
 }
-// 開発の作業場：部屋が git のリポジトリのときだけ（そうでなければ開発は選べない）
-const works = new Works({ log, room, dir: path.resolve(v.work ?? path.join(place, "work")) }).start();
-const sessions = new Sessions({ log, roles, room, panels, works, spawn: claudeSpawn(v.claude), slots }).start();
-// 係：道具を持たない Claude Code。起きる場所は置き場の中の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
-const kakariDir = path.join(place, "kakari");
+// 係は道具を持たない。起きる場所は記録の隣の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
+const kakariDir = path.join(path.dirname(file), "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
-const words = new Words(path.join(place, "words.jsonl"));
-// 口ごとに自分の会話を持つ（互いに待たせない）
-const conv = (def, schema) => new Conv({ open: () => claudeConv({ cmd: v.claude, prompt: readDef(def), schema, model: conf.kakari.model ?? "haiku", cwd: kakariDir }) });
-const kakari = new Kakari([
-  new SaidMouth({ log, sessions, roles, words, conv: conv("said", SAID_SCHEMA) }),
-  new SessionMouth({ log, conv: conv("session", CARD_SCHEMA), views: () => listViews(panels) }),
-  new Folder({ log }),
-]).start();
-const server = createServer({ log, panels, works, sessions });
+const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: v.claude, model: v.kakari, cwd: kakariDir }) }).start();
+
+const server = createServer({ log });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}（役割：${Object.keys(roles).join("・")}）\nパネル置き場：${panels}\n`);
+  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}${v.allow.length ? `（足した道具：${v.allow.join("・")}）` : ""}\n`);
 });
 const quit = () => {
   kakari.stop();
-  works.stop();
   sessions.stop();
   server.closeAll();
   process.exit(0);

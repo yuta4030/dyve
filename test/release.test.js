@@ -20,7 +20,7 @@ test("CHANGELOG からその版の節だけを取り出す", () => {
 
 test("入れたときに要るものだけを配る", () => {
   const pkg = JSON.parse(read("package.json"));
-  for (const f of ["bin", "src", "kakari", "roles"]) assert.ok(pkg.files.includes(f), f);
+  for (const f of ["bin", "src", "prompts"]) assert.ok(pkg.files.includes(f), f);
   assert.ok(!pkg.files.includes("test"));
   assert.equal(pkg.bin.dyve, "bin/dyve.js");
 });

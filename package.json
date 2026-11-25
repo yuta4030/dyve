@@ -1,14 +1,13 @@
 {
   "name": "dyve",
-  "version": "0.12.0",
-  "description": "潜ったまま働ける道具。入力欄は一つで、喋ると係が届け先を決め、セッションが裏で動く",
+  "version": "0.13.0",
+  "description": "入力欄が一つのまま、いくつもの仕事を切り替えずに頼める道具",
   "type": "module",
   "bin": { "dyve": "bin/dyve.js" },
   "files": [
     "bin",
     "src",
-    "kakari",
-    "roles",
+    "prompts",
     "CHANGELOG.md"
   ],
   "engines": { "node": ">=20" },
