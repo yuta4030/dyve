@@ -5,6 +5,7 @@
 //   brief { session, summary, choices }    まとめが書いた、セッションの要約と、人が押すだけで答えられる選択肢
 //   open  { session, name }                新しいセッション
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
+//   bind  { session, claude }              Claude Code の会話の ID が届いた（立て直しても続きを頼めるように、すぐ書く）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
 //   quota { five, fiveAt, week, weekAt, status } Claude の利用枠（使った割合 0〜1 と、戻る時刻の秒）。変わったときだけ
@@ -56,6 +57,7 @@ export const KINDS = {
   },
   open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと" }),
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
+  bind: (b) => ({ session: need(b.session, "セッション"), claude: need(b.claude, "会話") }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
@@ -127,6 +129,11 @@ export function step(state, r) {
       }
       break;
     }
+    case "bind": {
+      const x = ses(r.session);
+      if (x) x.claude = r.claude;
+      break;
+    }
     case "step": {
       const x = ses(r.session);
       if (!x) break;
@@ -149,7 +156,9 @@ export function step(state, r) {
         break;
       }
       x.status = r.error ? "fail" : "wait";
-      x.last = r.error ? r.error : r.result ?? x.last;
+      // 返事が空のターン（裏でサブエージェントを待ったときなど）は、最後の本文を返事にする
+      const said = x.flow.filter((f) => f.who === "ai").at(-1)?.text;
+      x.last = r.error ? r.error : r.result?.trim() ? r.result : said ?? x.last;
       if (r.error) x.flow.push({ who: "error", text: r.error });
       if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;

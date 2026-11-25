@@ -1,6 +1,8 @@
 // サーバー：画面を返し、発言を受け取り、いまの状態を返し、記録が増えるたびに状態を画面へ流す（SSE）
 import http from "node:http";
 import fs from "node:fs";
+import { shown } from "./state.js";
+import { quick } from "./kakari.js";
 
 const UI = new URL("./ui.html", import.meta.url);
 // 画面は一枚。外のものを読まず、ほかのページに埋め込ませない
@@ -48,7 +50,11 @@ export function createServer({ log, sessions = null }) {
         const body = await readJson(req);
         const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;
         // to：選択肢を押したときの届け先。係を通さず、そのセッションへ直に渡す
-        const to = Number.isInteger(body.to) && sessions && log.state.sessions.some((x) => x.id === body.to && !x.hidden) ? body.to : null;
+        let to = Number.isInteger(body.to) && sessions && log.state.sessions.some((x) => x.id === body.to && !x.hidden) ? body.to : null;
+        // 覗いているあいだの発言は、係を通さず覗いている先へ直に渡す（ほとんどがそこ宛てで、係を待つぶん遅いため）。
+        // 記号で別のセッションを呼んでいるときだけは係に任せる。違っていたら人が付け替える
+        const live = shown(log.state);
+        if (to == null && peek != null && sessions && live.some((x) => x.id === peek) && !quick(String(body.text ?? ""), live)) to = peek;
         const record = log.add("say", { text: body.text, peek, ...(to ? { to } : {}) });
         if (to) sessions.send(to, record.seq);
         return json(200, { ok: true, record });

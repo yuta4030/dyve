@@ -119,7 +119,10 @@ export class Sessions {
     this.log.add("turn", { session, says });
     let claude = x.claude, result = null, failed = null;
     const emit = (ev) => {
-      if (ev.session_id) claude = ev.session_id;
+      if (ev.session_id && ev.session_id !== claude) {
+        claude = ev.session_id;
+        this.log.add("bind", { session, claude });
+      }
       // 行の中で呼ばれたもの（サブエージェント）の出来事は出さない
       if (ev.type === "assistant" && !ev.parent_tool_use_id) {
         for (const c of ev.message?.content ?? []) {
@@ -137,7 +140,9 @@ export class Sessions {
         else result = String(ev.result ?? "").trim();
       }
     };
-    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: text };
+    // セッションは自分の記号と名前を知らないので、毎ターン添える（「C の続き」と呼ばれても通じるように）
+    const head = `［dyve：このセッションは ${x.sym}「${x.name}」。人は記号や名前でこのセッションを呼ぶことがある］`;
+    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: `${head}\n\n${text}` };
     const h = this.spawn(job, emit);
     const run = { kill: h.kill, says, stopped: false };
     this.running.set(session, run);

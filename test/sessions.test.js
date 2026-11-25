@@ -23,6 +23,8 @@ function fakeSpawn() {
   };
   return { spawn, jobs, finish };
 }
+// セッションに渡した文の、頭の一行（記号と名前）を除いた本文
+const body = (j) => j.job.prompt.replace(/^［dyve：[^\n]*］\n\n/, "");
 const setup = (slots = 3) => {
   const log = new Log(), f = fakeSpawn();
   const sessions = new Sessions({ log, spawn: f.spawn, room: "/room", slots, prompt: "P" });
@@ -44,7 +46,7 @@ test("一ターン：出来事を記録し、結果で帰る。中で呼ばれ�
   const { log, sessions, say, jobs, finish } = setup();
   const id = sessions.open("料金");
   say("料金を調べて", id);
-  assert.equal(jobs[0].job.prompt, "料金を調べて");
+  assert.equal(body(jobs[0]), "料金を調べて");
   assert.equal(jobs[0].job.cwd, "/room");
   assert.equal(log.state.sessions[0].status, "run");
   await finish(0, "月 20 ドル");
@@ -64,7 +66,7 @@ test("動いているあいだの発言は、終わってからまとめて同�
   assert.equal(jobs.length, 1);
   await finish(0);
   assert.equal(jobs.length, 2);
-  assert.equal(jobs[1].job.prompt, "年払いも\n\nあと税込みで");
+  assert.equal(body(jobs[1]), "年払いも\n\nあと税込みで");
   assert.equal(jobs[1].job.args[jobs[1].job.args.indexOf("--resume") + 1], "c0");
 });
 
@@ -76,7 +78,7 @@ test("同時に走るのは slots まで。空いたら次が動く", async () =
   assert.equal(jobs.length, 1);
   await finish(0);
   assert.equal(jobs.length, 2);
-  assert.equal(jobs[1].job.prompt, "二つめ");
+  assert.equal(body(jobs[1]), "二つめ");
 });
 
 test("結果を出さずに終わったら失敗として残す", async () => {
@@ -151,7 +153,7 @@ test("届け先を変える：前のセッションで動いていれば止め�
   assert.ok(sessions.move(s, a));
   await tick();
   assert.ok(jobs[1].killed);
-  assert.equal(jobs[2].job.prompt, "年払いも");
+  assert.equal(body(jobs[2]), "年払いも");
   assert.equal(jobs[2].job.args[jobs[2].job.args.indexOf("--resume") + 1], "c0");
   const st = log.state;
   assert.equal(st.said.find((p) => p.id === s).session, a);
@@ -171,7 +173,7 @@ test("清書したものがあれば、セッションにはそれを渡す", ()
   const s = log.add("say", { text: "えー料金を" }).seq;
   log.add("route", { say: s, session: id, fair: "料金を" });
   sessions.send(id, s);
-  assert.equal(jobs[0].job.prompt, "料金を");
+  assert.equal(body(jobs[0]), "料金を");
 });
 
 test("利用枠：rate_limit_event を、変わったときだけ記録に置く", async () => {
@@ -187,4 +189,32 @@ test("利用枠：rate_limit_event を、変わったときだけ記録に置く
   assert.deepEqual(quotas, [0.3, 0.39]);
   assert.equal(log.state.quota.fiveAt, 100);
   assert.equal(log.state.seq, 2 + 1 + 1 + 2, "open・say・route・turn・利用枠 2 回");
+});
+
+test("毎ターン、セッションに自分の記号と名前を添える", () => {
+  const { sessions, say, jobs } = setup();
+  const id = sessions.open("料金");
+  say("C の続きで", id);
+  assert.match(jobs[0].job.prompt, /^［dyve：このセッションは A「料金」/);
+});
+
+test("会話の ID は届いた時点で記録に書く（立て直しても続きを頼めるように）", () => {
+  const { log, sessions, say, jobs } = setup();
+  const id = sessions.open("料金");
+  say("調べて", id);
+  jobs[0].emit({ type: "system", subtype: "init", session_id: "c9" });
+  assert.equal(log.state.sessions[0].claude, "c9");
+  assert.equal(log.state.sessions[0].status, "run");
+});
+
+test("返事が空のターンは、最後の本文を返事にする", async () => {
+  const { log, sessions, say, jobs } = setup();
+  const id = sessions.open("a");
+  say("調べて", id);
+  jobs[0].emit({ type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "text", text: "サブエージェントに任せた結果：42" }] } });
+  jobs[0].emit({ type: "result", is_error: false, result: "" });
+  jobs[0].end({ code: 0, stderr: "" });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(log.state.sessions[0].last, "サブエージェントに任せた結果：42");
+  assert.equal(log.state.chat.at(-1).text, "サブエージェントに任せた結果：42");
 });

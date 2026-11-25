@@ -123,3 +123,13 @@ test("清書する設定のときだけ、係の清書を受け取る", async ()
   assert.match(asked[1], /清書：する/);
   assert.equal(log.state.said[1].fair, "料金を調べて");
 });
+
+test("係に見せる直前の発言に、取り消したものは載せない", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "料金" });
+  const a = log.add("say", { text: "これは料金の話じゃない" }).seq;
+  log.add("route", { say: a, session: 1 });
+  log.add("cancel", { say: a });
+  const b = log.add("say", { text: "これは料金の話じゃない" }).seq;
+  assert.doesNotMatch(routePrompt(log.state, [log.state.said.find((p) => p.id === b)]), /直前の発言/);
+});
