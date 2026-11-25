@@ -37,6 +37,15 @@ test("Enter で置く。Shift+Enter と IME の変換確定では置かない", 
   assert.equal(isSendKey({ key: "Enter", shiftKey: false, isComposing: false, keyCode: 229 }), false);
 });
 
+test("マイク：ブラウザの音声認識で聞きつづけ、確定したらすぐ置く", () => {
+  assert.match(script, /window\.SpeechRecognition \|\| window\.webkitSpeechRecognition/);
+  assert.match(script, /continuous = true/);
+  assert.match(script, /interimResults = true/);
+  assert.match(script, /if \(fin && !mid && !input\.typed\) input\.send\(\)/);
+  // 音声認識のない環境ではボタンを出さない
+  assert.match(html, /<button id="mic"[^>]*hidden/);
+});
+
 test("声は間があいたら置き、打ったものは Enter まで待つ", () => {
   assert.match(script, /const PAUSE = \d+/);
   assert.match(script, /compositionstart/);

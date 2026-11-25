@@ -34,7 +34,12 @@ button.chip:hover { color: var(--ink); text-decoration: underline; }
 .ret.fail { border-color: var(--fail); }
 .ret .rs { font-weight: 700; margin-right: 4px; }
 #input { border-top: 1px solid var(--line); padding: 10px 12px; }
-#input textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; color: inherit; background: var(--bg); max-height: 40vh; }
+#input .row { display: flex; align-items: flex-end; gap: 8px; }
+#mic { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--sub); background: var(--bg); text-align: center; }
+#mic:hover { color: var(--ink); }
+#mic[aria-pressed="true"] { color: #fff; background: var(--fail); border-color: var(--fail); animation: listen 1.6s infinite; }
+@keyframes listen { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--fail) 25%, transparent); } }
+#input textarea { flex: 1; width: 100%; resize: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; color: inherit; background: var(--bg); max-height: 40vh; }
 #note { font-size: 12px; color: var(--sub); min-height: 1em; margin-top: 4px; }
 
 main { min-height: 0; overflow-y: auto; padding: 14px; }
@@ -91,7 +96,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 <section id="chat">
   <div id="top"><span class="brand">dyve</span><button data-undo hidden></button><button data-reset></button></div>
   <div id="flow"></div>
-  <div id="input"><textarea rows="1"></textarea><div id="note"></div></div>
+  <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div>
 </section>
 <main>
   <div id="cards"></div>
@@ -99,9 +104,12 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </main>
 <script type="module">
 const L = {
-  emptyChat: "話すか書くと、ここに流れる。声は間があくと置かれ、打ったものは Enter で置かれる（改行は Shift+Enter）",
+  emptyChat: "話すか書くと、ここに流れる。マイクを押して話すと、ひと区切りごとに置かれる。打ったものは Enter で置かれる（改行は Shift+Enter）",
   emptyCards: "頼んだ仕事が、ここに一枚ずつ並ぶ",
   placeholder: "話すか書く",
+  micOff: "押して話す（ひと区切りごとに置かれる）",
+  micOn: "聞いている（押すと止まる）",
+  micDenied: "マイクが使えない（ブラウザの設定でマイクを許す）",
   pending: "…",
   aside: "どこにも届けていない",
   missed: (e) => `届け先が決まらなかった（次に話したとき読み直す）：${e}`,
@@ -373,7 +381,61 @@ const input = {
 $("[data-reset]").textContent = L.reset;
 $("[data-reset]").title = L.resetTitle;
 $("[data-undo]").textContent = L.undo;
+// マイク：ブラウザの音声認識（Chrome など）。押すと聞きつづけ、ひと区切り確定するたびにすぐ置く。
+// 途中経過は欄の末尾に出し、確定したら差し替える。書きかけにキーで打っていたら、Enter まで待つ
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const mic = {
+  el: $("#mic"), on: false, rec: null, interim: 0,
+  setup() {
+    if (!SR) return;
+    this.el.hidden = false;
+    this.show();
+    this.el.addEventListener("click", () => (this.on ? this.stop() : this.start()));
+  },
+  show() {
+    this.el.setAttribute("aria-pressed", String(this.on));
+    this.el.title = this.on ? L.micOn : L.micOff;
+    this.el.setAttribute("aria-label", this.el.title);
+  },
+  start() {
+    const rec = new SR();
+    rec.lang = "ja-JP";
+    rec.continuous = true;
+    rec.interimResults = true;
+    this.interim = 0;
+    rec.onresult = (ev) => {
+      let fin = "", mid = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) fin += ev.results[i][0].transcript; else mid += ev.results[i][0].transcript;
+      }
+      const m = input.m;
+      m.value = m.value.slice(0, Math.max(0, m.value.length - this.interim)) + fin + mid;
+      this.interim = mid.length;
+      input.grow();
+      clearTimeout(input.timer);
+      if (fin && !mid && !input.typed) input.send();
+    };
+    // 黙っていると止まるので、押されているあいだは聞き直す
+    rec.onend = () => { if (this.on && this.rec === rec) rec.start(); };
+    rec.onerror = (ev) => {
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") { this.stop(); $("#note").textContent = L.micDenied; }
+    };
+    this.rec = rec;
+    this.on = true;
+    this.show();
+    rec.start();
+  },
+  stop() {
+    this.on = false;
+    this.rec?.stop();
+    this.rec = null;
+    this.interim = 0;
+    this.show();
+  },
+};
+
 input.listen();
+mic.setup();
 connect();
 </script>
 </body>
