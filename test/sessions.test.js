@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Log } from "../src/log.js";
-import { Sessions, claudeArgs, toolLine, READ } from "../src/sessions.js";
+import { Sessions, claudeArgs, toolLine } from "../src/sessions.js";
 
 // 偽の起こし方：起こされた job を覚え、finish(i) で i 番目を終わらせる
 function fakeSpawn() {
@@ -30,15 +30,14 @@ const setup = (slots = 3) => {
   return { log, sessions, say, ...f };
 };
 
-test("読むだけの道具で、聞かずに断る形で起こす。続きは --resume", () => {
+test("道具を絞らず、聞かずに進める形で起こす。続きは --resume", () => {
   const a = claudeArgs({ prompt: "P" });
-  assert.equal(a[a.indexOf("--permission-mode") + 1], "dontAsk");
-  assert.deepEqual(a.slice(a.indexOf("--allowedTools") + 1), READ);
+  assert.equal(a[a.indexOf("--permission-mode") + 1], "auto");
+  assert.ok(!a.includes("--allowedTools") && !a.includes("--disallowedTools"));
   assert.ok(!a.includes("--resume"));
-  const b = claudeArgs({ prompt: "P", resume: "c1", allow: ["mcp__slack"], model: "sonnet" });
+  const b = claudeArgs({ prompt: "P", resume: "c1", model: "sonnet" });
   assert.equal(b[b.indexOf("--resume") + 1], "c1");
   assert.equal(b[b.indexOf("--model") + 1], "sonnet");
-  assert.equal(b.at(-1), "mcp__slack");
 });
 
 test("一ターン：出来事を記録し、結果で帰る。中で呼ばれたものは出さない", async () => {

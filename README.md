@@ -30,24 +30,18 @@ dyve serve --room <セッションが働く場所>
 | オプション | 中身 |
 |---|---|
 | `--room DIR` | セッションが起きる場所（既定：いまの場所） |
-| `--allow TOOL` | セッションに許す道具を足す。何度でも書ける |
 | `--model NAME` | セッションのモデル（既定：Claude Code の既定） |
 | `--kakari NAME` | 係のモデル（既定：`haiku`） |
 | `--slots N` | 同時に走るセッションの数（既定：3） |
 | `--data FILE` | 記録（既定：`~/.dyve/record.jsonl`） |
 | `--port N` | 待つポート（既定：4750） |
 
-### 許す道具
+### セッションの権限
 
-セッションは読むだけで動く。許すのは `Read`・`Grep`・`Glob`・`WebSearch`・`WebFetch` と、`git log`・`git status`・`git diff`・`git show`・`ls`。ほかの道具は聞かずに断られる（`--permission-mode dontAsk`）。
+セッションは道具を絞らずに、人に聞かずに進む（`--permission-mode auto`）。ファイルを書く、コマンドを動かす、Claude Code に設定してある MCP（Slack など）を使う、もそのままできる。危ない操作（強制 push や大量の削除など）だけは Claude Code の判定が止める。
 
-Claude Code に設定してある MCP を使わせるときは、読むだけの道具を名前で足す。
-
-```sh
-dyve serve --room ~/work --allow mcp__slack__search_messages --allow mcp__slack__read_channel
-```
-
-`--allow mcp__slack` のようにサーバー名だけを書くと、そのサーバーの道具がすべて許される（送る道具も含む）。
+- セッションはみな `--room` で同時に動く。同じファイルを二つのセッションに直させると、ぶつかることがある
+- 送る・投稿する・push する・消すは、頼まれたときだけやるよう指示してある（`prompts/セッション.md`）
 
 ## テスト
 
