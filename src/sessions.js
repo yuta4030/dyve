@@ -74,6 +74,14 @@ export function quotaOf(info) {
   return { five: pct(w.five_hour?.utilization), fiveAt: w.five_hour?.resetsAt ?? null, week: pct(w.seven_day?.utilization), weekAt: w.seven_day?.resetsAt ?? null, status: info?.status ?? "allowed" };
 }
 
+// ほかのセッションの一覧（一行）。一覧に出ているものだけ、新しいほうから 8 つ
+export function rosterOf(state, self) {
+  const others = shown(state).filter((x) => x.id !== self).slice(-8).reverse();
+  if (!others.length) return "ほかのセッションはない";
+  const last = (x) => clip(oneLine(x.last).replace(/[［］]/g, ""), 60);
+  return `ほかのセッション：${others.map((x) => `${x.sym}「${x.name}」${x.last ? `（最後：${last(x)}）` : ""}`).join("／")}`;
+}
+
 // 道具を使ったことの一行（「Read README.md」など）
 export function toolLine(name, input = {}) {
   const arg = input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.url ?? input.command ?? input.description ?? "";
@@ -140,8 +148,9 @@ export class Sessions {
         else result = String(ev.result ?? "").trim();
       }
     };
-    // セッションは自分の記号と名前を知らないので、毎ターン添える（「C の続き」と呼ばれても通じるように）
-    const head = `［dyve：このセッションは ${x.sym}「${x.name}」。人は記号や名前でこのセッションを呼ぶことがある］`;
+    // セッションは dyve のことを知らないので、毎ターン一行で添える：自分の記号と名前、ほかのセッションの記号・名前・最後の一行
+    // （「C の続き」「B のやつ」と呼ばれても通じるように）
+    const head = `［dyve：このセッションは ${x.sym}「${x.name}」。${rosterOf(this.log.state, session)}］`;
     const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: `${head}\n\n${text}` };
     const h = this.spawn(job, emit);
     const run = { kill: h.kill, says, stopped: false };

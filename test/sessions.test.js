@@ -218,3 +218,16 @@ test("返事が空のターンは、最後の本文を返事にする", async ()
   assert.equal(log.state.sessions[0].last, "サブエージェントに任せた結果：42");
   assert.equal(log.state.chat.at(-1).text, "サブエージェントに任せた結果：42");
 });
+
+test("毎ターン、ほかのセッションの記号・名前・最後の一行を一行で添える", async () => {
+  const { sessions, say, jobs, finish } = setup();
+  const a = sessions.open("料金");
+  say("料金を調べて", a);
+  await finish(0, "月 20 ドル\n詳しくは…");
+  const b = sessions.open("競合");
+  say("A と同じ形で競合も", b);
+  const head = jobs[1].job.prompt.split("\n")[0];
+  assert.match(head, /このセッションは B「競合」/);
+  assert.match(head, /ほかのセッション：A「料金」（最後：月 20 ドル 詳しくは…）/);
+  assert.match(jobs[0].job.prompt.split("\n")[0], /ほかのセッションはない/);
+});
