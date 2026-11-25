@@ -14,7 +14,8 @@ const LOCAL_HOST = new Set(["localhost", "127.0.0.1", "[::1]"]);
 // 記録が続けて増えるときは、まとめて一度だけ流す（ミリ秒）
 const BATCH = 50;
 
-export function createServer({ log }) {
+// sessions：取り消す・止める・届け先を変える（なければその口は断る）
+export function createServer({ log, sessions = null }) {
   const clients = new Set();
   let timer = null;
   const push = () => {
@@ -53,6 +54,15 @@ export function createServer({ log }) {
       if (route === "POST /api/undo") {
         if (!log.state.undo) return json(409, { ok: false, message: "戻せるリセットがない" });
         return json(200, { ok: true, record: log.add("undo") });
+      }
+      // 取り消す・止める・届け先を変える：人が画面で押したときの口
+      if (route === "POST /api/cancel" || route === "POST /api/stop" || route === "POST /api/move") {
+        if (!sessions) return json(409, { ok: false, message: "セッションがない" });
+        const b = await readJson(req);
+        const ok = route === "POST /api/cancel" ? sessions.cancel(Number(b.say))
+          : route === "POST /api/stop" ? sessions.stop(Number(b.session))
+          : sessions.move(Number(b.say), b.to === "new" ? "new" : Number(b.to));
+        return json(ok ? 200 : 409, { ok });
       }
       if (route === "GET /api/events") {
         // つないだときに、いまの状態をまるごと送る。あとは増えるたびにまるごと

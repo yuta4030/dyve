@@ -70,31 +70,33 @@ try {
   die(`記録が読めない：${e.message}`);
 }
 if (log.skipped) process.stderr.write(`注意：記録の ${log.skipped} 行が読めなかったので飛ばした（ファイルには残してある）\n`);
-const missing = claudeMissing(v.claude);
+// パスで渡されたコマンドは、いまの場所から決めておく（係とセッションは別の場所で起きるため）
+const claude = v.claude.includes("/") ? path.resolve(v.claude) : v.claude;
+const missing = claudeMissing(claude);
 if (missing) process.stderr.write(`注意：${missing}\n`);
 
 // 止まる前に走っていたターンは、もう帰ってこない。そうとわかるように終わらせる（続きを頼めば同じ会話で動く）
 for (const x of log.state.sessions) if (x.status === "run") log.add("end", { session: x.id, error: "dyve を立て直したので止まった。続きを頼めば再開する" });
 
-const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(v.claude) });
+const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude) });
 // 届け先は決まったのに、空きを待っていてまだ渡せていなかった発言は、いま渡す
 for (const s of log.state.said) {
   const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
-  if (x && !x.flow.some((f) => f.say === s.id)) sessions.send(x.id, s.id);
+  if (x && !s.canceled && !x.flow.some((f) => f.say === s.id)) sessions.send(x.id, s.id);
 }
 // 係は道具を持たない。起きる場所は記録の隣の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(path.dirname(file), "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
-const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: v.claude, model: v.kakari, cwd: kakariDir }) }).start();
+const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir }) }).start();
 
-const server = createServer({ log });
+const server = createServer({ log, sessions });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
   process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}\n`);
 });
 const quit = () => {
   kakari.stop();
-  sessions.stop();
+  sessions.stopAll();
   server.closeAll();
   process.exit(0);
 };

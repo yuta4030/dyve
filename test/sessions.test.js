@@ -95,3 +95,72 @@ test("道具の一行", () => {
   assert.equal(toolLine("mcp__slack__search", { query: "料金" }), "mcp__slack__search 料金");
   assert.equal(toolLine("Task", {}), "Task");
 });
+
+const tick = () => new Promise((r) => setImmediate(r));
+
+test("止める：動いているターンを止め、待たせていた発言も渡さない。チャットには返さない", async () => {
+  const { log, sessions, say, jobs } = setup();
+  const id = sessions.open("料金");
+  say("料金を調べて", id);
+  say("年払いも", id);
+  assert.ok(sessions.stop(id));
+  await tick();
+  assert.ok(jobs[0].killed);
+  assert.equal(jobs.length, 1);
+  const x = log.state.sessions[0];
+  assert.equal(x.status, "stop");
+  assert.equal(log.state.chat.filter((c) => c.reply).length, 0);
+  // 止めたあとも、続きを話せば同じ会話で動く
+  say("やっぱり続けて", id);
+  assert.equal(jobs.length, 2);
+});
+
+test("取り消す：順番待ちなら渡さず、答えているところなら止める。答え終えたものは取り消せない", async () => {
+  const { log, sessions, say, jobs, finish } = setup();
+  const id = sessions.open("料金");
+  const a = say("料金を調べて", id);
+  const b = say("年払いも", id);
+  assert.ok(sessions.cancel(b));
+  await finish(0);
+  assert.equal(jobs.length, 1);
+  assert.equal(log.state.said.find((p) => p.id === b).canceled, true);
+  assert.equal(sessions.cancel(a), false);
+  const c = say("税込みも", id);
+  assert.ok(sessions.cancel(c));
+  await tick();
+  assert.ok(jobs[1].killed);
+  assert.equal(log.state.sessions[0].status, "stop");
+});
+
+test("取り消して発言が一つもなくなったセッションは、一覧から外す", async () => {
+  const { log, sessions, say } = setup();
+  const id = sessions.open("間違い");
+  const a = say("独り言", id);
+  sessions.cancel(a);
+  await tick();
+  assert.equal(log.state.sessions[0].hidden, true);
+});
+
+test("届け先を変える：前のセッションで動いていれば止め、新しい先へ渡す。間違って起きたセッションは外す", async () => {
+  const { log, sessions, say, jobs, finish } = setup();
+  const a = sessions.open("料金");
+  say("料金を調べて", a);
+  await finish(0);
+  const wrong = sessions.open("年払い");
+  const s = say("年払いも", wrong);
+  assert.ok(sessions.move(s, a));
+  await tick();
+  assert.ok(jobs[1].killed);
+  assert.equal(jobs[2].job.prompt, "年払いも");
+  assert.equal(jobs[2].job.args[jobs[2].job.args.indexOf("--resume") + 1], "c0");
+  const st = log.state;
+  assert.equal(st.said.find((p) => p.id === s).session, a);
+  assert.equal(st.sessions.find((x) => x.id === wrong).hidden, true);
+  // 新しく起こす先へ
+  await finish(2);
+  assert.ok(sessions.move(s, "new"));
+  assert.equal(log.state.sessions.at(-1).name, "年払いも");
+  assert.equal(jobs.length, 4);
+  // 料金のセッションには料金の発言が残るので外さない
+  assert.ok(!log.state.sessions.find((x) => x.id === a).hidden);
+});

@@ -3,6 +3,7 @@
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { cancelable, shown } from "./state.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/セッション.md", import.meta.url));
 
@@ -77,7 +78,7 @@ export class Sessions {
     Object.assign(this, { log, spawn, room, model, slots });
     this.prompt = prompt ?? fs.readFileSync(PROMPT, "utf8").trim();
     this.pending = new Map(); // セッション -> まだ渡していない発言
-    this.running = new Map(); // セッション -> { kill }
+    this.running = new Map(); // セッション -> { kill, says, stopped }
   }
 
   // 新しいセッション。返すのはその番号
@@ -125,17 +126,69 @@ export class Sessions {
     };
     const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: text };
     const h = this.spawn(job, emit);
-    this.running.set(session, h);
+    const run = { kill: h.kill, says, stopped: false };
+    this.running.set(session, run);
     h.done.then(({ code, stderr }) => {
       this.running.delete(session);
-      if (result == null && !failed) failed = stderr?.trim() ? clip(oneLine(stderr.trim().split("\n").at(-1)), 200) : `結果を出さずに終わった（終了コード ${code}）`;
-      this.log.add("end", { session, claude, result, error: failed });
+      if (run.stopped) this.log.add("end", { session, claude, stopped: true });
+      else {
+        if (result == null && !failed) failed = stderr?.trim() ? clip(oneLine(stderr.trim().split("\n").at(-1)), 200) : `結果を出さずに終わった（終了コード ${code}）`;
+        this.log.add("end", { session, claude, result, error: failed });
+      }
       this.pump();
     });
   }
 
-  stop() {
+  // 人が止める：待たせていた発言も渡さない。動いていなければ、まだ始まっていないものだけ止まったことにする
+  stop(session) {
+    this.pending.delete(session);
+    const run = this.running.get(session);
+    if (run) {
+      run.stopped = true;
+      run.kill();
+      return true;
+    }
+    const x = this.log.state.sessions.find((y) => y.id === session);
+    if (x?.status === "idle") this.log.add("end", { session, stopped: true });
+    return !!x;
+  }
+
+  // 発言をセッションから引き上げる：順番待ちなら外し、いま答えているところなら止める
+  withdraw(say) {
+    for (const [session, q] of this.pending) {
+      const i = q.indexOf(say);
+      if (i < 0) continue;
+      q.splice(i, 1);
+      if (!q.length) this.pending.delete(session);
+      return;
+    }
+    for (const [session, run] of this.running) if (run.says.includes(say)) return void this.stop(session);
+  }
+
+  // 取り消す：まだ答え終えていない発言だけ
+  cancel(say) {
+    const s = this.log.state.said.find((p) => p.id === say);
+    if (!cancelable(s)) return false;
+    this.withdraw(say);
+    this.log.add("cancel", { say });
+    return true;
+  }
+
+  // 届け先を付け替える。to はセッションの番号か "new"（発言から名前を付けて新しく起こす）
+  move(say, to) {
+    const s = this.log.state.said.find((p) => p.id === say);
+    if (!s || s.canceled) return false;
+    if (to !== "new" && !shown(this.log.state).some((x) => x.id === to)) return false;
+    if (to === s.session) return true;
+    if (s.session != null && !s.done) this.withdraw(say);
+    const target = to === "new" ? this.open(clip(oneLine(s.text), 20)) : to;
+    this.log.add("route", { say, session: target });
+    this.send(target, say);
+    return true;
+  }
+
+  stopAll() {
     this.pending.clear();
-    for (const h of this.running.values()) h.kill();
+    for (const run of this.running.values()) { run.stopped = true; run.kill(); }
   }
 }

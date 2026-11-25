@@ -1,10 +1,11 @@
 // 状態：記録を頭から一件ずつ当てて作る。データに持つのは記録だけで、状態はいつも作り直せる
 //   say   { id, text, peek }               人の発言
-//   route { say, session | null, error }   係が決めた届け先（null はどこにも届けない）
+//   route { say, session | null, error }   届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
+//   cancel { say }                         人が発言を取り消した
 //   open  { session, name }                新しいセッション
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
-//   end   { session, claude, result, error } ターンが終わった
+//   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
 //   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
 
@@ -40,17 +41,26 @@ export const KINDS = {
   open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと" }),
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
-  end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}) }),
+  end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
+  cancel: (b) => ({ say: need(b.say, "発言") }),
   reset: () => ({}),
   undo: () => ({}),
 };
 
+// まだ取り消せる発言：届けていて（または届け先を決めているところで）、セッションがまだ答え終えていないもの
+export const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
+
 export function step(state, r) {
   state.seq = r.seq;
   const ses = (id) => state.sessions.find((x) => x.id === id);
+  // 発言が一つも届いていないセッションは、間違って起きたものとして一覧から外す
+  const orphan = (id) => {
+    const x = ses(id);
+    if (x && !state.said.some((p) => p.session === id && !p.canceled)) x.hidden = true;
+  };
   switch (r.kind) {
     case "say": {
-      const s = { id: r.seq, at: r.at, text: r.text, peek: r.peek, session: undefined };
+      const s = { id: r.seq, at: r.at, text: r.text, peek: r.peek, session: undefined, done: false, canceled: false };
       state.said.push(s);
       state.chat.push({ say: s.id });
       state.undo = null;
@@ -59,8 +69,18 @@ export function step(state, r) {
     case "route": {
       const s = state.said.find((p) => p.id === r.say);
       if (!s) break;
+      const old = s.session;
       s.session = r.error ? undefined : r.session;
       s.error = r.error ?? null;
+      s.done = false;
+      if (old != null && old !== s.session) orphan(old);
+      break;
+    }
+    case "cancel": {
+      const s = state.said.find((p) => p.id === r.say);
+      if (!s) break;
+      s.canceled = true;
+      if (s.session != null) orphan(s.session);
       break;
     }
     case "open":
@@ -70,6 +90,7 @@ export function step(state, r) {
       const x = ses(r.session);
       if (!x) break;
       x.status = "run";
+      x.turn = r.says;
       for (const id of r.says) {
         const s = state.said.find((p) => p.id === id);
         if (s) x.flow.push({ who: "human", text: s.text, say: id });
@@ -87,11 +108,20 @@ export function step(state, r) {
       const x = ses(r.session);
       if (!x) break;
       if (r.claude) x.claude = r.claude;
+      // 答え終えた発言（ほかへ付け替えたものは除く）。人が止めたときは、待たせていた発言も渡さないので同じく終える
+      for (const s of state.said) if (s.session === x.id && ((x.turn ?? []).includes(s.id) || r.stopped)) s.done = true;
+      x.turn = [];
+      x.endedAt = r.at;
+      if (r.stopped) {
+        // 人が止めたものは、チャットに返さない（止めたのは人なので知っている）
+        x.status = "stop";
+        x.flow.push({ who: "note", text: "止めた" });
+        break;
+      }
       x.status = r.error ? "fail" : "wait";
       x.last = r.error ? r.error : r.result ?? x.last;
       if (r.error) x.flow.push({ who: "error", text: r.error });
-      x.endedAt = r.at;
-      state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
+      if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;
     }
     case "reset": {
