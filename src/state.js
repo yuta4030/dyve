@@ -5,6 +5,8 @@
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error } ターンが終わった
+//   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
+//   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
 
 // 記号：A〜Z、そのあと AA, AB…
 export function symOf(n) {
@@ -13,7 +15,18 @@ export function symOf(n) {
   return s;
 }
 
-export const empty = () => ({ seq: 0, said: [], sessions: [], chat: [] });
+// since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
+export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null });
+
+// 一覧に出ているセッション
+export const shown = (state) => state.sessions.filter((x) => !x.hidden);
+// 一覧に出ているセッションが使っていない、いちばん若い記号
+const freeSym = (state) => {
+  const used = new Set(shown(state).map((x) => x.sym));
+  let n = 0;
+  while (used.has(symOf(n))) n++;
+  return symOf(n);
+};
 
 const need = (v, what) => {
   if (v == null || v === "") throw new Error(`${what}がない`);
@@ -28,6 +41,8 @@ export const KINDS = {
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}) }),
+  reset: () => ({}),
+  undo: () => ({}),
 };
 
 export function step(state, r) {
@@ -38,6 +53,7 @@ export function step(state, r) {
       const s = { id: r.seq, at: r.at, text: r.text, peek: r.peek, session: undefined };
       state.said.push(s);
       state.chat.push({ say: s.id });
+      state.undo = null;
       break;
     }
     case "route": {
@@ -48,7 +64,7 @@ export function step(state, r) {
       break;
     }
     case "open":
-      state.sessions.push({ id: r.session, sym: symOf(state.sessions.length), name: r.name, at: r.at, status: "idle", claude: null, flow: [], last: "" });
+      state.sessions.push({ id: r.session, sym: freeSym(state), name: r.name, at: r.at, status: "idle", claude: null, flow: [], last: "" });
       break;
     case "turn": {
       const x = ses(r.session);
@@ -76,6 +92,24 @@ export function step(state, r) {
       if (r.error) x.flow.push({ who: "error", text: r.error });
       x.endedAt = r.at;
       state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
+      break;
+    }
+    case "reset": {
+      // 動いているもの・まだ始まっていないものは残す（仕事を落とさない）
+      const hide = shown(state).filter((x) => x.status !== "run" && x.status !== "idle");
+      state.undo = { since: state.since, chat: state.chat, hidden: hide.map((x) => x.id) };
+      for (const x of hide) x.hidden = true;
+      state.chat = [];
+      state.since = r.seq;
+      break;
+    }
+    case "undo": {
+      const u = state.undo;
+      if (!u) break;
+      for (const x of state.sessions) if (u.hidden.includes(x.id)) x.hidden = false;
+      state.chat = [...u.chat, ...state.chat];
+      state.since = u.since;
+      state.undo = null;
       break;
     }
   }

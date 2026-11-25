@@ -21,6 +21,10 @@ body { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; height: 1
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 
 #chat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
+#top { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--sub); }
+#top .brand { font-weight: 700; color: var(--ink); margin-right: auto; }
+#top button:hover { color: var(--ink); }
+#top [data-undo] { color: var(--run); }
 #flow { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 #flow .empty { color: var(--sub); }
 .say p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -28,7 +32,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 button.chip:hover { color: var(--ink); text-decoration: underline; }
 .ret { border-left: 3px solid var(--wait); padding: 2px 0 2px 8px; font-size: 13px; }
 .ret.fail { border-color: var(--fail); }
-.ret > b { margin-right: 4px; }
+.ret .rs { font-weight: 700; margin-right: 4px; }
 #input { border-top: 1px solid var(--line); padding: 10px 12px; }
 #input textarea { width: 100%; resize: none; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; color: inherit; background: var(--bg); max-height: 40vh; }
 #note { font-size: 12px; color: var(--sub); min-height: 1em; margin-top: 4px; }
@@ -85,6 +89,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </head>
 <body>
 <section id="chat">
+  <div id="top"><span class="brand">dyve</span><button data-undo hidden></button><button data-reset></button></div>
   <div id="flow"></div>
   <div id="input"><textarea rows="1"></textarea><div id="note"></div></div>
 </section>
@@ -105,6 +110,9 @@ const L = {
   close: "← 一覧",
   status: { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗" },
   lost: "つながりが切れた。つなぎ直している",
+  reset: "リセット",
+  resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
+  undo: "元に戻す",
   tools: (n) => `道具を ${n} 回`,
 };
 
@@ -226,7 +234,7 @@ function renderChat() {
       return `<div class="say"><p>${esc(s.text)}</p>${chipOf(s)}</div>`;
     }
     const x = ses(c.reply);
-    return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><b>${esc(x.sym)}</b>${inline(headOf(c.text))}</button>`;
+    return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><span class="rs">${esc(x.sym)}</span>${inline(headOf(c.text))}</button>`;
   }).join("") : `<div class="empty">${esc(L.emptyChat)}</div>`;
   if (keep || first) el.scrollTop = el.scrollHeight;
 }
@@ -237,7 +245,8 @@ function marked(x) {
 
 function renderCards() {
   const el = $("#cards");
-  el.innerHTML = state.sessions.length ? [...state.sessions].reverse().map((x) => `
+  const live = state.sessions.filter((x) => !x.hidden);
+  el.innerHTML = live.length ? [...live].reverse().map((x) => `
     <button class="card${marked(x) ? " mark" : ""}" data-go="${x.id}">
       <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span><span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
       <div class="last">${inline(headOf(x.last))}</div>
@@ -246,7 +255,7 @@ function renderCards() {
 
 function renderPeek() {
   const el = $("#peek"), x = ses(peek);
-  if (!x) { peek = null; return; }
+  if (!x || x.hidden) { peek = null; return renderCards(); }
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main);
   el.innerHTML = `
@@ -256,11 +265,13 @@ function renderPeek() {
 }
 
 function render() {
+  $("[data-undo]").hidden = !state.undo;
   renderChat();
-  $("#cards").hidden = peek != null;
-  $("#peek").hidden = peek == null;
+  // 覗いていたセッションが一覧から外れていたら、一覧に戻る（renderPeek が peek を空にする）
   if (peek != null) renderPeek();
   if (peek == null) renderCards();
+  $("#cards").hidden = peek != null;
+  $("#peek").hidden = peek == null;
 }
 
 function open(id) {
@@ -274,6 +285,9 @@ document.addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");
   if (go) return open(Number(go.dataset.go));
   if (e.target.closest("[data-close]")) open(null);
+  // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
+  if (e.target.closest("[data-reset]")) post("/api/reset").then(() => open(null));
+  if (e.target.closest("[data-undo]")) post("/api/undo");
 });
 // 道具のまとまりを開け閉めしたら覚える（描き直しても閉じないように。toggle は泡立たないので捕まえる側で聞く）
 document.addEventListener("toggle", (e) => {
@@ -295,14 +309,16 @@ function connect() {
   es.onerror = () => { $("#note").textContent = L.lost; };
 }
 
-async function say(text) {
+async function post(url, body = {}) {
   try {
-    const r = await fetch("/api/say", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, ...(peek != null ? { peek } : {}) }) });
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return r.ok;
   } catch {
     return false;
   }
 }
+
+const say = (text) => post("/api/say", { text, ...(peek != null ? { peek } : {}) });
 
 // 声と打鍵の見分け：入力の直前にキーが押されていればキーボード（OS の音声入力はキーを押さずに文字が入る）
 // 声だけなら、間があいたら置く。書きかけに一文字でも打ったら、その書きかけは Enter まで待つ。欄が空になったら声に戻る
@@ -354,6 +370,9 @@ const input = {
   },
 };
 
+$("[data-reset]").textContent = L.reset;
+$("[data-reset]").title = L.resetTitle;
+$("[data-undo]").textContent = L.undo;
 input.listen();
 connect();
 </script>
