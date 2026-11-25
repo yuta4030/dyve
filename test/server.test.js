@@ -51,3 +51,19 @@ test("リセットして戻す。戻せるものがなければ断る", async ()
   assert.equal(log.state.chat.length, 1);
   close();
 });
+
+test("取り消す・止める・届け先を変えるの口は、セッションに渡す", async () => {
+  const log = new Log();
+  const calls = [];
+  const sessions = { cancel: (s) => (calls.push(["cancel", s]), true), stop: (s) => (calls.push(["stop", s]), false), move: (s, to) => (calls.push(["move", s, to]), true) };
+  const server = createServer({ log, sessions });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (p, b) => fetch(`${base}${p}`, { method: "POST", body: JSON.stringify(b) });
+  assert.equal((await post("/api/cancel", { say: 3 })).status, 200);
+  assert.equal((await post("/api/stop", { session: 1 })).status, 409);
+  assert.equal((await post("/api/move", { say: 3, to: "new" })).status, 200);
+  assert.equal((await post("/api/move", { say: 3, to: 2 })).status, 200);
+  assert.deepEqual(calls, [["cancel", 3], ["stop", 1], ["move", 3, "new"], ["move", 3, 2]]);
+  server.closeAll();
+});

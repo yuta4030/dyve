@@ -28,6 +28,15 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #flow { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 #flow .empty { color: var(--sub); }
 .say p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.say.canceled p { text-decoration: line-through; color: var(--sub); }
+.acts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.act { flex: none; white-space: nowrap; font-size: 12px; color: var(--sub); opacity: .55; }
+.say:hover .act, .card:hover .act, .bar .act { opacity: 1; }
+.act:hover { color: var(--ink); text-decoration: underline; }
+.moveto { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.moveto button { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--bg); }
+.moveto button:hover { border-color: var(--sub); }
+.moveto .quiet { border-color: transparent; color: var(--sub); }
 .chip { display: inline-block; margin-top: 2px; font-size: 12px; color: var(--sub); }
 button.chip:hover { color: var(--ink); text-decoration: underline; }
 .ret { border-left: 3px solid var(--wait); padding: 2px 0 2px 8px; font-size: 13px; }
@@ -55,6 +64,8 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .status.run { color: var(--run); }
 .status.wait { color: var(--wait); }
 .status.fail { color: var(--fail); }
+.card { cursor: pointer; }
+.turns .note { color: var(--sub); font-size: 12px; }
 .last { color: var(--sub); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .status.run::before { content: "● "; animation: blink 1.2s infinite; }
 @keyframes blink { 50% { opacity: .2; } }
@@ -116,7 +127,13 @@ const L = {
   to: (sym, name) => `→ ${sym} ${name}`,
   failed: "置けなかった。Enter でもう一度",
   close: "← 一覧",
-  status: { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗" },
+  status: { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗", stop: "止めた" },
+  cancel: "取り消す",
+  canceled: "取り消した",
+  move: "送り先を変える",
+  moveNew: "新しく起こす",
+  moveQuit: "やめる",
+  stop: "止める",
   lost: "つながりが切れた。つなぎ直している",
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
@@ -226,6 +243,27 @@ let first = true;
 
 const ses = (id) => state.sessions.find((x) => x.id === id);
 
+// 取り消せるか（サーバーの cancelable と同じ決まり）
+const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
+const busy = (x) => x.status === "run" || x.status === "idle";
+let moving = null; // 送り先を選び直している発言（画面の中だけ）
+
+function actsOf(s) {
+  if (s.canceled) return `<span class="chip">${esc(L.canceled)}</span>`;
+  // 係が読んでいるあいだは付け替えさせない（係の答えとぶつかるため）
+  const movable = s.session !== undefined || s.error;
+  return `<div class="acts">${chipOf(s)}` +
+    (movable ? `<button class="act" data-move="${s.id}">${esc(L.move)}</button>` : "") +
+    (cancelable(s) ? `<button class="act" data-cancel="${s.id}">${esc(L.cancel)}</button>` : "") +
+    `</div>` + (moving === s.id ? moveTo(s) : "");
+}
+
+function moveTo(s) {
+  const to = state.sessions.filter((x) => !x.hidden && x.id !== s.session);
+  return `<div class="moveto">${to.map((x) => `<button data-to="${x.id}" data-say="${s.id}">${esc(x.sym)} ${esc(x.name)}</button>`).join("")}` +
+    `<button data-to="new" data-say="${s.id}">${esc(L.moveNew)}</button><button class="quiet" data-move="${s.id}">${esc(L.moveQuit)}</button></div>`;
+}
+
 function chipOf(s) {
   if (s.session === undefined) return s.error ? `<span class="chip">${esc(L.missed(s.error))}</span>` : `<span class="chip">${L.pending}</span>`;
   if (s.session === null) return `<span class="chip">${esc(L.aside)}</span>`;
@@ -239,7 +277,7 @@ function renderChat() {
   el.innerHTML = state.chat.length ? state.chat.map((c) => {
     if (c.say != null) {
       const s = said.get(c.say);
-      return `<div class="say"><p>${esc(s.text)}</p>${chipOf(s)}</div>`;
+      return `<div class="say${s.canceled ? " canceled" : ""}"><p>${esc(s.text)}</p>${actsOf(s)}</div>`;
     }
     const x = ses(c.reply);
     return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><span class="rs">${esc(x.sym)}</span>${inline(headOf(c.text))}</button>`;
@@ -255,10 +293,10 @@ function renderCards() {
   const el = $("#cards");
   const live = state.sessions.filter((x) => !x.hidden);
   el.innerHTML = live.length ? [...live].reverse().map((x) => `
-    <button class="card${marked(x) ? " mark" : ""}" data-go="${x.id}">
-      <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span><span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
+    <div class="card${marked(x) ? " mark" : ""}" data-go="${x.id}">
+      <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
       <div class="last">${inline(headOf(x.last))}</div>
-    </button>`).join("") : `<div class="empty">${esc(L.emptyCards)}</div>`;
+    </div>`).join("") : `<div class="empty">${esc(L.emptyCards)}</div>`;
 }
 
 function renderPeek() {
@@ -267,7 +305,7 @@ function renderPeek() {
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main);
   el.innerHTML = `
-    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span><span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
+    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
     <div class="turns">${turnsOf(x, opened, L.tools)}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
@@ -290,6 +328,21 @@ function open(id) {
 
 document.addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
+  const t = (sel) => e.target.closest(sel);
+  // カードの中のボタンは、カードを開くより先に見る
+  if (t("[data-stop]")) return void post("/api/stop", { session: Number(t("[data-stop]").dataset.stop) });
+  if (t("[data-cancel]")) return void post("/api/cancel", { say: Number(t("[data-cancel]").dataset.cancel) });
+  if (t("[data-to]")) {
+    const b = t("[data-to]");
+    moving = null;
+    renderChat();
+    return void post("/api/move", { say: Number(b.dataset.say), to: b.dataset.to === "new" ? "new" : Number(b.dataset.to) });
+  }
+  if (t("[data-move]")) {
+    const id = Number(t("[data-move]").dataset.move);
+    moving = moving === id ? null : id;
+    return renderChat();
+  }
   const go = e.target.closest("[data-go]");
   if (go) return open(Number(go.dataset.go));
   if (e.target.closest("[data-close]")) open(null);

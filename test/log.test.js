@@ -82,3 +82,16 @@ test("リセットは、次に話すまで戻せる。そのあいだに帰っ�
   log.add("say", { text: "次" });
   assert.equal(log.state.undo, null);
 });
+
+test("付け替えた発言は、前のセッションが止まっても答え終えたことにしない", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  log.add("open", { session: 2, name: "b" });
+  const s = log.add("say", { text: "x" }).seq;
+  log.add("route", { say: s, session: 1 });
+  log.add("turn", { session: 1, says: [s] });
+  log.add("route", { say: s, session: 2 });
+  log.add("end", { session: 1, stopped: true });
+  assert.equal(log.state.said[0].done, false);
+  assert.equal(log.state.sessions[0].hidden, true);
+});

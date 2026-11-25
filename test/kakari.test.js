@@ -88,3 +88,12 @@ test("リセットのあとは、一覧から外れたセッションにも前�
   assert.doesNotMatch(asked[0], /料金|前の話/);
   assert.deepEqual(sessions.sent, [[2, b]]);
 });
+
+test("係が読む前に取り消された発言は、届けない", async () => {
+  const { log, sessions, kakari, asked } = setup(() => ({ ok: true, json: { says: [] } }));
+  const a = log.add("say", { text: "やっぱなし" }).seq;
+  log.add("cancel", { say: a });
+  await kakari.kick();
+  assert.equal(asked.length, 0);
+  assert.deepEqual(sessions.sent, []);
+});
