@@ -110,3 +110,16 @@ test("係に聞いているあいだに人が届け先を決めた発言は、�
   assert.equal(log.state.sessions.length, 1);
   assert.equal(log.state.said[0].session, 1);
 });
+
+test("清書する設定のときだけ、係の清書を受け取る", async () => {
+  const { log, kakari, asked } = setup((t) => ({ ok: true, json: { says: [{ id: Number(t.match(/^- (\d+)：/m)[1]), to: "new", name: "料金", text: "料金を調べて" }] } }));
+  log.add("say", { text: "えー料金を調べて" });
+  await kakari.kick();
+  assert.match(asked[0], /清書：しない/);
+  assert.equal(log.state.said[0].fair, undefined);
+  log.add("set", { key: "fair", value: true });
+  log.add("say", { text: "えー料金を調べて" });
+  await kakari.kick();
+  assert.match(asked[1], /清書：する/);
+  assert.equal(log.state.said[1].fair, "料金を調べて");
+});

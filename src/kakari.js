@@ -21,7 +21,7 @@ export const SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { id: { type: "integer" }, to: { type: "string" }, name: { type: "string" } },
+        properties: { id: { type: "integer" }, to: { type: "string" }, name: { type: "string" }, text: { type: "string" } },
         required: ["id", "to"],
       },
     },
@@ -47,6 +47,8 @@ export function routePrompt(state, batch) {
       ? live.map((x) => `- ${x.sym}「${x.name}」${STATUS[x.status]}。最初の頼み：${clip(oneLine(first(x)), 80)}。最後：${clip(oneLine(x.last), 80)}`)
       : ["（なし）"]),
     ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- （${p.session == null ? "届けていない" : `→ ${symOf(p.session)}`}）${clip(oneLine(p.text), 120)}`)] : []),
+    "",
+    `清書：${state.settings?.fair ? "する" : "しない"}`,
     "",
     "新しい発言：",
     ...batch.map((p) => `- ${p.id}${p.peek != null ? `（${symOf(p.peek)} を覗いていた）` : ""}：${p.text}`),
@@ -142,18 +144,20 @@ export class Kakari {
       if (p.session !== undefined || p.canceled) continue;
       const d = r.json.says.find((s) => s.id === p.id) ?? { to: "new" };
       const to = String(d.to ?? "new").trim();
-      if (to === "none") { this.log.add("route", { say: p.id, session: null }); continue; }
+      // 清書は、清書する設定のときだけ受け取る
+      const fair = state.settings?.fair && typeof d.text === "string" && d.text.trim() ? d.text.trim() : null;
+      if (to === "none") { this.log.add("route", { say: p.id, session: null, fair }); continue; }
       const x = shown(state).find((y) => y.sym === to);
-      if (x) { this.deliver(p.id, x.id); continue; }
+      if (x) { this.deliver(p.id, x.id, fair); continue; }
       // 知らない記号や形の崩れは、新しく起こすほうに倒す（落とさない）
-      const name = clip(oneLine(d.name) || oneLine(p.text), 20);
+      const name = clip(oneLine(d.name) || oneLine(fair ?? p.text), 20);
       if (!made.has(name)) made.set(name, this.sessions.open(name));
-      this.deliver(p.id, made.get(name));
+      this.deliver(p.id, made.get(name), fair);
     }
   }
 
-  deliver(say, session) {
-    this.log.add("route", { say, session });
+  deliver(say, session, fair = null) {
+    this.log.add("route", { say, session, fair });
     this.sessions.send(session, say);
   }
 }

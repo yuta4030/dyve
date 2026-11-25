@@ -95,3 +95,25 @@ test("付け替えた発言は、前のセッションが止まっても答え�
   assert.equal(log.state.said[0].done, false);
   assert.equal(log.state.sessions[0].hidden, true);
 });
+
+test("設定：決まった名前と値だけ変えられ、立て直しても残る", () => {
+  const log = new Log();
+  assert.deepEqual(log.state.settings, { send: "pause", pause: 2, fair: false });
+  log.add("set", { key: "fair", value: true });
+  log.add("set", { key: "pause", value: 3 });
+  assert.equal(log.state.settings.fair, true);
+  assert.equal(log.state.settings.pause, 3);
+  assert.throws(() => log.add("set", { key: "pause", value: 4 }));
+  assert.throws(() => log.add("set", { key: "nope", value: 1 }));
+});
+
+test("清書した文は元の文と別に持ち、セッションには清書を渡す", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  const s = log.add("say", { text: "えーと料金を、あの、調べて" }).seq;
+  log.add("route", { say: s, session: 1, fair: "料金を調べて" });
+  log.add("turn", { session: 1, says: [s] });
+  assert.equal(log.state.said[0].text, "えーと料金を、あの、調べて");
+  assert.equal(log.state.said[0].fair, "料金を調べて");
+  assert.equal(log.state.sessions[0].flow[0].text, "料金を調べて");
+});

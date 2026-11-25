@@ -26,6 +26,17 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top .brand { font-weight: 700; color: var(--ink); margin-right: auto; }
 #top button:hover { color: var(--ink); }
 #top [data-undo] { color: var(--run); }
+#top .brand { margin-right: 0; }
+#top [data-gear] { margin-right: auto; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; }
+#top [data-gear]:hover, #top [data-gear][aria-pressed="true"] { background: var(--soft); color: var(--ink); }
+#settings { border-bottom: 1px solid var(--line); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; background: var(--bg); }
+#settings .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#settings .label { color: var(--sub); min-width: 6.5em; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.seg button { padding: 2px 10px; color: var(--sub); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.say p[title] { cursor: help; }
 #flow { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 #flow .empty { color: var(--sub); }
 .say p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -117,7 +128,8 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </head>
 <body>
 <section id="chat">
-  <div id="top"><span class="brand">dyve</span><button data-undo hidden></button><button data-reset></button></div>
+  <div id="top"><span class="brand">dyve</span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-reset></button></div>
+  <div id="settings" hidden></div>
   <div id="flow"></div>
   <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div>
 </section>
@@ -127,7 +139,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 </main>
 <script type="module">
 const L = {
-  emptyChat: "話すか書くと、ここに流れる。マイクを押して話すと、ひと区切りごとに置かれる。打ったものは Enter で置かれる（改行は Shift+Enter）",
+  emptyChat: "話すか書くと、ここに流れる。マイクを押して話すと、間があいたところでまとめて置かれる（歯車で変えられる）。打ったものは Enter で置かれる（改行は Shift+Enter）",
   emptyCards: "頼んだ仕事が、ここに一枚ずつ並ぶ",
   placeholder: "話すか書く",
   micOff: "押して話す（ひと区切りごとに置かれる）",
@@ -146,6 +158,13 @@ const L = {
   moveNew: "新しく起こす",
   moveQuit: "やめる",
   stop: "止める",
+  gear: "設定",
+  settings: {
+    send: { label: "声の送り方", values: { pause: "間があいたらまとめて", each: "区切りごとにすぐ" } },
+    pause: { label: "間", values: { 1: "1 秒", 2: "2 秒", 3: "3 秒", 5: "5 秒" } },
+    fair: { label: "清書", values: { false: "しない", true: "する（係が直す）" } },
+  },
+  original: (t) => `元の文：${t}`,
   brief: "要約",
   briefWait: "ターンが終わると、ここにまとまる",
   briefRun: "動いているあいだは、前の要約のまま",
@@ -158,7 +177,9 @@ const L = {
 };
 
 // 声の入力が止まってから、この間があいたら置く（ミリ秒）。キーボードで打ったものは Enter まで待つ
-const PAUSE = 2500;
+const PAUSE = 2000;
+// 間の長さは設定から（設定がまだ届いていないときは PAUSE）
+const pauseMs = () => (state.settings?.pause ?? PAUSE / 1000) * 1000;
 // いちばん下を見ているか（このくらいの差なら下にいるとみなす）
 const NEAR = 40;
 
@@ -301,7 +322,8 @@ function renderChat() {
   el.innerHTML = state.chat.length ? state.chat.map((c) => {
     if (c.say != null) {
       const s = said.get(c.say);
-      return `<div class="say${s.canceled ? " canceled" : ""}"><p>${esc(s.text)}</p>${actsOf(s)}</div>`;
+      // 清書した文を出し、元の文は title に残す
+      return `<div class="say${s.canceled ? " canceled" : ""}"><p${s.fair ? ` title="${esc(L.original(s.text))}"` : ""}>${esc(s.fair ?? s.text)}</p>${actsOf(s)}</div>`;
     }
     const x = ses(c.reply);
     return `<button class="ret${c.error ? " fail" : ""}" data-go="${x.id}"><span class="rs">${esc(x.sym)}</span>${inline(headOf(c.text))}</button>`;
@@ -345,7 +367,22 @@ function renderPeek() {
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
+let gear = false; // 設定を開いているか（画面の中だけ）
+function renderSettings() {
+  const el = $("#settings");
+  $("[data-gear]").setAttribute("aria-pressed", String(gear));
+  el.hidden = !gear;
+  if (!gear) return;
+  const cur = state.settings ?? {};
+  el.innerHTML = Object.entries(L.settings)
+    // 間の長さは、間があいたら送るときだけ
+    .filter(([k]) => k !== "pause" || cur.send !== "each")
+    .map(([k, d]) => `<div class="row"><span class="label">${esc(d.label)}</span><span class="seg">${Object.entries(d.values).map(([v, t]) => `<button data-set="${k}" data-value="${esc(v)}" aria-pressed="${String(cur[k]) === v}">${esc(t)}</button>`).join("")}</span></div>`)
+    .join("");
+}
+
 function render() {
+  renderSettings();
   $("[data-undo]").hidden = !state.undo;
   renderChat();
   // 覗いていたセッションが一覧から外れていたら、一覧に戻る（renderPeek が peek を空にする）
@@ -388,6 +425,13 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("[data-close]")) open(null);
   // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
   if (e.target.closest("[data-reset]")) post("/api/reset").then(() => open(null));
+  if (t("[data-gear]")) { gear = !gear; return renderSettings(); }
+  if (t("[data-set]")) {
+    const b = t("[data-set]"), raw = b.dataset.value;
+    // 値の形は設定ごと：数・真偽・文字
+    const value = /^\d+$/.test(raw) ? Number(raw) : raw === "true" ? true : raw === "false" ? false : raw;
+    return void post("/api/set", { key: b.dataset.set, value });
+  }
   if (e.target.closest("[data-undo]")) post("/api/undo");
 });
 // 道具のまとまりを開け閉めしたら覚える（描き直しても閉じないように。toggle は泡立たないので捕まえる側で聞く）
@@ -444,7 +488,7 @@ const input = {
   },
   arm() {
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.send(), PAUSE);
+    this.timer = setTimeout(() => this.send(), pauseMs());
   },
   async send() {
     const m = this.m;
@@ -471,6 +515,8 @@ const input = {
   },
 };
 
+$("[data-gear]").title = L.gear;
+$("[data-gear]").setAttribute("aria-label", L.gear);
 $("[data-reset]").textContent = L.reset;
 $("[data-reset]").title = L.resetTitle;
 $("[data-undo]").textContent = L.undo;
@@ -506,7 +552,9 @@ const mic = {
       this.interim = mid.length;
       input.grow();
       clearTimeout(input.timer);
-      if (fin && !mid && !input.typed) input.send();
+      if (!fin || mid || input.typed) return;
+      // 区切りごとにすぐ送るか、話が途切れるまでためてまとめて送るか（設定）
+      if (state.settings?.send === "each") input.send(); else input.arm();
     };
     // 黙っていると止まるので、押されているあいだは聞き直す
     rec.onend = () => { if (this.on && this.rec === rec) rec.start(); };
@@ -521,6 +569,8 @@ const mic = {
   stop() {
     this.on = false;
     this.rec?.stop();
+    // ためていたものは、止めたときにすぐ送る
+    if (input.m.value.trim() && !input.typed) { clearTimeout(input.timer); input.send(); }
     this.rec = null;
     this.interim = 0;
     this.show();

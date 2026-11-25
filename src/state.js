@@ -7,6 +7,7 @@
 //   turn  { session, says }                セッションがターンを始めた（届いた発言）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
 //   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
+//   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
 //   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
 
@@ -17,8 +18,13 @@ export function symOf(n) {
   return s;
 }
 
+// 設定：名前 -> 取れる値（最初のものが既定）
+//   send：声の送り方（pause は間があいたらまとめて、each は区切りごとにすぐ）。pause：間の秒数。fair：係が清書するか
+export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true] };
+const defaults = () => Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, v[0]]));
+
 // since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
-export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null });
+export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults() });
 
 // 一覧に出ているセッション
 export const shown = (state) => state.sessions.filter((x) => !x.hidden);
@@ -38,7 +44,11 @@ const need = (v, what) => {
 // 種類ごとの、記録に書く中身の作り方（足りなければ断る）
 export const KINDS = {
   say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null, ...(Number.isInteger(b.to) ? { to: b.to } : {}) }),
-  route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}) }),
+  route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}) }),
+  set: (b) => {
+    if (!Object.hasOwn(SETTINGS, b.key) || !SETTINGS[b.key].includes(b.value)) throw new Error(`変えられない設定：${b.key}=${b.value}`);
+    return { key: b.key, value: b.value };
+  },
   open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと" }),
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
@@ -79,6 +89,8 @@ export function step(state, r) {
       s.session = r.error ? undefined : r.session;
       s.error = r.error ?? null;
       s.done = false;
+      // 清書した文（元の文は text に残す）。元と同じなら持たない
+      if (r.fair && r.fair !== s.text) s.fair = r.fair;
       if (old != null && old !== s.session) orphan(old);
       break;
     }
@@ -106,7 +118,7 @@ export function step(state, r) {
       if (x.brief) x.brief.choices = [];
       for (const id of r.says) {
         const s = state.said.find((p) => p.id === id);
-        if (s) x.flow.push({ who: "human", text: s.text, say: id });
+        if (s) x.flow.push({ who: "human", text: s.fair ?? s.text, say: id });
       }
       break;
     }
@@ -137,6 +149,9 @@ export function step(state, r) {
       if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;
     }
+    case "set":
+      state.settings[r.key] = r.value;
+      break;
     case "reset": {
       // 動いているもの・まだ始まっていないものは残す（仕事を落とさない）
       const hide = shown(state).filter((x) => x.status !== "run" && x.status !== "idle");

@@ -82,3 +82,12 @@ test("選択肢を押した発言は、係を通さずそのセッションへ�
   assert.equal(log.state.said[1].session, undefined);
   server.closeAll();
 });
+
+test("設定を変える。決まっていない値は断る", async () => {
+  const { log, base, close } = await up();
+  const set = (b) => fetch(`${base}/api/set`, { method: "POST", body: JSON.stringify(b) });
+  assert.equal((await set({ key: "send", value: "each" })).status, 200);
+  assert.equal(log.state.settings.send, "each");
+  assert.equal((await set({ key: "send", value: "later" })).status, 400);
+  close();
+});

@@ -53,6 +53,11 @@ export function createServer({ log, sessions = null }) {
         if (to) sessions.send(to, record.seq);
         return json(200, { ok: true, record });
       }
+      // 設定を変える（決まった名前と値だけ）
+      if (route === "POST /api/set") {
+        const b = await readJson(req);
+        return json(200, { ok: true, record: log.add("set", { key: b.key, value: b.value }) });
+      }
       // リセットと、それを戻す。どちらも記録に一件足すだけで、何も消さない
       if (route === "POST /api/reset") return json(200, { ok: true, record: log.add("reset") });
       if (route === "POST /api/undo") {
