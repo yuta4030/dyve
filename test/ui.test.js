@@ -69,8 +69,9 @@ const mdOf = (rules = []) => new Function(`const esc = ${html.match(/^const esc 
 const L = { copyCode: "c", run: "r", running: "…", exit: (c) => "exit " + c };
 const runs = new Map();
 const SHELL = ${html.match(/^const SHELL = (.*);$/m)[1]};
+const FILE = ${html.match(/^const FILE = (.*);$/m)[1]};
 let LINK_RULES = [];
-${["linkify", "inline", "codeBlock", "md"].map(grab).join("\n")};
+${["linkify", "fileLink", "inline", "codeBlock", "md"].map(grab).join("\n")};
 return (rules) => { LINK_RULES = rules; return { inline, md, linkify, runs }; };`)()(rules);
 
 test("マークダウン：一行の中", () => {
@@ -114,4 +115,15 @@ test("リンク：URL と利用者の決まりに当てはまる言葉を押せ�
   // 括弧の中を差し込む
   const g = mdOf([{ re: /#(\d+)/g, url: "https://github.com/o/r/issues/$1" }]).inline;
   assert.match(g("#42 を直す"), /href="https:\/\/github\.com\/o\/r\/issues\/42"/);
+});
+
+test("手元のファイルの場所を押せるようにする。URL やふつうの言葉には当てない", () => {
+  const { inline } = mdOf();
+  const link = (h) => [...h.matchAll(/data-open="([^"]*)"(?: data-line="(\d+)")?(?: data-col="(\d+)")?/g)].map((m) => m.slice(1).filter(Boolean).join(":"));
+  assert.deepEqual(link(inline("src/server.js:42 を直した")), ["src/server.js:42"]);
+  assert.deepEqual(link(inline("`src/ui.html:10:3` と ~/notes/memo.md と /Users/me/a.txt")), ["src/ui.html:10:3", "~/notes/memo.md", "/Users/me/a.txt"]);
+  assert.deepEqual(link(inline("README.md:12 を見て")), ["README.md:12"]);
+  // 行のないただのファイル名・URL・版・メールは当てない
+  assert.deepEqual(link(inline("README.md と https://a.example/b/c.js と v0.13.6 と a@b.example/c.md")), []);
+  assert.match(inline("`src/a.js`"), /<a href="#" class="file" data-open="src\/a\.js"><code>src\/a\.js<\/code><\/a>/);
 });

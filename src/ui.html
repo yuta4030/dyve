@@ -117,7 +117,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .md ul, .md ol { padding-left: 1.4em; }
 .md code { font: .92em ui-monospace, Menlo, monospace; background: var(--soft); padding: 1px 4px; border-radius: 4px; }
 .md pre { background: var(--soft); padding: 8px 10px; border-radius: 6px; overflow-x: auto; }
-.turns .ai { position: relative; padding-right: 32px; }
+.turns .ai { position: relative; }
 .ai > .copy { position: absolute; top: 6px; right: 6px; opacity: 0; color: var(--sub); }
 .ai:hover > .copy { opacity: 1; }
 .code { position: relative; margin: 0 0 .7em; }
@@ -130,6 +130,8 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .code .run-out.bad { border-color: var(--fail); }
 .code .run-out .rc { display: block; font-size: 11px; opacity: .8; margin-bottom: 2px; }
 .say a, .human a { color: var(--run); }
+a.file { color: var(--run); text-decoration: underline dotted; text-underline-offset: 2px; }
+a.file code { color: inherit; }
 #settings .links { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 #settings .links .lr { display: flex; gap: 4px; align-items: center; }
 #settings .links input { flex: 1; min-width: 0; font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
@@ -144,7 +146,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .md a, .last a, .ret a { color: var(--run); }
 .last code, .ret code { font: .92em ui-monospace, Menlo, monospace; }
 .turns .human { align-self: flex-end; background: var(--soft); border-radius: 10px; padding: 6px 10px; max-width: 80%; }
-.turns .ai { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.turns .ai { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 34px 8px 12px; }
 .turns .error { color: var(--fail); }
 </style>
 </head>
@@ -184,6 +186,8 @@ const L = {
   copy: "マークダウンのままコピー",
   copyCode: "コードをコピー",
   copied: "コピーした",
+  openFile: "手元で開く",
+  openBad: (m) => `開けなかった：${m}`,
   copyFail: "コピーできなかった（ブラウザが許していない）",
   run: "この場所で実行する",
   running: "実行している…",
@@ -205,6 +209,7 @@ const L = {
     send: { label: "声の送り方", values: { pause: "間があいたらまとめて", each: "区切りごとにすぐ" } },
     pause: { label: "間", values: { 1: "1 秒", 2: "2 秒", 3: "3 秒", 5: "5 秒" } },
     fair: { label: "清書", values: { false: "しない", true: "する（係が直す）" } },
+    opener: { label: "ファイルを開く", values: { os: "OS の既定", vscode: "VS Code", cursor: "Cursor" } },
   },
   original: (t) => `元の文：${t}`,
   brief: "要約",
@@ -250,14 +255,26 @@ function linkify(html, rules) {
   const SKIP = /(<a\b[^>]*>[\s\S]*?<\/a>|<code>[\s\S]*?<\/code>|<[^>]+>)/;
   const apply = (h, re, toUrl) => h.split(SKIP).map((part, i) => (i % 2 ? part : part.replace(re, (...m) => `<a href="${toUrl(m)}" target="_blank" rel="noopener">${m[0]}</a>`))).join("");
   let out = apply(html, /https?:\/\/[^\s<>"]+[^\s<>".,、。)）]/g, (m) => m[0]);
+  // 手元のファイルの場所（src/a.js:42 や ~/memo.md など）は、押すと手元のアプリで開く
+  out = out.split(SKIP).map((part, i) => (i % 2 ? part : part.replace(FILE, (m) => fileLink(m, m)))).join("");
   for (const r of rules) out = apply(out, r.re, (m) => r.url.replace(/\$(\d)/g, (_, n) => m[Number(n)] ?? ""));
   return out;
+}
+
+// ファイルの場所：フォルダを一つ以上含み拡張子で終わるもの（~/ / ./ ../ で始まってもよい）か、行の番号の付いたファイル名。うしろに :行:桁 が付いてもよい
+const FILE = /(?<![\w/.:@-])(?:(?:~\/|\/|\.{1,2}\/)?(?:[\w.-]+\/)+[\w.-]+\.[A-Za-z][A-Za-z0-9]*|[\w-][\w.-]*\.[A-Za-z][A-Za-z0-9]*(?=:\d))(?::\d+(?::\d+)?)?(?![\w/])/g;
+
+// ファイルの場所を、押すと開くリンクにする。where は場所の文（エスケープ済み）、label は見せるもの
+function fileLink(where, label) {
+  const m = where.match(/^(.*?)(?::(\d+))?(?::(\d+))?$/);
+  return `<a href="#" class="file" data-open="${m[1]}"${m[2] ? ` data-line="${m[2]}"` : ""}${m[3] ? ` data-col="${m[3]}"` : ""}>${label}</a>`;
 }
 
 // 一行の中のマークダウン：コード・太字・斜体・リンク（http と https だけ）。先にエスケープしてから形を付け、最後にリンクの決まりを当てる
 function inline(t) {
   return linkify(String(t ?? "").split(/(`[^`\n]+`)/).map((part, i) => i % 2
-    ? `<code>${esc(part.slice(1, -1))}</code>`
+    // コードの中身がまるごとファイルの場所なら、押せるようにする
+    ? (new RegExp(`^(?:${FILE.source})$`).test(part.slice(1, -1)) ? fileLink(esc(part.slice(1, -1)), `<code>${esc(part.slice(1, -1))}</code>`) : `<code>${esc(part.slice(1, -1))}</code>`)
     : esc(part)
         .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
         .replace(/(^|[^*\w])\*(?!\s)([^*]+?)\*(?!\w)/g, "$1<i>$2</i>")
@@ -505,6 +522,15 @@ function open(id) {
 }
 
 document.addEventListener("click", (e) => {
+  // 手元のファイルの場所は、ブラウザでは開けないので dyve に開いてもらう
+  const f = e.target.closest("a[data-open]");
+  if (f) {
+    e.preventDefault();
+    fetch("/api/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: f.dataset.open, ...(f.dataset.line ? { line: Number(f.dataset.line) } : {}), ...(f.dataset.col ? { col: Number(f.dataset.col) } : {}) }) })
+      .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.openBad(r.message ?? ""); })
+      .catch((err) => { $("#note").textContent = L.openBad(String(err)); });
+    return;
+  }
   if (e.target.closest("a")) return;
   const t = (sel) => e.target.closest(sel);
   // カードの中のボタンは、カードを開くより先に見る

@@ -23,7 +23,8 @@ export function symOf(n) {
 
 // 設定：名前 -> 取れる値（最初のものが既定）
 //   send：声の送り方（pause は間があいたらまとめて、each は区切りごとにすぐ）。pause：間の秒数。fair：係が清書するか
-export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true] };
+//   opener：返事の中のファイルを押したときに開くもの（os は OS の既定のアプリ）
+export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true], opener: ["os", "vscode", "cursor"] };
 const defaults = () => Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, v[0]]));
 
 // リンクの決まりを確かめる：pattern は正規表現（空の文字に当たらないもの）、url は http か https で、$0（当たった言葉全体）や $1… を差し込める
