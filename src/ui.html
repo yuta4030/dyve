@@ -27,7 +27,12 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top button:hover { color: var(--ink); }
 #top [data-undo] { color: var(--run); }
 #top .brand { margin-right: 0; }
-#quota { font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default; }
+#quota { position: relative; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default; }
+/* マウスを載せたらすぐ出る吹き出し：いつ戻るか */
+#quota .tip { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); box-shadow: 0 4px 16px rgba(0, 0, 0, .12); font-size: 12px; line-height: 1.6; }
+#quota:hover .tip { display: block; }
+#quota .tip b { font-weight: 600; }
+#quota .tip .sub { color: var(--sub); }
 #quota .hi { color: var(--mark); }
 #quota .out { color: var(--fail); }
 #top [data-gear] { margin-right: auto; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; }
@@ -202,8 +207,11 @@ const L = {
   quota: (five, week) => [five, week].filter(Boolean).join("・"),
   quotaFive: (p) => `5h ${p}%`,
   quotaWeek: (p) => `週 ${p}%`,
-  quotaTitle: (rows) => `Claude の利用枠（使った割合）\n${rows.join("\n")}`,
-  quotaRow: (name, p, at) => `${name}：${p}%${at ? `（${at} に戻る）` : ""}`,
+  quotaHead: "Claude の利用枠（使った割合）",
+  quotaRow: (name, p) => `${name}：${p}%`,
+  quotaReset: (at, left) => `${at} に戻る（あと ${left}）`,
+  quotaLeft: (h, m) => (h ? `${h} 時間 ${m} 分` : `${m} 分`),
+  quotaDays: (d, h) => `${d} 日 ${h} 時間`,
   quotaNames: { five: "5 時間の枠", week: "7 日の枠" },
   settings: {
     send: { label: "声の送り方", values: { pause: "間があいたらまとめて", each: "区切りごとにすぐ" } },
@@ -494,13 +502,18 @@ function renderQuota() {
   const pct = (v) => Math.round(v * 100);
   const cls = (v) => (q.status !== "allowed" && v >= 1 ? "out" : v >= 0.8 ? "hi" : "");
   const part = (v, f) => (v == null ? "" : `<span class="${cls(v)}">${esc(f(pct(v)))}</span>`);
-  el.innerHTML = L.quota(part(q.five, L.quotaFive), part(q.week, L.quotaWeek));
-  const when = (s) => {
-    if (!s) return "";
-    const d = new Date(s * 1000), two = (n) => String(n).padStart(2, "0");
-    return `${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`;
-  };
-  el.title = L.quotaTitle([["five", q.five, q.fiveAt], ["week", q.week, q.weekAt]].filter(([, v]) => v != null).map(([k, v, at]) => L.quotaRow(L.quotaNames[k], pct(v), when(at))));
+  const rows = [["five", q.five, q.fiveAt], ["week", q.week, q.weekAt]].filter(([, v]) => v != null)
+    .map(([k, v, at]) => `<div><b>${esc(L.quotaRow(L.quotaNames[k], pct(v)))}</b>${at ? `<br><span class="sub">${esc(L.quotaReset(...resetOf(at, Date.now())))}</span>` : ""}</div>`);
+  el.innerHTML = L.quota(part(q.five, L.quotaFive), part(q.week, L.quotaWeek)) + `<span class="tip"><span class="sub">${esc(L.quotaHead)}</span>${rows.join("")}</span>`;
+}
+
+// 戻る時刻（秒）を「11/25 16:00」と「あと 2 時間 13 分」に。過ぎていたら残りは 0 分
+function resetOf(at, now) {
+  const d = new Date(at * 1000), two = (n) => String(n).padStart(2, "0");
+  const min = Math.max(0, Math.round((at * 1000 - now) / 60000));
+  const h = Math.floor(min / 60), day = Math.floor(h / 24);
+  const left = day ? L.quotaDays(day, h % 24) : L.quotaLeft(h, min % 60);
+  return [`${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`, left];
 }
 
 function render() {
@@ -684,6 +697,8 @@ const input = {
   },
 };
 
+// 残り時間は載せたときに数え直す
+$("#quota").addEventListener("mouseenter", renderQuota);
 $("[data-gear]").title = L.gear;
 $("[data-gear]").setAttribute("aria-label", L.gear);
 $("[data-reset]").textContent = L.reset;

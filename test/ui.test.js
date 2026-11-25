@@ -127,3 +127,14 @@ test("手元のファイルの場所を押せるようにする。URL やふつ�
   assert.deepEqual(link(inline("README.md と https://a.example/b/c.js と v0.13.6 と a@b.example/c.md")), []);
   assert.match(inline("`src/a.js`"), /<a href="#" class="file" data-open="src\/a\.js"><code>src\/a\.js<\/code><\/a>/);
 });
+
+test("利用枠の吹き出し：戻る時刻と残り時間", () => {
+  const L = { quotaLeft: (h, m) => (h ? `${h} 時間 ${m} 分` : `${m} 分`), quotaDays: (d, h) => `${d} 日 ${h} 時間` };
+  const resetOf = new Function("L", `${grab("resetOf")}; return resetOf;`)(L);
+  const now = new Date(2026, 10, 25, 13, 47).getTime();
+  const at = (y, mo, d, h, mi) => new Date(y, mo, d, h, mi).getTime() / 1000;
+  assert.deepEqual(resetOf(at(2026, 10, 25, 16, 0), now), ["11/25 16:00", "2 時間 13 分"]);
+  assert.deepEqual(resetOf(at(2026, 10, 25, 13, 52), now), ["11/25 13:52", "5 分"]);
+  assert.deepEqual(resetOf(at(2026, 10, 28, 15, 47), now), ["11/28 15:47", "3 日 2 時間"]);
+  assert.deepEqual(resetOf(at(2026, 10, 25, 13, 0), now)[1], "0 分");
+});
