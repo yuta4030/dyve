@@ -29,6 +29,14 @@ test("ダイアログを出さない・フォーカスを奪わない・音を�
   assert.doesNotMatch(script, /scrollIntoView/);
 });
 
+test("幅と右のパネルはブラウザに覚え、読めなくても既定の幅で描く", () => {
+  assert.match(script, /try \{ return JSON\.parse\(localStorage\.getItem\("dyve\.layout"\)\) \?\? \{\}; \} catch \{ return \{\}; \}/);
+  assert.match(script, /try \{ localStorage\.setItem\("dyve\.layout"/);
+  assert.match(html, /data-split="chat"/);
+  assert.match(script, /data-split="side"/);
+  assert.match(script, /data-side aria-pressed/);
+});
+
 test("Enter で置く。Shift+Enter と IME の変換確定では置かない", () => {
   const isSendKey = fn("isSendKey");
   assert.equal(isSendKey({ key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 }), true);
