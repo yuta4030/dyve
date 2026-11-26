@@ -98,7 +98,7 @@ test("付け替えた発言は、前のセッションが止まっても答え�
 
 test("設定：決まった名前と値だけ変えられ、立て直しても残る", () => {
   const log = new Log();
-  assert.deepEqual(log.state.settings, { send: "pause", pause: 2, fair: false });
+  assert.deepEqual(log.state.settings, { send: "pause", pause: 2, fair: false, opener: "os" });
   log.add("set", { key: "fair", value: true });
   log.add("set", { key: "pause", value: 3 });
   assert.equal(log.state.settings.fair, true);
@@ -126,4 +126,27 @@ test("リンクの決まり：読めない正規表現・空に当たるもの�
   assert.throws(() => log.add("links", { rules: [{ pattern: "a*", url: "https://a" }] }));
   assert.throws(() => log.add("links", { rules: [{ pattern: "a", url: "javascript:alert(1)" }] }));
   assert.throws(() => log.add("links", { rules: [{ pattern: "a", url: 'https://a/"x' }] }));
+});
+
+test("畳む：止まっているカードだけ畳め、また動きだしたら広がる", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  log.add("turn", { session: 1, says: [] });
+  log.add("fold", { session: 1, on: true });
+  assert.equal(log.state.sessions[0].folded, false, "動いているものは畳めない");
+  log.add("end", { session: 1, result: "x" });
+  log.add("fold", { session: 1, on: true });
+  assert.equal(log.state.sessions[0].folded, true);
+  log.add("fold", { session: 1, on: false });
+  assert.equal(log.state.sessions[0].folded, false);
+  log.add("fold", { session: 1, on: true });
+  log.add("turn", { session: 1, says: [] });
+  assert.equal(log.state.sessions[0].folded, false);
+});
+
+test("右上の情報：見たページと書いたファイルを、道具の一行から拾う", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  for (const t of ["WebFetch https://claude.com/pricing", "Read README.md", "Edit src/a.js", "WebSearch 料金", "WebFetch https://claude.com/pricing", "Write docs/見積もり.md"]) log.add("step", { session: 1, what: "tool", text: t });
+  assert.deepEqual(log.state.sessions[0].info, [{ kind: "file", ref: "src/a.js" }, { kind: "page", ref: "https://claude.com/pricing" }, { kind: "file", ref: "docs/見積もり.md" }]);
 });

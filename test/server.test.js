@@ -119,3 +119,42 @@ test("押したシェルを、その場所で動かして結果を返す。画�
   assert.equal((await runIt("echo x", null)).status, 403);
   server.closeAll();
 });
+
+test("押したファイルを手元のアプリで開く：途中からの場所は room から。ないものは断る", async () => {
+  const log = new Log(), opened = [];
+  const fsm = await import("node:fs"), osm = await import("node:os"), pathm = await import("node:path");
+  const room = fsm.mkdtempSync(pathm.join(osm.tmpdir(), "dyve-open-"));
+  fsm.mkdirSync(pathm.join(room, "src"));
+  fsm.writeFileSync(pathm.join(room, "src", "a.js"), "x");
+  log.add("set", { key: "opener", value: "vscode" });
+  const server = createServer({ log, room, opener: (o) => opened.push(o) });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const open = (b, origin = base) => fetch(`${base}/api/open`, { method: "POST", headers: origin ? { origin } : {}, body: JSON.stringify(b) });
+  assert.equal((await open({ path: "src/a.js", line: 42 })).status, 200);
+  assert.deepEqual(opened, [{ file: pathm.join(room, "src", "a.js"), line: 42, col: null, how: "vscode" }]);
+  assert.equal((await open({ path: "src/nope.js" })).status, 404);
+  assert.equal((await open({ path: "src/a.js" }, null)).status, 403);
+  server.closeAll();
+});
+
+test("OS の既定で開くと動いてしまうものは見分ける", async () => {
+  const { runnable } = await import("../src/server.js");
+  const fsm = await import("node:fs"), osm = await import("node:os"), pathm = await import("node:path");
+  const d = fsm.mkdtempSync(pathm.join(osm.tmpdir(), "dyve-run-"));
+  const f = (n, mode = 0o644) => { const p = pathm.join(d, n); fsm.writeFileSync(p, "x"); fsm.chmodSync(p, mode); return p; };
+  assert.equal(runnable(f("a.md")), false);
+  assert.equal(runnable(f("go.command")), true);
+  assert.equal(runnable(f("tool", 0o755)), true);
+});
+
+test("カードを畳む・広げる。ないセッションは断る", async () => {
+  const { log, base, close } = await up();
+  log.add("open", { session: 1, name: "a" });
+  log.add("end", { session: 1, result: "x" });
+  const fold = (b) => fetch(`${base}/api/fold`, { method: "POST", body: JSON.stringify(b) });
+  assert.equal((await fold({ session: 1, on: true })).status, 200);
+  assert.equal(log.state.sessions[0].folded, true);
+  assert.equal((await fold({ session: 9, on: true })).status, 404);
+  close();
+});

@@ -1,9 +1,12 @@
 // サーバー：画面を返し、発言を受け取り、いまの状態を返し、記録が増えるたびに状態を画面へ流す（SSE）
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { shown } from "./state.js";
 import { quick } from "./kakari.js";
+import { answer as mcpAnswer } from "./mcp.js";
 
 const UI = new URL("./ui.html", import.meta.url);
 // 画面は一枚。外のものを読まず、ほかのページに埋め込ませない
@@ -19,7 +22,9 @@ const BATCH = 50;
 
 // sessions：取り消す・止める・届け先を変える（なければその口は断る）
 // room：押したシェルを動かす場所（なければその口は断る）
-export function createServer({ log, sessions = null, room = null, shell = process.env.SHELL || "/bin/sh" }) {
+// opener：ファイルを開く関数（テストで差し替える）
+// mcpKey：セッションに貸す道具の口の鍵（/mcp/<鍵>/<セッション>）。なければその口は開けない
+export function createServer({ log, sessions = null, room = null, shell = process.env.SHELL || "/bin/sh", opener = openFile, mcpKey = null }) {
   const clients = new Set();
   let timer = null;
   const push = () => {
@@ -48,6 +53,32 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         return res.end(fs.readFileSync(UI));
       }
       if (route === "GET /api/state") return json(200, log.state);
+      // セッションに貸す道具（MCP）。鍵の合うものだけ。返事は JSON で一通ずつ（SSE は使わない）
+      const mcp = pathname.match(/^\/mcp\/([^/]+)\/(\d+)$/);
+      if (mcp) {
+        if (!mcpKey || mcp[1] !== mcpKey) return json(404, { ok: false, message: "ない" });
+        if (req.method !== "POST") { res.writeHead(405, { allow: "POST" }); return res.end(); }
+        const m = await readJson(req);
+        const out = mcpAnswer(log, Number(mcp[2]), m);
+        if (!out) { res.writeHead(202); return res.end(); }
+        return json(200, out);
+      }
+      // 質問に答える：答えを一通の発言にしてそのセッションへ直に渡し、質問を下げる。answers が空なら下げるだけ
+      if (route === "POST /api/answer") {
+        const b = await readJson(req);
+        const x = log.state.sessions.find((y) => y.id === b.session && !y.hidden);
+        if (!x || !sessions) return json(404, { ok: false, message: "そのセッションはない" });
+        const qs = x.asks?.questions ?? [];
+        const lines = (Array.isArray(b.answers) ? b.answers : [])
+          .filter((a) => Number.isInteger(a?.q) && qs[a.q] && String(a.a ?? "").trim())
+          .map((a) => `${a.q + 1}. ${qs[a.q].title}：${String(a.a).trim()}`);
+        if (lines.length) {
+          const record = log.add("say", { text: `質問への答え\n${lines.join("\n")}`, to: x.id });
+          sessions.send(x.id, record.seq);
+        }
+        log.add("asks", { session: x.id, questions: [] });
+        return json(200, { ok: true });
+      }
       if (route === "POST /api/say") {
         const body = await readJson(req);
         const peek = Number.isInteger(body.peek) && log.state.sessions.some((x) => x.id === body.peek) ? body.peek : null;
@@ -74,6 +105,23 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         const cmd = String(b.cmd ?? "").trim();
         if (!cmd) return json(400, { ok: false, message: "コマンドがない" });
         return json(200, { ok: true, ...(await run(shell, cmd, room)) });
+      }
+      // 返事の中のファイルを、人が押したときに手元のアプリで開く。画面から押したときだけ
+      if (route === "POST /api/open") {
+        if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
+        const b = await readJson(req);
+        const file = resolvePath(String(b.path ?? ""), room);
+        if (!file || !fs.existsSync(file)) return json(404, { ok: false, message: `見つからない：${b.path}` });
+        const line = Number.isInteger(b.line) && b.line > 0 ? b.line : null;
+        const col = Number.isInteger(b.col) && b.col > 0 ? b.col : null;
+        opener({ file, line, col, how: log.state.settings?.opener ?? "os" });
+        return json(200, { ok: true, file });
+      }
+      // カードを畳む・広げる（人が押したとき）
+      if (route === "POST /api/fold") {
+        const b = await readJson(req);
+        if (!log.state.sessions.some((x) => x.id === b.session)) return json(404, { ok: false, message: "そのセッションはない" });
+        return json(200, { ok: true, record: log.add("fold", { session: b.session, on: b.on }) });
       }
       // 設定を変える（決まった名前と値だけ）
       if (route === "POST /api/set") {
@@ -120,6 +168,40 @@ export function createServer({ log, sessions = null, room = null, shell = proces
     server.close();
   };
   return server;
+}
+
+// 返事に書かれた場所を、手元のファイルの場所にする：~ は家、途中からの場所は room から
+export function resolvePath(p, room) {
+  p = p.trim();
+  if (!p) return null;
+  if (p === "~" || p.startsWith("~/")) p = path.join(os.homedir(), p.slice(1));
+  return path.isAbsolute(p) ? path.normalize(p) : room ? path.resolve(room, p) : null;
+}
+
+// 開くと動いてしまうもの（OS の既定で開くときは、開かずにフォルダの中で見せる）
+const RUNNABLE = /\.(app|command|tool|sh|bash|zsh|exe|bat|cmd|com|msi|ps1|scpt|applescript|workflow|jar|desktop|run|bin|appimage|pkg|dmg|deb|rpm)$/i;
+export function runnable(file) {
+  try {
+    const st = fs.statSync(file);
+    return st.isDirectory() ? /\.app$/i.test(file) : RUNNABLE.test(file) || (process.platform !== "win32" && (st.mode & 0o111) !== 0);
+  } catch {
+    return false;
+  }
+}
+
+// 本物の開き方。VS Code と Cursor は行まで飛ぶ。OS の既定では、動いてしまうものは開かずにフォルダで見せる
+export function openFile({ file, line, col, how }) {
+  const at = line ? `${file}:${line}${col ? `:${col}` : ""}` : file;
+  const mac = process.platform === "darwin", win = process.platform === "win32";
+  let cmd, args;
+  if (how === "vscode" || how === "cursor") [cmd, args] = [how === "vscode" ? "code" : "cursor", ["-g", at]];
+  else if (runnable(file)) [cmd, args] = mac ? ["open", ["-R", file]] : win ? ["explorer", [`/select,${file}`]] : ["xdg-open", [path.dirname(file)]];
+  else [cmd, args] = mac ? ["open", [file]] : win ? ["cmd", ["/c", "start", "", file]] : ["xdg-open", [file]];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: "ignore", shell: win && cmd !== "cmd" });
+    child.on("error", () => {});
+    child.unref();
+  } catch {}
 }
 
 // シェルを動かして、終了コードと出力（標準出力と標準エラーを混ぜたもの）を返す。長いものは後ろを残し、止まらなければ切る

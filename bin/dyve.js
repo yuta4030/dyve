@@ -2,13 +2,13 @@
 // CLI：サーバーを立てる
 import { parseArgs } from "node:util";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { Log } from "../src/log.js";
 import { createServer } from "../src/server.js";
 import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
 import { Kakari, claudeAsk } from "../src/kakari.js";
-import { Matome, PROMPT as BRIEF, SCHEMA as BRIEF_SCHEMA } from "../src/matome.js";
 
 const HOME = path.join(os.homedir(), ".dyve");
 const USAGE = `使い方:
@@ -19,8 +19,8 @@ const USAGE = `使い方:
   --data FILE     記録（既定：~/.dyve/record.jsonl）
   --room DIR      セッションが起きる場所（既定：いまの場所）
   --model NAME    セッションのモデル（既定：Claude Code の既定）
-  --kakari NAME   係とまとめのモデル（既定：haiku）
-  --slots N       同時に走るセッションの数（既定：3）
+  --kakari NAME   係のモデル（既定：haiku）
+  --slots N       同時に答えていられるセッションの数（既定：3）
   --claude CMD    Claude Code のコマンド（既定：claude）
   -h, --help      この使い方を出す`;
 
@@ -79,27 +79,28 @@ if (missing) process.stderr.write(`注意：${missing}\n`);
 // 止まる前に走っていたターンは、もう帰ってこない。そうとわかるように終わらせる（続きを頼めば同じ会話で動く）
 for (const x of log.state.sessions) if (x.status === "run") log.add("end", { session: x.id, error: "dyve を立て直したので止まった。続きを頼めば再開する" });
 
-const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude) });
-// 届け先は決まったのに、空きを待っていてまだ渡せていなかった発言は、いま渡す
-for (const s of log.state.said) {
-  const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
-  if (x && !s.canceled && !x.flow.some((f) => f.say === s.id)) sessions.send(x.id, s.id);
-}
+// 利用者の書き足し（用語.md・係.md・セッション.md）は、記録と同じフォルダに置く
+const place = path.dirname(file);
+// セッションに貸す道具の口の鍵（起動ごと）。口の URL はサーバーが待ちはじめてから決まる
+const mcpKey = crypto.randomBytes(16).toString("hex");
+const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude), user: place });
 // 係は道具を持たない。起きる場所は記録の隣の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(path.dirname(file), "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });
-const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir }) }).start();
-
-// まとめ：ターンが終わるたびに、要約と選択肢を書く。係と同じ場所・同じモデル
-const matome = new Matome({ log, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, prompt: BRIEF, schema: BRIEF_SCHEMA, key: "summary" }) }).start();
-const server = createServer({ log, sessions, room });
+const kakari = new Kakari({ log, sessions, ask: claudeAsk({ cmd: claude, model: v.kakari, cwd: kakariDir, user: place, name: "係" }) }).start();
+const server = createServer({ log, sessions, room, mcpKey });
 server.on("error", (e) => die(e.code === "EADDRINUSE" ? `ポート ${port} はもう使われている` : e.message));
 server.listen(port, "127.0.0.1", () => {
+  sessions.mcpUrl = (id) => `http://127.0.0.1:${server.address().port}/mcp/${mcpKey}/${id}`;
+  // 届け先は決まったのに、空きを待っていてまだ渡せていなかった発言は、いま渡す
+  for (const s of log.state.said) {
+    const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
+    if (x && !s.canceled && !x.flow.some((f) => f.say === s.id)) sessions.send(x.id, s.id);
+  }
   process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}\n`);
 });
 const quit = () => {
   kakari.stop();
-  matome.stop();
   sessions.stopAll();
   server.closeAll();
   process.exit(0);

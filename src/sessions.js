@@ -1,32 +1,38 @@
-// セッション：一つの仕事を受け持つ Claude Code の会話。一ターンが一つのプロセス（-p と stream-json）で、続きは --resume
-// 同じセッションを同時に二つ走らせない（動いているあいだに届いた発言は、終わってからまとめて渡す）。同時に走るのは slots まで
+// セッション：一つの仕事を受け持つ Claude Code の会話。セッションごとに Claude Code を起こしっぱなしにし（-p と stream-json の入出力）、
+// 発言は届いたらすぐ流し込む。動いている途中に届いた発言も、Claude Code が道具の合間に読む（差し込み）。
+// しばらく使わなければ閉じ、次に話しかけられたら --resume で同じ会話を起こし直す。同時に動いている（答えている途中の）セッションは slots まで
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cancelable, shown } from "./state.js";
+import { withUser } from "./user.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/セッション.md", import.meta.url));
-
+// 答え終えてから、この間だれも話しかけなければ閉じる（ミリ秒）
+const IDLE = 10 * 60 * 1000;
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
-// 起こすときの引数。頼む文は標準入力で渡す（- で始まる文が引数と取り違えられないように）
+// 起こすときの引数。発言は標準入力に stream-json で一通ずつ流す
 // 道具は絞らない。人に聞かずに進め、危ない操作だけを Claude Code の判定（auto）が止める
-export function claudeArgs({ prompt, resume = null, model = null }) {
+// mcp：dyve が貸す道具の口の URL（あれば --mcp-config で足し、その道具だけは聞かずに使えるようにする）
+export function claudeArgs({ prompt, resume = null, model = null, mcp = null }) {
   return [
     "-p",
+    "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
     ...(resume ? ["--resume", resume] : []),
     "--append-system-prompt", prompt,
     ...(model ? ["--model", model] : []),
     "--permission-mode", "auto",
+    ...(mcp ? ["--mcp-config", JSON.stringify({ mcpServers: { dyve: { type: "http", url: mcp } } }), "--allowedTools", "mcp__dyve__ask", "mcp__dyve__state"] : []),
   ];
 }
 
-// 本物の起こし方：job { args, cwd, prompt } と、出来事（stream-json の一行ずつ）を受ける emit
-// 返すもの：{ done: Promise<{ code, stderr }>, kill() }
+// 本物の起こし方：job { args, cwd } と、出来事（stream-json の一行ずつ）を受ける emit
+// 返すもの：{ done: Promise<{ code, stderr }>, write(text)（発言を一通流す）, end()（閉じる）, kill() }
 export function claudeSpawn(cmd = "claude") {
   return (job, emit) => {
     let child = null;
@@ -54,9 +60,13 @@ export function claudeSpawn(cmd = "claude") {
       child.stderr.on("data", (c) => { tail = (tail + c).slice(-2000); });
       child.on("close", (code) => { lines(true); resolve({ code, stderr: tail }); });
       child.stdin.on("error", () => {});
-      child.stdin.end(job.prompt);
     });
-    return { done, kill: () => child?.kill("SIGTERM") };
+    return {
+      done,
+      write: (text) => child?.stdin.writable && child.stdin.write(JSON.stringify({ type: "user", message: { role: "user", content: text } }) + "\n"),
+      end: () => child?.stdin.end(),
+      kill: () => child?.kill("SIGTERM"),
+    };
   };
 }
 
@@ -89,11 +99,13 @@ export function toolLine(name, input = {}) {
 }
 
 export class Sessions {
-  constructor({ log, spawn, room, model = null, slots = 3, prompt = null }) {
-    Object.assign(this, { log, spawn, room, model, slots });
+  // user：利用者の書き足し（用語.md とセッション.md）を置くフォルダ。起こすたびに読み直す
+  // mcpUrl(session)：そのセッションに貸す道具の口の URL（サーバーが待ちはじめてから決まる）
+  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE, user = null, mcpUrl = null }) {
+    Object.assign(this, { log, spawn, room, model, slots, idle, user, mcpUrl });
     this.prompt = prompt ?? fs.readFileSync(PROMPT, "utf8").trim();
-    this.pending = new Map(); // セッション -> まだ渡していない発言
-    this.running = new Map(); // セッション -> { kill, says, stopped }
+    this.pending = new Map(); // セッション -> 空きを待っている発言（動いているセッションが slots に達しているとき）
+    this.procs = new Map(); // セッション -> 起きている Claude Code { h, busy, says（いまのターンで渡した発言）, stopped, quiet, timer }
   }
 
   // 新しいセッション。返すのはその番号
@@ -103,36 +115,57 @@ export class Sessions {
     return id;
   }
 
+  busy() {
+    return [...this.procs.values()].filter((p) => p.busy).length;
+  }
+
+  // 発言を渡す。答えている途中なら、そのまま差し込む。空きがなければ待たせる
   send(session, say) {
     if (!this.log.state.sessions.some((x) => x.id === session)) return false;
-    if (!this.pending.has(session)) this.pending.set(session, []);
-    this.pending.get(session).push(say);
-    this.pump();
+    if (this.procs.get(session)?.busy || this.busy() < this.slots) this.deliver(session, [say]);
+    else {
+      if (!this.pending.has(session)) this.pending.set(session, []);
+      this.pending.get(session).push(say);
+    }
     return true;
   }
 
   pump() {
     for (const [session, says] of this.pending) {
-      if (this.running.size >= this.slots) return;
-      if (this.running.has(session) || !says.length) continue;
+      if (this.busy() >= this.slots) return;
       this.pending.delete(session);
-      this.start(session, says);
+      this.deliver(session, says);
     }
   }
 
-  start(session, says) {
+  deliver(session, says) {
     const x = this.log.state.sessions.find((y) => y.id === session);
+    const p = this.procs.get(session) ?? this.wake(session);
+    clearTimeout(p.timer);
     // 清書したものがあればそれを渡す
-    const text = says.map((id) => { const p = this.log.state.said.find((q) => q.id === id); return p?.fair ?? p?.text; }).filter(Boolean).join("\n\n");
+    const text = says.map((id) => { const q = this.log.state.said.find((r) => r.id === id); return q?.fair ?? q?.text; }).filter(Boolean).join("\n\n");
+    p.busy = true;
+    p.says.push(...says);
     this.log.add("turn", { session, says });
-    let claude = x.claude, result = null, failed = null;
+    // セッションは dyve のことを知らないので、毎回一行で添える：自分の記号と名前、ほかのセッションの記号・名前・最後の一行
+    // （「C の続き」「B のやつ」と呼ばれても通じるように）
+    const head = `［dyve：このセッションは ${x.sym}「${x.name}」。${rosterOf(this.log.state, session)}］`;
+    p.h.write(`${head}\n\n${text}`);
+  }
+
+  // Claude Code を起こす（前の会話があれば --resume で引き継ぐ）
+  wake(session) {
+    const x = this.log.state.sessions.find((y) => y.id === session);
+    const p = { busy: false, says: [], stopped: false, quiet: false, timer: null, claude: x.claude };
     const emit = (ev) => {
-      if (ev.session_id && ev.session_id !== claude) {
-        claude = ev.session_id;
-        this.log.add("bind", { session, claude });
+      if (ev.session_id && ev.session_id !== p.claude) {
+        p.claude = ev.session_id;
+        this.log.add("bind", { session, claude: p.claude });
       }
       // 行の中で呼ばれたもの（サブエージェント）の出来事は出さない
       if (ev.type === "assistant" && !ev.parent_tool_use_id) {
+        // 答え終えたあとに、差し込まれた発言でまた動きだしたら、動いていることにする
+        if (!p.busy) { p.busy = true; this.log.add("turn", { session, says: [] }); }
         for (const c of ev.message?.content ?? []) {
           if (c.type === "text" && c.text.trim()) this.log.add("step", { session, what: "text", text: c.text.trim() });
           if (c.type === "tool_use") this.log.add("step", { session, what: "tool", text: toolLine(c.name, c.input) });
@@ -143,36 +176,44 @@ export class Sessions {
         const q = quotaOf(ev.rate_limit_info), cur = this.log.state.quota;
         if (!cur || ["five", "fiveAt", "week", "weekAt", "status"].some((k) => cur[k] !== q[k])) this.log.add("quota", q);
       }
-      if (ev.type === "result") {
-        if (ev.is_error) failed = oneLine(ev.result || ev.subtype || "失敗した");
-        else result = String(ev.result ?? "").trim();
+      // ターンの終わり。プロセスは起こしたまま、次の発言を待つ
+      if (ev.type === "result" && !p.stopped) {
+        p.busy = false;
+        p.says = [];
+        this.log.add("end", ev.is_error
+          ? { session, claude: p.claude, error: oneLine(ev.result || ev.subtype || "失敗した") }
+          : { session, claude: p.claude, result: String(ev.result ?? "").trim() });
+        this.rest(session, p);
+        this.pump();
       }
     };
-    // セッションは dyve のことを知らないので、毎ターン一行で添える：自分の記号と名前、ほかのセッションの記号・名前・最後の一行
-    // （「C の続き」「B のやつ」と呼ばれても通じるように）
-    const head = `［dyve：このセッションは ${x.sym}「${x.name}」。${rosterOf(this.log.state, session)}］`;
-    const job = { args: claudeArgs({ prompt: this.prompt, resume: x.claude, model: this.model }), cwd: this.room, prompt: `${head}\n\n${text}` };
-    const h = this.spawn(job, emit);
-    const run = { kill: h.kill, says, stopped: false };
-    this.running.set(session, run);
-    h.done.then(({ code, stderr }) => {
-      this.running.delete(session);
-      if (run.stopped) this.log.add("end", { session, claude, stopped: true });
-      else {
-        if (result == null && !failed) failed = stderr?.trim() ? clip(oneLine(stderr.trim().split("\n").at(-1)), 200) : `結果を出さずに終わった（終了コード ${code}）`;
-        this.log.add("end", { session, claude, result, error: failed });
-      }
+    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
+    this.procs.set(session, p);
+    p.h.done.then(({ code, stderr }) => {
+      clearTimeout(p.timer);
+      if (this.procs.get(session) === p) this.procs.delete(session);
+      if (p.stopped) this.log.add("end", { session, claude: p.claude, stopped: true });
+      // 答えている途中で落ちたら、そうとわかるように終わらせる（しばらく使わなくて閉じたときは何も書かない）
+      else if (p.busy && !p.quiet) this.log.add("end", { session, claude: p.claude, error: stderr?.trim() ? clip(oneLine(stderr.trim().split("\n").at(-1)), 200) : `結果を出さずに終わった（終了コード ${code}）` });
       this.pump();
     });
+    return p;
   }
 
-  // 人が止める：待たせていた発言も渡さない。動いていなければ、まだ始まっていないものだけ止まったことにする
+  // 答え終えたら、しばらく待って閉じる（次に話しかけられたら起こし直す）
+  rest(session, p) {
+    clearTimeout(p.timer);
+    p.timer = setTimeout(() => { if (!p.busy) { p.quiet = true; p.h.end(); } }, this.idle);
+    p.timer.unref?.();
+  }
+
+  // 人が止める：答えている途中なら止め、待たせていた発言も渡さない。続きを話せば --resume で起き直す
   stop(session) {
     this.pending.delete(session);
-    const run = this.running.get(session);
-    if (run) {
-      run.stopped = true;
-      run.kill();
+    const p = this.procs.get(session);
+    if (p?.busy) {
+      p.stopped = true;
+      p.h.kill();
       return true;
     }
     const x = this.log.state.sessions.find((y) => y.id === session);
@@ -180,7 +221,7 @@ export class Sessions {
     return !!x;
   }
 
-  // 発言をセッションから引き上げる：順番待ちなら外し、いま答えているところなら止める
+  // 発言をセッションから引き上げる：空きを待っているなら外し、いま答えているところなら止める
   withdraw(say) {
     for (const [session, q] of this.pending) {
       const i = q.indexOf(say);
@@ -189,7 +230,7 @@ export class Sessions {
       if (!q.length) this.pending.delete(session);
       return;
     }
-    for (const [session, run] of this.running) if (run.says.includes(say)) return void this.stop(session);
+    for (const [session, p] of this.procs) if (p.busy && p.says.includes(say)) return void this.stop(session);
   }
 
   // 取り消す：まだ答え終えていない発言だけ
@@ -216,6 +257,6 @@ export class Sessions {
 
   stopAll() {
     this.pending.clear();
-    for (const run of this.running.values()) { run.stopped = true; run.kill(); }
+    for (const p of this.procs.values()) { p.quiet = true; p.h.kill(); }
   }
 }
