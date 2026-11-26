@@ -714,7 +714,19 @@ function open(id) {
   $("main").scrollTop = peek == null ? 0 : $("main").scrollHeight;
 }
 
+// web のリンクは、別ウィンドウ一枚を名前で使い回して開く（押すたびに窓やタブを増やさない。dyve を読み直しても同じ窓）。
+// 使い回すには opener を残すしかない（切ると dyve から窓を移せない）。窓は前に出さない
+function openView(url) {
+  window.open(url, "dyve-view", "popup,width=1100,height=900");
+}
+
 document.addEventListener("click", (e) => {
+  // 修飾キー付き・中ボタンは、ブラウザのいつもの開き方に任せる
+  const w = e.target.closest('a[target="_blank"]');
+  if (w && /^https?:/.test(w.href) && e.button === 0 && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+    e.preventDefault();
+    return void openView(w.href);
+  }
   // 手元のファイルの場所は、ブラウザでは開けないので dyve に開いてもらう
   const f = e.target.closest("a[data-open]");
   if (f) {
