@@ -17,11 +17,18 @@
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); }
-body { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; height: 100vh; }
-@media (max-width: 760px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; } #chat { order: 2; border-right: 0; border-top: 1px solid var(--line); } }
+body { display: grid; grid-template-columns: minmax(min(280px, var(--chat, 340px)), var(--chat, 340px)) minmax(0, 1fr); height: 100vh; }
+@media (max-width: 760px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; } #chat { order: 2; border-right: 0; border-top: 1px solid var(--line); } .split { display: none; } }
+/* 幅を変える取っ手：左のチャットの右端と、右のパネルの左端。ダブルクリックで元の幅に戻る */
+.split { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; touch-action: none; }
+.split::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 1px; }
+.split:hover::after, body.dragging .split::after { background: color-mix(in srgb, var(--run) 45%, transparent); }
+#chat > .split { right: -4px; }
+.side > .split { left: -12px; }
+body.dragging, body.dragging * { cursor: col-resize !important; user-select: none; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 
-#chat { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
+#chat { position: relative; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
 #top { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--sub); }
 #top .brand { font-weight: 700; color: var(--ink); margin-right: auto; }
 #top button:hover { color: var(--ink); }
@@ -100,10 +107,17 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 #peek .bar { display: flex; align-items: baseline; gap: 10px; position: sticky; top: -14px; z-index: 1; margin: -14px -14px 12px; padding: 12px 14px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
 #peek .bar button { color: var(--sub); }
 #peek .bar button:hover { color: var(--ink); }
-.body { display: grid; grid-template-columns: minmax(0, 860px) minmax(220px, 300px); gap: 16px; align-items: start; }
+#peek .bar [data-side] { flex: none; align-self: center; }
+#peek .bar [data-side][aria-pressed="true"] { color: var(--ink); }
+.body { display: grid; grid-template-columns: minmax(0, 860px) minmax(min(220px, var(--side, 300px)), var(--side, 300px)); gap: 16px; align-items: start; }
 .body.solo { grid-template-columns: minmax(0, 860px); }
 .side { position: sticky; top: 56px; }
-@media (max-width: 1100px) { .body { grid-template-columns: minmax(0, 1fr); } .side { position: static; order: -1; } }
+/* 画面が広いとき：本文と見出しの帯を真ん中に寄せ、帯の右端が本文から離れないようにする */
+#peek { --w: calc(876px + var(--side, 300px)); }
+#peek:has(.body.solo) { --w: 860px; }
+#peek .body { max-width: var(--w); margin-inline: auto; }
+#peek .bar { padding-inline: max(14px, calc((100% - var(--w)) / 2 + 14px)); }
+@media (max-width: 1100px) { .body { grid-template-columns: minmax(0, 1fr); } .side { position: static; order: -1; } .side > .split { display: none; } }
 /* 見出しの帯の右：情報の札（アイコンと短い名前） */
 .info { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .info a { display: inline-flex; align-items: center; gap: 4px; max-width: 180px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 12px; text-decoration: none; }
@@ -204,7 +218,7 @@ a.file code { color: inherit; }
   <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
-  <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div>
+  <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
 </section>
 <main>
   <div id="cards"></div>
@@ -224,6 +238,9 @@ const L = {
   to: (sym, name) => `→ ${sym} ${name}`,
   failed: "置けなかった。Enter でもう一度",
   close: "← 一覧",
+  split: "ドラッグで幅を変える（ダブルクリックで戻す）",
+  sideShow: "右のパネルを出す",
+  sideHide: "右のパネルを隠す",
   status: { idle: "まだ", run: "実行中", wait: "待ち", fail: "失敗", stop: "止めた" },
   cancel: "取り消す",
   canceled: "取り消した",
@@ -428,6 +445,8 @@ const ses = (id) => state.sessions.find((x) => x.id === id);
 
 const svg = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICON = {
+  // 右のパネル：右に縦の仕切りがある枠
+  side: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>'),
   // 送り先を変える：行き先を入れ替える矢印
   move: svg('<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>'),
   // 畳む：内側へ寄せる矢印。広げる：外へ開く矢印
@@ -438,6 +457,49 @@ const ICON = {
   // 取り消す：丸にバツ
   cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
 };
+
+// 幅と右のパネル：この画面を見る人の好み。ブラウザに覚え、読めなくても既定の幅で描く
+const layout = (() => { try { return JSON.parse(localStorage.getItem("dyve.layout")) ?? {}; } catch { return {}; } })();
+const saveLayout = () => { try { localStorage.setItem("dyve.layout", JSON.stringify(layout)); } catch {} };
+const applyLayout = () => {
+  for (const k of ["chat", "side"]) layout[k] ? document.documentElement.style.setProperty(`--${k}`, `${layout[k]}px`) : document.documentElement.style.removeProperty(`--${k}`);
+};
+applyLayout();
+$("[data-split=chat]").title = L.split;
+// 取っ手を引く：取っ手が指の下に来るように幅を合わせる（右のパネルは真ん中寄せで動きが半分になるので、何度か寄せる）
+let drag = null;
+const MIN = { chat: 220, side: 180 }, MAX = { chat: () => innerWidth - 360, side: () => 640 };
+document.addEventListener("pointerdown", (e) => {
+  const h = e.target.closest?.("[data-split]");
+  if (!h || e.button !== 0) return;
+  e.preventDefault();
+  drag = h.dataset.split;
+  layout[drag] = (drag === "chat" ? $("#chat") : h.parentElement).getBoundingClientRect().width;
+  document.body.classList.add("dragging");
+});
+addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  for (let i = 0; i < 4; i++) {
+    const h = $(`[data-split=${drag}]`);
+    if (!h) break;
+    const r = h.getBoundingClientRect(), err = r.left + r.width / 2 - e.clientX;
+    if (Math.abs(err) < 1) break;
+    const w = Math.round(Math.min(Math.max(layout[drag] + (drag === "chat" ? -err : err), MIN[drag]), MAX[drag]()));
+    if (w === layout[drag]) break;
+    layout[drag] = w;
+    applyLayout();
+  }
+});
+const endDrag = () => { if (!drag) return; drag = null; document.body.classList.remove("dragging"); saveLayout(); };
+addEventListener("pointerup", endDrag);
+addEventListener("pointercancel", endDrag);
+document.addEventListener("dblclick", (e) => {
+  const h = e.target.closest?.("[data-split]");
+  if (!h) return;
+  delete layout[h.dataset.split];
+  applyLayout();
+  saveLayout();
+});
 
 // 取り消せるか（サーバーの cancelable と同じ決まり）
 const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
@@ -576,10 +638,10 @@ function renderPeek() {
   const el = $("#peek"), x = ses(peek);
   if (!x || x.hidden) { peek = null; return renderCards(); }
   seen.set(x.id, x.endedAt);
-  const main = $("main"), keep = atBottom(main);
+  const main = $("main"), keep = atBottom(main), side = x.tree?.length && !layout.sideOff;
   el.innerHTML = `
-    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}</div>
-    <div class="body${x.tree?.length ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${asksOf(x)}</div>${x.tree?.length ? `<aside class="side">${treeOf(x)}</aside>` : ""}</div>`;
+    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
+    <div class="body${side ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${asksOf(x)}</div>${side ? `<aside class="side"><div class="split" data-split="side" title="${esc(L.split)}"></div>${treeOf(x)}</aside>` : ""}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
@@ -734,6 +796,7 @@ document.addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");
   if (go) return open(Number(go.dataset.go));
   if (e.target.closest("[data-close]")) open(null);
+  if (e.target.closest("[data-side]")) { layout.sideOff = !layout.sideOff; saveLayout(); return renderPeek(); }
   // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
   if (e.target.closest("[data-reset]")) post("/api/reset").then(() => open(null));
   if (t("[data-gear]")) { gear = !gear; return renderSettings(); }
