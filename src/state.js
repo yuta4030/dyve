@@ -18,6 +18,7 @@
 //   links { rules }                        リンクの決まり（当てはまる言葉を押せるようにする）。まるごと置き換える
 //   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
 //   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）。外したものは履歴に残る
+//   restore { era }                        履歴の区切り（era はそのリセットの seq）に戻る。いまの画面は履歴へ入る
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
 
 // 記号：A〜Z、そのあと AA, AB…
@@ -48,7 +49,7 @@ export function linkRules(rules) {
 
 // since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
 // room：これから起こすセッションの場所（null なら起動したときの --room）。rooms：使った場所（新しいほうから）
-// history：リセットで外した区切り（古いほうから）。{ at, chat, sessions（外したセッションの番号） }
+// history：リセットで外した区切り（古いほうから）。{ at, seq, since, chat, sessions（外したセッションの番号） }
 export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null, links: [], room: null, rooms: [], history: [] });
 
 // 一覧に出ているセッション
@@ -94,6 +95,7 @@ export const KINDS = {
   asks: (b) => ({ session: need(b.session, "セッション"), questions: Array.isArray(b.questions) ? b.questions : [] }),
   tree: (b) => ({ session: need(b.session, "セッション"), groups: Array.isArray(b.groups) ? b.groups : [] }),
   reset: () => ({}),
+  restore: (b) => ({ era: need(b.era, "区切り") }),
   undo: () => ({}),
 };
 
@@ -116,6 +118,17 @@ export const rewindable = (x, say) => {
   const i = x.turns?.findIndex((t) => t.say === say) ?? -1;
   return i === 0 || (i > 0 && !!x.turns[i - 1].mark);
 };
+
+// いまの画面を履歴へ入れる：チャットを空にし、止まっているセッションを一覧から外す（動いているもの・まだ始まっていないものは残す）
+// 返すもの：外したセッションの番号
+function shelve(state, r) {
+  const hide = shown(state).filter((x) => x.status !== "run" && x.status !== "idle");
+  if (state.chat.length || hide.length) state.history.push({ at: r.at, seq: r.seq, since: state.since, chat: state.chat, sessions: hide.map((x) => x.id) });
+  for (const x of hide) x.hidden = true;
+  state.chat = [];
+  state.since = r.seq;
+  return hide.map((x) => x.id);
+}
 
 export function step(state, r) {
   state.seq = r.seq;
@@ -266,14 +279,26 @@ export function step(state, r) {
       state.settings[r.key] = SETTINGS[r.key]?.includes(r.value) ? r.value : SETTINGS[r.key]?.[0];
       break;
     case "reset": {
-      // 動いているもの・まだ始まっていないものは残す（仕事を落とさない）
-      const hide = shown(state).filter((x) => x.status !== "run" && x.status !== "idle");
-      state.undo = { since: state.since, chat: state.chat, hidden: hide.map((x) => x.id), seq: r.seq };
-      // 外したものは履歴に残す（読み返すだけ。トークンは使わない）
-      if (state.chat.length || hide.length) state.history.push({ at: r.at, seq: r.seq, chat: state.chat, sessions: hide.map((x) => x.id) });
-      for (const x of hide) x.hidden = true;
-      state.chat = [];
-      state.since = r.seq;
+      const before = { since: state.since, chat: state.chat };
+      state.undo = { ...before, hidden: shelve(state, r), seq: r.seq };
+      break;
+    }
+    case "restore": {
+      // 履歴の区切りに戻る：いまの画面はリセットと同じく履歴へ入れ、その区切りのチャットとセッションを戻す
+      const h = state.history.find((e) => e.seq === r.era);
+      if (!h) break;
+      shelve(state, r);
+      state.history = state.history.filter((e) => e !== h);
+      for (const id of h.sessions) {
+        const x = ses(id);
+        if (!x) continue;
+        // 今も一覧にあるもの（動いていて外さなかったもの）と記号がぶつかれば、空いた記号に付け直す
+        if (shown(state).some((y) => y.sym === x.sym)) x.sym = freeSym(state);
+        x.hidden = false;
+      }
+      state.chat = [...h.chat, ...state.chat];
+      state.since = h.since ?? 0;
+      state.undo = null;
       break;
     }
     case "undo": {

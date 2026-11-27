@@ -137,3 +137,21 @@ test("巻き戻すときファイルも戻すと、その発言の時点を Clau
   assert.equal(fs.readFileSync(path.join(dir, "rewound.txt"), "utf8"), `${s.sessions[0].claude} ${t.prompt}`);
   await stop();
 });
+
+test("リセットした会話に履歴から戻ると、同じセッションで続きを頼める", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-e2e-"));
+  const { base, stop } = await serve(dir);
+  const post = (u, b) => fetch(`${base}${u}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  await say(base, "料金を調べて");
+  let s = await until(base, (s) => s.sessions[0]?.status === "wait");
+  const claude = s.sessions[0].claude;
+  await post("/api/reset", {});
+  s = await state(base);
+  assert.equal((await post("/api/restore", { era: 999 })).status, 404);
+  assert.equal((await post("/api/restore", { era: s.history[0].seq })).status, 200);
+  await say(base, "A は年払いも");
+  s = await until(base, (s) => s.sessions[0].status === "wait" && /年払い/.test(s.sessions[0].last));
+  assert.equal(s.sessions[0].claude, claude);
+  assert.match(s.sessions[0].last, /（続き）/);
+  await stop();
+});

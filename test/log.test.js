@@ -102,6 +102,33 @@ test("リセットで外したものは履歴に残る。リセットを戻せ�
   assert.equal(log.state.history.length, 1);
 });
 
+test("履歴の区切りに戻る：いまの画面は履歴へ入り、その区切りのチャットとセッションが戻る。記号がぶつかれば付け直す", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "料金" });
+  const a = log.add("say", { text: "料金を" }).seq;
+  log.add("end", { session: 1, result: "答え" });
+  log.add("open", { session: 2, name: "動いている" });
+  log.add("turn", { session: 2, says: [] });
+  const era = log.add("reset").seq;
+  // リセットのあとに起きたセッションは、空いた A をもらう
+  log.add("open", { session: 3, name: "新しい" });
+  const b = log.add("say", { text: "新しい話" }).seq;
+  log.add("end", { session: 3, result: "答え" });
+  log.add("restore", { era });
+  const s = log.state;
+  assert.deepEqual(s.sessions.map((x) => [x.id, x.sym, !!x.hidden]), [[1, "A", false], [2, "B", false], [3, "A", true]]);
+  assert.deepEqual(s.chat.map((c) => c.say ?? c.reply), [a, 1]);
+  assert.equal(s.since, 0);
+  // いまの画面だったものが、履歴に入っている
+  assert.equal(s.history.length, 1);
+  assert.deepEqual(s.history[0].sessions, [3]);
+  assert.deepEqual(s.history[0].chat.map((c) => c.say ?? c.reply), [b, 3]);
+  // そこへまた戻れる。動いている B と A がぶつからないように付け直す
+  log.add("restore", { era: s.history[0].seq });
+  assert.deepEqual(log.state.sessions.map((x) => [x.id, x.sym, !!x.hidden]), [[1, "A", true], [2, "B", false], [3, "A", false]]);
+  assert.equal(log.state.undo, null);
+});
+
 test("作業する場所：これから起こすセッションの場所を変える。使った場所は新しいほうから覚える", () => {
   const log = new Log();
   log.add("room", { path: "/a" });

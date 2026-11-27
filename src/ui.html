@@ -52,7 +52,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #history .bar { display: flex; align-items: baseline; gap: 10px; color: var(--sub); font-size: 12px; }
 #history .bar button:hover { color: var(--ink); }
 #history .era { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-#history .when { font-size: 12px; color: var(--sub); }
+#history .when { font-size: 12px; color: var(--sub); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #history .first { font-weight: 600; }
 #history .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 #history details summary { font-size: 12px; color: var(--sub); cursor: pointer; }
@@ -339,13 +339,14 @@ const L = {
   roomBad: (m) => `場所を変えられなかった：${m}`,
   roomOf: (p) => `${p} で起きた`,
   history: "履歴",
-  historyTitle: "リセットで外したものを読み返す（トークンは使わない）",
-  historyHead: "リセットで外したもの。読み返すだけで、続きは頼めない（頼むと長い会話をまた読み込むため）",
+  historyTitle: "リセットで外した会話（押すと戻れる）",
+  historyHead: "リセットで外した会話。戻ると、今の画面は履歴に入る",
+  eraBack: "戻る",
+  eraBackTitle: "この会話に戻る（続きを話せば、同じセッションで再開する）",
   historyClose: "履歴を閉じる",
   historyEmpty: "まだリセットしていない",
   historyWhen: (t, n) => `${t} にリセット・セッション ${n} 本`,
   historyChat: (n) => `チャット（${n}）`,
-  readOnly: "履歴：読み返すだけ",
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
   undo: "元に戻す",
@@ -473,7 +474,7 @@ function md(src) {
 
 // 巻き戻せるか（サーバーの rewindable と同じ決まり）
 const rewindable = (x, say) => {
-  if (!x || x.hidden || say == null || x.status === "run" || x.status === "idle") return false;
+  if (!x || say == null || x.status === "run" || x.status === "idle") return false;
   const i = x.turns?.findIndex((t) => t.say === say) ?? -1;
   return i === 0 || (i > 0 && !!x.turns[i - 1].mark);
 };
@@ -750,13 +751,12 @@ function asksOf(x) {
 
 function renderPeek() {
   const el = $("#peek"), x = ses(peek);
-  // 一覧から外れたものは、履歴から開いたときだけ見せる（読み返すだけ）
-  if (!x || (x.hidden && !hist)) { peek = null; return renderCards(); }
+  if (!x || x.hidden) { peek = null; return renderCards(); }
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main), side = x.tree?.length && !layout.sideOff;
   el.innerHTML = `
-    <div class="bar">${iconBtn("data-close", ICON.back, L.close)}<span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${x.hidden ? `<span class="room">${esc(L.readOnly)}</span>` : roomTag(x)}${busy(x) ? iconBtn(`data-stop="${x.id}"`, ICON.stop, L.stop, "act") : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
-    <div class="body${side ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${x.hidden ? "" : asksOf(x)}</div>${side ? `<aside class="side"><div class="split" data-split="side" title="${esc(L.split)}"></div>${treeOf(x)}</aside>` : ""}</div>`;
+    <div class="bar">${iconBtn("data-close", ICON.back, L.close)}<span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}${busy(x) ? iconBtn(`data-stop="${x.id}"`, ICON.stop, L.stop, "act") : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
+    <div class="body${side ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${asksOf(x)}</div>${side ? `<aside class="side"><div class="split" data-split="side" title="${esc(L.split)}"></div>${treeOf(x)}</aside>` : ""}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
@@ -836,6 +836,8 @@ function renderRoom() {
 
 // 履歴：リセットで外した区切りを新しいほうから。セッションは押すと読み返せる
 let hist = false; // 履歴を見ているか（画面の中だけ）
+let opening = null; // 履歴から戻して開くセッション（一覧に戻ってきたら開く。届く順は決まっていないため）
+const openBack = () => { const x = ses(opening); if (x && !x.hidden) { const id = opening; opening = null; open(id); } };
 function renderHistory() {
   const said = new Map(state.said.map((s) => [s.id, s]));
   const eras = [...(state.history ?? [])].reverse();
@@ -847,12 +849,12 @@ function renderHistory() {
       return x ? `<div class="r">${esc(x.sym)}　${esc(headOf(c.text))}</div>` : "";
     }).join("");
     const first = h.chat.map((c) => said.get(c.say)).find(Boolean);
-    return `<div class="era"><div class="when">${esc(L.historyWhen(whenOf(h.at), xs.length))}</div>` +
+    return `<div class="era"><div class="when">${esc(L.historyWhen(whenOf(h.at), xs.length))}${chipBtn(`data-era="${h.seq}"`, ICON.undo, L.eraBack, L.eraBackTitle)}</div>` +
       (first ? `<div class="first">${esc(first.fair ?? first.text)}</div>` : "") +
-      (xs.length ? `<div class="tags">${xs.map((x) => `<span class="tag" data-go="${x.id}" title="${esc(headOf(x.last))}"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></span>`).join("")}</div>` : "") +
+      (xs.length ? `<div class="tags">${xs.map((x) => `<span class="tag" data-era-go="${h.seq}:${x.id}" title="${esc(headOf(x.last))}"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></span>`).join("")}</div>` : "") +
       (h.chat.length ? `<details><summary>${esc(L.historyChat(h.chat.length))}</summary><div class="lines">${lines}</div></details>` : "") + `</div>`;
   };
-  $("#history").innerHTML = `<div class="bar"><span>${esc(L.historyHead)}</span><button class="icon" data-history-close title="${esc(L.historyClose)}" aria-label="${esc(L.historyClose)}">${ICON.close}</button></div>` +
+  $("#history").innerHTML = `<div class="bar"><span>${esc(L.historyHead)}</span>${iconBtn("data-history-close", ICON.close, L.historyClose)}</div>` +
     (eras.length ? eras.map(era).join("") : `<div class="empty">${esc(L.historyEmpty)}</div>`);
 }
 
@@ -990,6 +992,14 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("[data-close]")) open(null);
   if (t("[data-roomchip]")) { gear = true; return renderSettings(); }
   if (t("[data-room-pick]")) return void setRoom(t("[data-room-pick]").dataset.roomPick);
+  // 履歴の会話に戻る（セッションを押したら、戻ってそのセッションを開く）
+  if (t("[data-era]")) { hist = false; return void post("/api/restore", { era: Number(t("[data-era]").dataset.era) }).then(() => open(null)); }
+  if (t("[data-era-go]")) {
+    const [era, id] = t("[data-era-go]").dataset.eraGo.split(":").map(Number);
+    hist = false;
+    opening = id;
+    return void post("/api/restore", { era }).then(openBack);
+  }
   if (t("[data-history]") || t("[data-history-close]")) { hist = !hist && !t("[data-history-close]"); peek = null; return render(); }
   if (e.target.closest("[data-side]")) { layout.sideOff = !layout.sideOff; saveLayout(); return renderPeek(); }
   // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
@@ -1039,6 +1049,7 @@ function connect() {
     // 開いたときに終わっていたものには印を付けない
     if (first) for (const x of state.sessions) seen.set(x.id, x.endedAt);
     render();
+    if (opening != null) openBack();
     first = false;
     if ($("#note").textContent === L.lost) $("#note").textContent = "";
   });
@@ -1054,8 +1065,7 @@ async function post(url, body = {}) {
   }
 }
 
-// 履歴から読み返しているセッション（一覧から外れたもの）は、届け先の手がかりにしない
-const say = (text) => post("/api/say", { text, ...(peek != null && !ses(peek)?.hidden ? { peek } : {}) });
+const say = (text) => post("/api/say", { text, ...(peek != null ? { peek } : {}) });
 
 // 声と打鍵の見分け：入力の直前にキーが押されていればキーボード（OS の音声入力はキーを押さずに文字が入る）
 // 声だけなら、間があいたら置く。書きかけに一文字でも打ったら、その書きかけは Enter まで待つ。欄が空になったら声に戻る
