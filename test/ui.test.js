@@ -23,7 +23,11 @@ test("画面の言葉は L にまとめる", () => {
 
 test("ダイアログを出さない・フォーカスを奪わない・音を鳴らさない", () => {
   assert.doesNotMatch(script, /\b(alert|confirm|prompt)\s*\(/);
-  assert.doesNotMatch(script, /\.focus\s*\(|autofocus/);
+  // フォーカスを動かすのは keyFocus の中だけで、それを呼ぶのは画面のモードで人が i か / を押したときだけ
+  assert.deepEqual(script.match(/\.focus\s*\(/g), [".focus("]);
+  assert.match(script, /^function keyFocus\(el\) \{\n  el\.focus\(\);\n\}$/m);
+  assert.equal(script.match(/keyFocus\(/g).length, 2);
+  assert.doesNotMatch(script, /autofocus/);
   assert.doesNotMatch(html, /autofocus/);
   assert.doesNotMatch(script, /new Audio|AudioContext|\.play\s*\(|speechSynthesis/);
   assert.doesNotMatch(script, /scrollIntoView/);
@@ -38,6 +42,32 @@ test("ボタンは文字で作らない（アイコンか、チップ）", () =>
   const text = [...script.matchAll(/<button(?![^>]*class="[^"]*\b(?:pill|qref)\b)[^>]*>(\$\{esc\(L\.|[^<$\s])/g)].map((m) => m[0]);
   assert.deepEqual(text, []);
   assert.doesNotMatch(script, /\$\("\[data-(?:reset|undo|history)\]"\)\.textContent/);
+});
+
+test("vim の編集：動く・消す・変える・写す・戻す。日本語は文字の種類で単語を切る", () => {
+  const vimKey = fn("vimKey");
+  const run = (text, pos, keys, mode = "normal") => { let v = { text, pos, mode, pend: "", reg: "", undo: [] }, act = null; for (const k of keys) ({ v, act } = vimKey(v, k)); return { ...v, act }; };
+  const pick = (r) => [r.text, r.pos, r.mode];
+  assert.deepEqual(pick(run("abc", 3, ["Escape"], "insert")), ["abc", 2, "normal"]);
+  assert.equal(vimKey({ text: "", pos: 0, mode: "insert", pend: "", reg: "", undo: [] }, "a").handled, false);
+  assert.deepEqual(pick(run("hello world foo", 0, ["w", "w"])), ["hello world foo", 12, "normal"]);
+  assert.deepEqual(pick(run("hello world", 8, ["b"])), ["hello world", 6, "normal"]);
+  assert.deepEqual(pick(run("hello world", 0, ["e"])), ["hello world", 4, "normal"]);
+  assert.deepEqual(pick(run("料金を調べて", 0, ["w"])), ["料金を調べて", 2, "normal"]);
+  assert.deepEqual(pick(run("a\nbb\nccc", 0, ["j", "j", "$"])), ["a\nbb\nccc", 7, "normal"]);
+  assert.deepEqual(pick(run("a\nbb\nccc", 7, ["k", "0"])), ["a\nbb\nccc", 2, "normal"]);
+  assert.deepEqual(pick(run("hello world", 0, ["d", "w"])), ["world", 0, "normal"]);
+  assert.deepEqual(pick(run("hello world", 6, ["c", "w"])), ["hello ", 6, "insert"]);
+  assert.deepEqual(pick(run("a\nbb\nccc", 3, ["d", "d", "p"])), ["a\nccc\nbb", 6, "normal"]);
+  assert.deepEqual(pick(run("abc", 1, ["x", "u"])), ["abc", 1, "normal"]);
+  assert.deepEqual(pick(run("abc", 1, ["r", "Z"])), ["aZc", 1, "normal"]);
+  assert.deepEqual(pick(run("abc", 1, ["D"])), ["a", 0, "normal"]);
+  assert.deepEqual(pick(run("abc", 0, ["A"])), ["abc", 3, "insert"]);
+  assert.deepEqual(pick(run("ab", 0, ["o"])), ["ab\n", 3, "insert"]);
+  assert.equal(run("abc", 0, ["Enter"]).act, "send");
+  assert.equal(run("abc", 0, ["Escape"]).act, "leave");
+  // ノーマルでは、知らないキーで文字が入らない
+  assert.deepEqual(pick(run("abc", 0, ["q", "z"])), ["abc", 0, "normal"]);
 });
 
 test("幅と右のパネルはブラウザに覚え、読めなくても既定の幅で描く", () => {

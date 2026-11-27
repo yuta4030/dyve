@@ -143,6 +143,11 @@ export function createServer({ log, sessions = null, room = null, shell = proces
       }
       // リセットと、それを戻す。どちらも記録に一件足すだけで、何も消さない
       if (route === "POST /api/reset") return json(200, { ok: true, record: log.add("reset") });
+      if (route === "POST /api/restore") {
+        const b = await readJson(req);
+        if (!log.state.history.some((e) => e.seq === b.era)) return json(404, { ok: false, message: "その履歴はない" });
+        return json(200, { ok: true, record: log.add("restore", { era: b.era }) });
+      }
       if (route === "POST /api/undo") {
         if (!log.state.undo) return json(409, { ok: false, message: "戻せるリセットがない" });
         return json(200, { ok: true, record: log.add("undo") });
