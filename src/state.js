@@ -1,15 +1,18 @@
 // 状態：記録を頭から一件ずつ当てて作る。データに持つのは記録だけで、状態はいつも作り直せる
 //   say   { id, text, peek, to }           人の発言（to は、人が選択肢を押して届け先を決めて言ったもの）
-//   route { say, session | null, error }   届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
+//   route { say, session | null, error, fair, ref, from, quote } 届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
+//                                          ref・from・quote は発言の「それ」が指すもの（前の発言の id、セッションとそのときの最後の答え）
 //   fold  { session, on }                  人がカードを畳んだ（on）・広げた
 //   cancel { say }                         人が発言を取り消した
+//   rewind { session, say, files }         人がセッションを、その発言の手前まで巻き戻した（say はターンの最初の発言。files ならファイルも戻した）
+//   prompt { session, say, uuid }          渡した発言の、Claude Code での ID（ファイルをその時点に戻すときの目印）
 //   asks  { session, questions }           セッションが dyve の道具（ask）で人に聞いた。前の質問は置き換わる。空なら質問を下げる
 //   tree  { session, groups }              セッションが dyve の道具（state）で書いた、決まったこと・まだのことの木
 //   open  { session, name }                新しいセッション
 //   turn  { session, says }                セッションに発言を渡した（答えている途中なら差し込み）。says が空なら、差し込まれた発言でまた動きだした
 //   bind  { session, claude }              Claude Code の会話の ID が届いた（立て直しても続きを頼めるように、すぐ書く）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
-//   end   { session, claude, result, error, stopped } ターンが終わった（stopped は人が止めた）
+//   end   { session, claude, result, error, stopped, mark } ターンが終わった（stopped は人が止めた。mark はそのターンの最後の答えの ID）
 //   quota { five, fiveAt, week, weekAt, status } Claude の利用枠（使った割合 0〜1 と、戻る時刻の秒）。変わったときだけ
 //   links { rules }                        リンクの決まり（当てはまる言葉を押せるようにする）。まるごと置き換える
 //   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
@@ -63,7 +66,9 @@ const need = (v, what) => {
 // 種類ごとの、記録に書く中身の作り方（足りなければ断る）
 export const KINDS = {
   say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null, ...(Number.isInteger(b.to) ? { to: b.to } : {}) }),
-  route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}) }),
+  route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}),
+    ...(Array.isArray(b.ref) && b.ref.length ? { ref: b.ref.filter(Number.isInteger) } : {}),
+    ...(Number.isInteger(b.from) && b.quote ? { from: b.from, quote: String(b.quote) } : {}) }),
   quota: (b) => {
     const n = (v) => (Number.isFinite(v) ? v : null);
     return { five: n(b.five), fiveAt: n(b.fiveAt), week: n(b.week), weekAt: n(b.weekAt), status: String(b.status ?? "allowed") };
@@ -77,7 +82,9 @@ export const KINDS = {
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
   bind: (b) => ({ session: need(b.session, "セッション"), claude: need(b.claude, "会話") }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
-  end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}) }),
+  end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}), ...(b.mark ? { mark: String(b.mark) } : {}) }),
+  rewind: (b) => ({ session: need(b.session, "セッション"), say: need(b.say, "発言"), ...(b.files ? { files: true } : {}) }),
+  prompt: (b) => ({ session: need(b.session, "セッション"), say: need(b.say, "発言"), uuid: String(need(b.uuid, "ID")) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
   fold: (b) => ({ session: need(b.session, "セッション"), on: !!b.on }),
   asks: (b) => ({ session: need(b.session, "セッション"), questions: Array.isArray(b.questions) ? b.questions : [] }),
@@ -98,6 +105,13 @@ function noteInfo(x, line) {
 
 // まだ取り消せる発言：届けていて（または届け先を決めているところで）、セッションがまだ答え終えていないもの
 export const cancelable = (s) => !!s && !s.canceled && !s.done && s.session !== null;
+
+// 巻き戻せるか：止まっていて、その発言がターンの最初で、一つ前のターンの終わりがわかっている（最初のターンなら新しく始める）
+export const rewindable = (x, say) => {
+  if (!x || x.status === "run" || x.status === "idle") return false;
+  const i = x.turns?.findIndex((t) => t.say === say) ?? -1;
+  return i === 0 || (i > 0 && !!x.turns[i - 1].mark);
+};
 
 export function step(state, r) {
   state.seq = r.seq;
@@ -124,6 +138,9 @@ export function step(state, r) {
       s.done = false;
       // 清書した文（元の文は text に残す）。元と同じなら持たない
       if (r.fair && r.fair !== s.text) s.fair = r.fair;
+      // 「それ」が指すもの。人が付け替えたとき（ref も from もない route）は、前のものを残す
+      if (r.ref) s.ref = r.ref;
+      if (r.from != null) Object.assign(s, { from: r.from, quote: r.quote });
       if (old != null && old !== s.session) orphan(old);
       break;
     }
@@ -134,7 +151,7 @@ export function step(state, r) {
     }
     case "tree": {
       const x = ses(r.session);
-      if (x) x.tree = r.groups;
+      if (x) { x.tree = r.groups; (x.trees ??= []).push({ seq: r.seq, groups: r.groups }); }
       break;
     }
     case "fold": {
@@ -157,6 +174,8 @@ export function step(state, r) {
       const x = ses(r.session);
       if (!x) break;
       // 答えている途中に届いた発言（差し込み）は、いまのターンに足す
+      // 止まっているところから発言で始まったターンは、巻き戻せる区切りとして覚える
+      if (x.status !== "run" && r.says.length) (x.turns ??= []).push({ say: r.says[0], seq: r.seq, flowAt: x.flow.length, mark: null });
       x.turn = x.status === "run" ? [...(x.turn ?? []), ...r.says] : r.says;
       // 畳んでいたものも、また動きだしたら広げる（もう終わっていないので）
       x.folded = false;
@@ -169,7 +188,7 @@ export function step(state, r) {
     }
     case "bind": {
       const x = ses(r.session);
-      if (x) x.claude = r.claude;
+      if (x) { x.claude = r.claude; x.resumeAt = null; }
       break;
     }
     case "step": {
@@ -184,6 +203,7 @@ export function step(state, r) {
       const x = ses(r.session);
       if (!x) break;
       if (r.claude) x.claude = r.claude;
+      if (r.mark && x.turns?.length) x.turns.at(-1).mark = r.mark;
       // 答え終えた発言（ほかへ付け替えたものは除く）。人が止めたときは、待たせていた発言も渡さないので同じく終える
       for (const s of state.said) if (s.session === x.id && ((x.turn ?? []).includes(s.id) || r.stopped)) s.done = true;
       x.turn = [];
@@ -200,6 +220,31 @@ export function step(state, r) {
       x.last = r.error ? r.error : r.result?.trim() ? r.result : said ?? x.last;
       if (r.error) x.flow.push({ who: "error", text: r.error });
       if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
+      break;
+    }
+    case "prompt": {
+      const t = ses(r.session)?.turns?.find((u) => u.say === r.say);
+      if (t) t.prompt = r.uuid;
+      break;
+    }
+    case "rewind": {
+      const x = ses(r.session);
+      const i = x?.turns?.findIndex((t) => t.say === r.say) ?? -1;
+      if (!x || i < 0 || !rewindable(x, r.say)) break;
+      const t = x.turns[i];
+      // その発言から後の発言は、答え終えたことにする（取り消しや付け替えの的にしない）
+      const gone = new Set(x.flow.slice(t.flowAt).filter((f) => f.say != null).map((f) => f.say));
+      for (const s of state.said) if (gone.has(s.id) && s.session === x.id) Object.assign(s, { done: true, rewound: true });
+      x.flow = [...x.flow.slice(0, t.flowAt), { who: "note", text: r.files ? "ここまで戻した（ファイルも）" : "ここまで戻した" }];
+      // 最初の発言まで戻したら、会話を新しく始める。そうでなければ、一つ前のターンの最後の答えから枝分かれさせる
+      x.resumeAt = i ? x.turns[i - 1].mark : null;
+      if (!i) x.claude = null;
+      x.turns = x.turns.slice(0, i);
+      x.last = x.flow.filter((f) => f.who === "ai").at(-1)?.text ?? "";
+      if (x.asks && x.asks.seq > t.seq) x.asks = null;
+      x.trees = (x.trees ?? []).filter((u) => u.seq < t.seq);
+      x.tree = x.trees.at(-1)?.groups ?? null;
+      x.info = [];
       break;
     }
     case "quota":

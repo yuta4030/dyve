@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 // Claude Code のふりをする小さなスクリプト。外につながず、決まった返事を返す（serve --claude にこれを渡して、通しで確かめる）
 //   --version：版を出す
-//   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）
-//   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）
+//   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）。
+//     「新規…それ」は new で、直前の発言を ref に（「A の答え」を含めば A を from に）
+//   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）。答えには uuid を付ける。
+//     --resume-session-at で起きたら、最初の答えに「（<ID> から）」と付ける。--replay-user-messages なら、渡された発言を ID 付きで返す
+//   「書いて」を含むと、道具は Read ではなく Write にする（ファイルを書いたことにする）
+//   --rewind-files：ファイルを戻すふり（作業場の rewound.txt に、会話の ID と発言の ID を書く）
 const args = process.argv.slice(2);
 const after = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
 const out = (j) => process.stdout.write(JSON.stringify(j) + "\n");
@@ -32,6 +36,11 @@ async function kakari() {
     if (/^(うーん|独り言)/.test(text)) says.push({ id, to: "none" });
     else if (peek && /それ|あと/.test(text)) says.push({ id, to: peek });
     else if (/続き/.test(text) && syms.length) says.push({ id, to: syms.at(-1) });
+    else if (/新規.*それ/.test(text)) {
+      const prev = [...(prompt.split("直前の発言：\n")[1] ?? "").matchAll(/^- (\d+)（/gm)].map((m) => Number(m[1])).at(-1);
+      const from = text.match(/([A-Z]+) の答え/)?.[1];
+      says.push({ id, to: "new", name: "それ", ...(prev && !from ? { ref: [prev] } : {}), ...(from ? { from } : {}) });
+    }
     else says.push({ id, to: "new", name: text.slice(0, 10) });
   }
   await sleep(Number(process.env.FAKE_KAKARI_MS ?? 10));
@@ -42,10 +51,13 @@ async function kakari() {
 // セッション：stream-json で届く発言を一通ずつ読む。答えている途中に届いた発言は、道具の合間に読んで同じターンで答える（本物と同じ）。
 // 「ゆっくり」を含むと、出来事のあいだを少しあける。「失敗」を含むと結果を出さずに終わる
 async function session() {
-  const id = after("--resume") ?? `fake-${process.pid}-${Date.now()}`;
+  // --fork-session なら、続きでも新しい会話の ID にする
+  const id = after("--resume") && !args.includes("--fork-session") ? after("--resume") : `fake-${process.pid}-${Date.now()}`;
+  const at = after("--resume-session-at");
+  let n = 0;
   let turns = after("--resume") ? 1 : 0, buf = "", closed = false, working = false;
   const queue = [];
-  const say = (text) => out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: id });
+  const say = (text) => out({ type: "assistant", uuid: `${id}-m${++n}`, message: { role: "assistant", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: id });
   // dyve が頭に添える一行（記号と名前）は読み飛ばす
   const take = () => queue.splice(0).map((t) => t.trim().replace(/^［dyve：[^\n]*］\n\n/, ""));
   out({ type: "system", subtype: "init", session_id: id, cwd: process.cwd(), permissionMode: after("--permission-mode") });
@@ -62,7 +74,7 @@ async function session() {
       out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", unifiedWindows: { five_hour: { utilization: 0.21, resetsAt: 1795602000 }, seven_day: { utilization: 0.39, resetsAt: 1795680000 } } } });
       say("調べはじめます。");
       await sleep(slow);
-      out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "README.md" } }] }, parent_tool_use_id: null, session_id: id });
+      out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: asked.some((t) => /書いて/.test(t)) ? "Write" : "Read", input: { file_path: "README.md" } }] }, parent_tool_use_id: null, session_id: id });
       await sleep(slow);
       // 道具の合間に届いた発言は、このターンで一緒に答える
       asked.push(...take());
@@ -74,6 +86,11 @@ async function session() {
         await callTool("state", { groups: [{ name: "契約", items: [{ done: true, name: "人数", value: "8 人", why: "会話で決めた" }, { done: false, name: "案", ask: 1 }] }] });
       }
       let answer = /選ばせて/.test(first) ? "候補は甲と乙です。どちらにしますか？" : `「${first.slice(0, 30)}」の答えは 42 です。${turns ? "（続き）" : ""}`;
+      // dyve が添えた「指しているもの」は、何を受け取ったか答えに出す
+      const pointed = asked[0].match(/^人の前の発言：(.*)$/m)?.[1];
+      if (pointed) answer += `（指しているもの：${pointed}）`;
+      // 巻き戻して起きたときは、どこから続けたかを答えに出す
+      if (at && turns === 1) answer += `（${at} から）`;
       if (asked.length > 1) answer += `（途中で：${asked.slice(1).map((t) => t.split("\n")[0]).join("／")}）`;
       turns++;
       say(answer);
@@ -89,12 +106,22 @@ async function session() {
     while ((i = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, i);
       buf = buf.slice(i + 1);
-      try { queue.push(JSON.parse(line).message.content); } catch {}
+      try {
+        const text = JSON.parse(line).message.content;
+        queue.push(text);
+        // 渡された発言を ID 付きで返す（本物の --replay-user-messages と同じ）
+        if (args.includes("--replay-user-messages")) out({ type: "user", uuid: `${id}-u${++n}`, message: { role: "user", content: text }, parent_tool_use_id: null, session_id: id });
+      } catch {}
     }
     work();
   });
   process.stdin.on("end", () => { closed = true; if (!working) process.exit(0); });
 }
 
+// ファイルを戻す：本物の代わりに、どの会話のどの発言の時点に戻したかを作業場の rewound.txt に書いて終わる
+if (args.includes("--rewind-files")) {
+  (await import("node:fs")).writeFileSync("rewound.txt", `${after("--resume")} ${after("--rewind-files")}`);
+  process.exit(0);
+}
 if (args.includes("--json-schema")) kakari();
 else session();

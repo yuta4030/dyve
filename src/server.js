@@ -135,6 +135,11 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         return json(200, { ok: true, record: log.add("undo") });
       }
       // 取り消す・止める・届け先を変える：人が画面で押したときの口
+      if (route === "POST /api/rewind") {
+        const b = await readJson(req);
+        const r = await sessions.rewind(Number(b.session), Number(b.say), !!b.files);
+        return json(r.ok ? 200 : 409, r);
+      }
       if (route === "POST /api/cancel" || route === "POST /api/stop" || route === "POST /api/move") {
         if (!sessions) return json(409, { ok: false, message: "セッションがない" });
         const b = await readJson(req);

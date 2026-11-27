@@ -4,7 +4,7 @@
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { cancelable, shown } from "./state.js";
+import { cancelable, rewindable, shown } from "./state.js";
 import { withUser } from "./user.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/セッション.md", import.meta.url));
@@ -17,13 +17,17 @@ const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 // 起こすときの引数。発言は標準入力に stream-json で一通ずつ流す
 // 道具は絞らない。人に聞かずに進め、危ない操作だけを Claude Code の判定（auto）が止める
 // mcp：dyve が貸す道具の口の URL（あれば --mcp-config で足し、その道具だけは聞かずに使えるようにする）
-export function claudeArgs({ prompt, resume = null, model = null, mcp = null }) {
+// resumeAt：巻き戻したとき、その答えまでで会話を切り、枝分かれさせて続ける
+export function claudeArgs({ prompt, resume = null, resumeAt = null, model = null, mcp = null }) {
   return [
     "-p",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
+    // 渡した発言を ID 付きで返してもらう（ファイルをその時点に戻すときの目印）
+    "--replay-user-messages",
     ...(resume ? ["--resume", resume] : []),
+    ...(resume && resumeAt ? ["--resume-session-at", resumeAt, "--fork-session"] : []),
     "--append-system-prompt", prompt,
     ...(model ? ["--model", model] : []),
     "--permission-mode", "auto",
@@ -49,7 +53,7 @@ export function claudeSpawn(cmd = "claude") {
         }
       };
       try {
-        child = nodeSpawn(cmd, job.args, { cwd: job.cwd, stdio: ["pipe", "pipe", "pipe"] });
+        child = nodeSpawn(cmd, job.args, { cwd: job.cwd, env: CHECKPOINT, stdio: ["pipe", "pipe", "pipe"] });
       } catch (e) {
         return resolve({ code: -1, stderr: e.message });
       }
@@ -68,6 +72,26 @@ export function claudeSpawn(cmd = "claude") {
       kill: () => child?.kill("SIGTERM"),
     };
   };
+}
+
+// ファイルを書き換える前に保存点を取ってもらう（-p で起こすときは、これがないと取らない）
+const CHECKPOINT = { ...process.env, CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: "1" };
+
+// 本物のファイルの戻し方：その会話が書き換えたファイルを、渡した発言の時点に戻して終わる
+// job { claude（会話の ID）, uuid（発言の ID）, cwd }。返すもの：Promise<{ ok, error? }>
+export function claudeRestore(cmd = "claude", timeout = 60 * 1000) {
+  return (job) => new Promise((resolve) => {
+    let err = "", child;
+    try {
+      child = nodeSpawn(cmd, ["-p", "--resume", job.claude, "--rewind-files", job.uuid], { cwd: job.cwd, env: CHECKPOINT, stdio: ["ignore", "ignore", "pipe"] });
+    } catch (e) {
+      return resolve({ ok: false, error: e.message });
+    }
+    const timer = setTimeout(() => child.kill("SIGTERM"), timeout);
+    child.stderr.setEncoding("utf8").on("data", (c) => (err = (err + c).slice(-2000)));
+    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
+    child.on("close", (code) => { clearTimeout(timer); resolve(code === 0 ? { ok: true } : { ok: false, error: clip(oneLine(err.trim().split("\n").at(-1) || `終了コード ${code}`), 200) }); });
+  });
 }
 
 // claude が動くかを確かめる。動かなければ、どうすればよいかを返す（動けば null）
@@ -98,11 +122,27 @@ export function toolLine(name, input = {}) {
   return clip(oneLine(`${name} ${typeof arg === "string" ? arg : ""}`), 120);
 }
 
+// 発言の文（清書したものがあればそれ）。「それ」が指すものがあれば、元の文のまま添える
+export function withPointed(state, q) {
+  if (!q) return "";
+  const text = q.fair ?? q.text;
+  const refs = (q.ref ?? []).map((id) => state.said.find((r) => r.id === id)).filter((r) => r && !r.canceled);
+  const from = q.quote ? state.sessions.find((x) => x.id === q.from) : null;
+  if (!refs.length && !from) return text;
+  return [
+    text, "",
+    "［dyve：この発言が指しているもの（人の言葉と、ほかのセッションの答えをそのまま写したもの）］",
+    ...refs.map((r) => `人の前の発言：${r.fair ?? r.text}`),
+    ...(from ? [`${from.sym}「${from.name}」の最後の答え：`, q.quote] : []),
+  ].join("\n");
+}
+
 export class Sessions {
   // user：利用者の書き足し（用語.md とセッション.md）を置くフォルダ。起こすたびに読み直す
   // mcpUrl(session)：そのセッションに貸す道具の口の URL（サーバーが待ちはじめてから決まる）
-  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE, user = null, mcpUrl = null }) {
-    Object.assign(this, { log, spawn, room, model, slots, idle, user, mcpUrl });
+  // restore(job)：ファイルを戻す（claudeRestore と同じ形）
+  constructor({ log, spawn, room, model = null, slots = 3, prompt = null, idle = IDLE, user = null, mcpUrl = null, restore = null }) {
+    Object.assign(this, { log, spawn, room, model, slots, idle, user, mcpUrl, restore });
     this.prompt = prompt ?? fs.readFileSync(PROMPT, "utf8").trim();
     this.pending = new Map(); // セッション -> 空きを待っている発言（動いているセッションが slots に達しているとき）
     this.procs = new Map(); // セッション -> 起きている Claude Code { h, busy, says（いまのターンで渡した発言）, stopped, quiet, timer }
@@ -143,9 +183,10 @@ export class Sessions {
     const p = this.procs.get(session) ?? this.wake(session);
     clearTimeout(p.timer);
     // 清書したものがあればそれを渡す
-    const text = says.map((id) => { const q = this.log.state.said.find((r) => r.id === id); return q?.fair ?? q?.text; }).filter(Boolean).join("\n\n");
+    const text = says.map((id) => withPointed(this.log.state, this.log.state.said.find((r) => r.id === id))).filter(Boolean).join("\n\n");
     p.busy = true;
     p.says.push(...says);
+    p.sent.push(says);
     this.log.add("turn", { session, says });
     // セッションは dyve のことを知らないので、毎回一行で添える：自分の記号と名前、ほかのセッションの記号・名前・最後の一行
     // （「C の続き」「B のやつ」と呼ばれても通じるように）
@@ -156,14 +197,22 @@ export class Sessions {
   // Claude Code を起こす（前の会話があれば --resume で引き継ぐ）
   wake(session) {
     const x = this.log.state.sessions.find((y) => y.id === session);
-    const p = { busy: false, says: [], stopped: false, quiet: false, timer: null, claude: x.claude };
+    const p = { busy: false, says: [], sent: [], stopped: false, quiet: false, timer: null, claude: x.claude };
     const emit = (ev) => {
       if (ev.session_id && ev.session_id !== p.claude) {
         p.claude = ev.session_id;
         this.log.add("bind", { session, claude: p.claude });
       }
+      // 渡した発言が ID 付きで返ってきた（渡した順に返る）。道具の結果も user で届くので、それは除く
+      if (ev.type === "user" && !ev.parent_tool_use_id && ev.uuid) {
+        const content = ev.message?.content;
+        const isResult = Array.isArray(content) && content.some((c) => c?.type === "tool_result");
+        const says = isResult ? null : p.sent.shift();
+        if (says?.length) this.log.add("prompt", { session, say: says[0], uuid: ev.uuid });
+      }
       // 行の中で呼ばれたもの（サブエージェント）の出来事は出さない
       if (ev.type === "assistant" && !ev.parent_tool_use_id) {
+        if (ev.uuid) p.mark = ev.uuid;
         // 答え終えたあとに、差し込まれた発言でまた動きだしたら、動いていることにする
         if (!p.busy) { p.busy = true; this.log.add("turn", { session, says: [] }); }
         for (const c of ev.message?.content ?? []) {
@@ -182,17 +231,17 @@ export class Sessions {
         p.says = [];
         this.log.add("end", ev.is_error
           ? { session, claude: p.claude, error: oneLine(ev.result || ev.subtype || "失敗した") }
-          : { session, claude: p.claude, result: String(ev.result ?? "").trim() });
+          : { session, claude: p.claude, result: String(ev.result ?? "").trim(), mark: p.mark });
         this.rest(session, p);
         this.pump();
       }
     };
-    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
+    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, resumeAt: x.resumeAt, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
     this.procs.set(session, p);
     p.h.done.then(({ code, stderr }) => {
       clearTimeout(p.timer);
       if (this.procs.get(session) === p) this.procs.delete(session);
-      if (p.stopped) this.log.add("end", { session, claude: p.claude, stopped: true });
+      if (p.stopped) this.log.add("end", { session, claude: p.claude, stopped: true, mark: p.mark });
       // 答えている途中で落ちたら、そうとわかるように終わらせる（しばらく使わなくて閉じたときは何も書かない）
       else if (p.busy && !p.quiet) this.log.add("end", { session, claude: p.claude, error: stderr?.trim() ? clip(oneLine(stderr.trim().split("\n").at(-1)), 200) : `結果を出さずに終わった（終了コード ${code}）` });
       this.pump();
@@ -253,6 +302,34 @@ export class Sessions {
     this.log.add("route", { say, session: target });
     this.send(target, say);
     return true;
+  }
+
+  // 巻き戻す：止まっているセッションを、その発言の手前まで。起きたままのプロセスは閉じ、次の発言で枝分かれさせて起こす
+  // files なら、このセッションが書き換えたファイルもその発言の時点に戻す（戻せなければ、会話も戻さない）
+  // 返すもの：Promise<{ ok, message? }>
+  async rewind(session, say, files = false) {
+    const ready = () => {
+      const x = this.log.state.sessions.find((y) => y.id === session);
+      return rewindable(x, say) && !this.procs.get(session)?.busy && !this.pending.has(session) && !this.rewinding?.has(session) ? x : null;
+    };
+    let x = ready();
+    if (!x) return { ok: false, message: "いまは戻せない" };
+    const uuid = x.turns.find((t) => t.say === say)?.prompt;
+    if (files && !(uuid && x.claude && this.restore)) return { ok: false, message: "この発言の時点のファイルはわからない" };
+    (this.rewinding ??= new Set()).add(session);
+    try {
+      const p = this.procs.get(session);
+      if (p) { clearTimeout(p.timer); p.quiet = true; this.procs.delete(session); p.h.end(); await p.h.done; }
+      if (files) {
+        const r = await this.restore({ claude: x.claude, uuid, cwd: this.room });
+        if (!r.ok) return { ok: false, message: `ファイルを戻せなかった：${r.error}` };
+      }
+    } finally {
+      this.rewinding.delete(session);
+    }
+    if (!(x = ready())) return { ok: false, message: "いまは戻せない" };
+    this.log.add("rewind", { session, say, ...(files ? { files: true } : {}) });
+    return { ok: true };
   }
 
   stopAll() {

@@ -22,7 +22,11 @@ export const SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { id: { type: "integer" }, to: { type: "string" }, name: { type: "string" }, text: { type: "string" } },
+        properties: {
+          id: { type: "integer" }, to: { type: "string" }, name: { type: "string" }, text: { type: "string" },
+          // 「それ」が指すもの：前の発言の id と、答えを指しているセッションの記号
+          ref: { type: "array", items: { type: "integer" } }, from: { type: "string" },
+        },
         required: ["id", "to"],
       },
     },
@@ -48,7 +52,7 @@ export function routePrompt(state, batch) {
     ...(live.length
       ? live.map((x) => `- ${x.sym}「${x.name}」${STATUS[x.status]}。最初の頼み：${clip(oneLine(first(x)), 80)}。最後：${clip(oneLine(x.last), 80)}`)
       : ["（なし）"]),
-    ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- （${p.session == null ? "届けていない" : `→ ${symOf(p.session)}`}）${clip(oneLine(p.text), 120)}`)] : []),
+    ...(before.length ? ["", "直前の発言：", ...before.map((p) => `- ${p.id}（${p.session == null ? "届けていない" : `→ ${symOf(p.session)}`}）：${clip(oneLine(p.text), 120)}`)] : []),
     "",
     `清書：${state.settings?.fair ? "する" : "しない"}`,
     "",
@@ -93,6 +97,18 @@ export function claudeAsk({ cmd = "claude", model = "haiku", cwd, timeout = TIME
       resolve(json?.[key] != null ? { ok: true, json } : { ok: false, error: "決まった形で返らなかった" });
     });
   });
+}
+
+// 発言の「それ」が指すもの。係は番号と記号だけを返し、中身は dyve が記録から取る（言い換えさせない）
+//   ref：前の発言（取り消したもの・同じ先へ届いたものは除く）。from と quote：指しているセッションと、そのときの最後の答え
+export function pointed(state, p, d, target) {
+  const ref = [...new Set(Array.isArray(d.ref) ? d.ref : [])]
+    .map((id) => state.said.find((q) => q.id === id))
+    .filter((q) => q && q.id < p.id && !q.canceled && q.session !== target)
+    .map((q) => q.id);
+  const x = typeof d.from === "string" ? shown(state).find((y) => y.sym === d.from.trim()) : null;
+  const quote = x && x.id !== target && x.last?.trim() ? x.last.trim() : null;
+  return { ...(ref.length ? { ref } : {}), ...(quote ? { from: x.id, quote } : {}) };
 }
 
 export class Kakari {
@@ -152,16 +168,16 @@ export class Kakari {
       const fair = state.settings?.fair && typeof d.text === "string" && d.text.trim() ? d.text.trim() : null;
       if (to === "none") { this.log.add("route", { say: p.id, session: null, fair }); continue; }
       const x = shown(state).find((y) => y.sym === to);
-      if (x) { this.deliver(p.id, x.id, fair); continue; }
       // 知らない記号や形の崩れは、新しく起こすほうに倒す（落とさない）
       const name = clip(oneLine(d.name) || oneLine(fair ?? p.text), 20);
-      if (!made.has(name)) made.set(name, this.sessions.open(name));
-      this.deliver(p.id, made.get(name), fair);
+      if (!x && !made.has(name)) made.set(name, this.sessions.open(name));
+      const target = x ? x.id : made.get(name);
+      this.deliver(p.id, target, fair, pointed(this.log.state, p, d, target));
     }
   }
 
-  deliver(say, session, fair = null) {
-    this.log.add("route", { say, session, fair });
+  deliver(say, session, fair = null, about = {}) {
+    this.log.add("route", { say, session, fair, ...about });
     this.sessions.send(session, say);
   }
 }

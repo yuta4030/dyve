@@ -29,6 +29,10 @@ test("ダイアログを出さない・フォーカスを奪わない・音を�
   assert.doesNotMatch(script, /scrollIntoView/);
 });
 
+test("web のリンクは別ウィンドウ一枚を名前で使い回す", () => {
+  assert.match(script, /window\.open\(url, "dyve-view", "popup/);
+});
+
 test("幅と右のパネルはブラウザに覚え、読めなくても既定の幅で描く", () => {
   assert.match(script, /try \{ return JSON\.parse\(localStorage\.getItem\("dyve\.layout"\)\) \?\? \{\}; \} catch \{ return \{\}; \}/);
   assert.match(script, /try \{ localStorage\.setItem\("dyve\.layout"/);
