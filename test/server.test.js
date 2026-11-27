@@ -134,6 +134,17 @@ test("押したファイルを手元のアプリで開く：途中からの場�
   assert.equal((await open({ path: "src/a.js", line: 42 })).status, 200);
   assert.deepEqual(opened, [{ file: pathm.join(room, "src", "a.js"), line: 42, col: null, how: "vscode" }]);
   assert.equal((await open({ path: "src/nope.js" })).status, 404);
+  // 起きる場所に見つからなければ、そのセッションが触った場所（下のリポジトリなど）から探す
+  fsm.mkdirSync(pathm.join(room, "repo", "lib"), { recursive: true });
+  fsm.writeFileSync(pathm.join(room, "repo", "lib", "b.js"), "x");
+  log.add("open", { session: 1, name: "a" });
+  log.add("step", { session: 1, what: "tool", text: `Read ${pathm.join(room, "repo", "README.md")}` });
+  assert.equal((await open({ path: "lib/b.js" })).status, 404);
+  assert.equal((await open({ path: "lib/b.js", session: 1 })).status, 200);
+  assert.equal(opened.at(-1).file, pathm.join(room, "repo", "lib", "b.js"));
+  log.add("open", { session: 2, name: "b" });
+  log.add("step", { session: 2, what: "tool", text: `Bash cd ${pathm.join(room, "repo")} && npm test` });
+  assert.equal((await open({ path: "lib/b.js", session: 2 })).status, 200);
   assert.equal((await open({ path: "src/a.js" }, null)).status, 403);
   server.closeAll();
 });

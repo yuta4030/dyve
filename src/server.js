@@ -110,8 +110,10 @@ export function createServer({ log, sessions = null, room = null, shell = proces
       if (route === "POST /api/open") {
         if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
         const b = await readJson(req);
-        const file = resolvePath(String(b.path ?? ""), room);
-        if (!file || !fs.existsSync(file)) return json(404, { ok: false, message: `見つからない：${b.path}` });
+        // 相対の場所は、起きる場所を先に、そのセッションが触った場所の順に探す（セッションが下のフォルダで作業していることがある）
+        const x = log.state.sessions.find((y) => y.id === b.session);
+        const file = [room, ...placesOf(x)].map((base) => resolvePath(String(b.path ?? ""), base)).find((f) => f && fs.existsSync(f));
+        if (!file) return json(404, { ok: false, message: `見つからない：${b.path}` });
         const line = Number.isInteger(b.line) && b.line > 0 ? b.line : null;
         const col = Number.isInteger(b.col) && b.col > 0 ? b.col : null;
         opener({ file, line, col, how: log.state.settings?.opener ?? "os" });
@@ -176,6 +178,24 @@ export function createServer({ log, sessions = null, room = null, shell = proces
 }
 
 // 返事に書かれた場所を、手元のファイルの場所にする：~ は家、途中からの場所は room から
+// セッションが触った場所：道具の一行に出た絶対の場所（ファイルならそのフォルダ）と cd の先、そこから上のフォルダ。近いものから
+export function placesOf(x) {
+  if (!x) return [];
+  const seen = new Set(), out = [];
+  const lines = [...(x.flow ?? []).filter((f) => f.who === "tool").map((f) => f.text), ...(x.info ?? []).filter((i) => i.kind === "file").map((i) => `Edit ${i.ref}`)].reverse();
+  for (const line of lines) {
+    const hits = [line.match(/^\S+ (\/\S+)/)?.[1], ...[...line.matchAll(/(?:^|[;&|]\s*|\s)cd\s+(\/[^\s;&|]+)/g)].map((m) => m[1])].filter(Boolean);
+    for (const hit of hits) {
+      let dir = path.normalize(hit);
+      if (path.extname(dir) || /\/[^/]*\.[^/]*$/.test(dir)) dir = path.dirname(dir);
+      for (; dir !== path.dirname(dir) && dir !== os.homedir(); dir = path.dirname(dir)) {
+        if (!seen.has(dir)) { seen.add(dir); out.push(dir); }
+      }
+    }
+  }
+  return out;
+}
+
 export function resolvePath(p, room) {
   p = p.trim();
   if (!p) return null;

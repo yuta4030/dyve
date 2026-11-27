@@ -775,7 +775,9 @@ document.addEventListener("click", (e) => {
   const f = e.target.closest("a[data-open]");
   if (f) {
     e.preventDefault();
-    fetch("/api/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: f.dataset.open, ...(f.dataset.line ? { line: Number(f.dataset.line) } : {}), ...(f.dataset.col ? { col: Number(f.dataset.col) } : {}) }) })
+    // どのセッションの返事の中か（カードやチャットならその札、覗いた画面ならそのセッション）。相対の場所を探す手がかりにする
+    const session = Number(f.closest("[data-go]")?.dataset.go ?? peek) || null;
+    fetch("/api/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: f.dataset.open, session, ...(f.dataset.line ? { line: Number(f.dataset.line) } : {}), ...(f.dataset.col ? { col: Number(f.dataset.col) } : {}) }) })
       .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.openBad(r.message ?? ""); })
       .catch((err) => { $("#note").textContent = L.openBad(String(err)); });
     return;
