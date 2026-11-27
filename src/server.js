@@ -214,12 +214,12 @@ export function runnable(file) {
   }
 }
 
-// 本物の開き方。VS Code と Cursor は行まで飛ぶ。OS の既定では、動いてしまうものは開かずにフォルダで見せる
+// 本物の開き方。VS Code は行まで飛ぶ。OS の既定では、動いてしまうものは開かずにフォルダで見せる
 export function openFile({ file, line, col, how }) {
   const at = line ? `${file}:${line}${col ? `:${col}` : ""}` : file;
   const mac = process.platform === "darwin", win = process.platform === "win32";
   let cmd, args;
-  if (how === "vscode" || how === "cursor") [cmd, args] = [how === "vscode" ? "code" : "cursor", ["-g", at]];
+  if (how === "vscode") [cmd, args] = ["code", ["-g", at]];
   else if (runnable(file)) [cmd, args] = mac ? ["open", ["-R", file]] : win ? ["explorer", [`/select,${file}`]] : ["xdg-open", [path.dirname(file)]];
   else [cmd, args] = mac ? ["open", [file]] : win ? ["cmd", ["/c", "start", "", file]] : ["xdg-open", [file]];
   try {

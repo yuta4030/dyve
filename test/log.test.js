@@ -107,6 +107,15 @@ test("設定：決まった名前と値だけ変えられ、立て直しても�
   assert.throws(() => log.add("set", { key: "nope", value: 1 }));
 });
 
+test("設定：前の版で選べた値（Cursor）が記録に残っていたら、既定に戻す", async () => {
+  const { step, empty } = await import("../src/state.js");
+  const state = empty();
+  step(state, { seq: 1, kind: "set", key: "opener", value: "vscode" });
+  assert.equal(state.settings.opener, "vscode");
+  step(state, { seq: 2, kind: "set", key: "opener", value: "cursor" });
+  assert.equal(state.settings.opener, "os");
+});
+
 test("清書した文は元の文と別に持ち、セッションには清書を渡す", () => {
   const log = new Log();
   log.add("open", { session: 1, name: "a" });

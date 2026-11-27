@@ -29,7 +29,7 @@ export function symOf(n) {
 // 設定：名前 -> 取れる値（最初のものが既定）
 //   send：声の送り方（pause は間があいたらまとめて、each は区切りごとにすぐ）。pause：間の秒数。fair：係が清書するか
 //   opener：返事の中のファイルを押したときに開くもの（os は OS の既定のアプリ）
-export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true], opener: ["os", "vscode", "cursor"] };
+export const SETTINGS = { send: ["pause", "each"], pause: [2, 1, 3, 5], fair: [false, true], opener: ["os", "vscode"] };
 const defaults = () => Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => [k, v[0]]));
 
 // リンクの決まりを確かめる：pattern は正規表現（空の文字に当たらないもの）、url は http か https で、$0（当たった言葉全体）や $1… を差し込める
@@ -254,7 +254,8 @@ export function step(state, r) {
       state.links = r.rules;
       break;
     case "set":
-      state.settings[r.key] = r.value;
+      // 今はもうない値（前の版で選んだもの）は、既定に戻す
+      state.settings[r.key] = SETTINGS[r.key]?.includes(r.value) ? r.value : SETTINGS[r.key]?.[0];
       break;
     case "reset": {
       // 動いているもの・まだ始まっていないものは残す（仕事を落とさない）
