@@ -211,7 +211,9 @@ a.file code { color: inherit; }
 .turns .human { align-self: flex-end; background: var(--soft); border-radius: 10px; padding: 6px 10px; max-width: 80%; position: relative; }
 .turns .human .rewind { position: absolute; right: 100%; top: 4px; margin-right: 4px; opacity: 0; color: var(--sub); }
 .turns .human:hover .rewind, .turns .human .rewind:focus-visible { opacity: 1; }
-.turns .rewinding { align-self: flex-end; display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--sub); }
+.turns .rewinding { align-self: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 8px; align-items: center; font-size: 12px; color: var(--sub); max-width: 100%; }
+.turns .rewinding ul { flex-basis: 100%; margin: 0; padding: 0; list-style: none; text-align: right; font: 12px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+.turns .rewinding .warn { color: var(--fail); }
 .turns .ai { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 34px 8px 12px; }
 .turns .error { color: var(--fail); }
 </style>
@@ -249,9 +251,14 @@ const L = {
   canceled: "取り消した",
   move: "送り先を変える",
   rewind: "ここから戻す",
-  rewindSure: "この発言から後を外して、手前から続ける（ファイルは戻らない）",
+  rewindSure: "この発言から後を外して、手前から続ける",
+  rewindFiles: "このあと書き換えたファイル（シェルで変えたものは戻らない）：",
+  rewindOthers: (syms) => `${syms.join("・")} も書いた`,
+  rewindAll: "会話とファイルを戻す",
+  rewindTalk: "会話だけ戻す",
   rewindGo: "戻す",
   rewindQuit: "やめる",
+  rewindBad: (m) => `戻せなかった：${m}`,
   moveNew: "新しく起こす",
   moveQuit: "やめる",
   stop: "止める",
@@ -431,6 +438,23 @@ const rewindable = (x, say) => {
 };
 let rewinding = null; // 巻き戻すか確かめている発言（"セッション:発言"。画面の中だけ）
 
+// 書き換えたファイル（道具の一行から）
+const WROTE = /^(?:Edit|Write|MultiEdit|NotebookEdit) (\S.*)$/;
+const wrote = (flow) => [...new Set(flow.filter((f) => f.who === "tool").map((f) => f.text.match(WROTE)?.[1]?.trim()).filter(Boolean))];
+
+// 巻き戻す前に、その場で確かめる：戻すファイルと、同じファイルをほかのセッションも書いたか
+function rewindAsk(x, say) {
+  const k = `${x.id}:${say}`;
+  const t = x.turns.find((u) => u.say === say);
+  const files = wrote(x.flow.slice(t.flowAt));
+  const others = (file) => state.sessions.filter((y) => y.id !== x.id && !y.hidden && wrote(y.flow).includes(file)).map((y) => y.sym);
+  const canFiles = files.length && t.prompt;
+  return `<div class="rewinding"><span>${esc(L.rewindSure)}</span>` +
+    (files.length ? `<ul><li>${esc(L.rewindFiles)}</li>${files.map((file) => { const o = others(file); return `<li${o.length ? ` class="warn"` : ""}>${esc(file)}${o.length ? ` — ${esc(L.rewindOthers(o))}` : ""}</li>`; }).join("")}</ul>` : "") +
+    (canFiles ? `<button data-rewind-go="${k}" data-files="1">${esc(L.rewindAll)}</button><button data-rewind-go="${k}">${esc(L.rewindTalk)}</button>` : `<button data-rewind-go="${k}">${esc(L.rewindGo)}</button>`) +
+    `<button class="quiet" data-rewind="${k}">${esc(L.rewindQuit)}</button></div>`;
+}
+
 // やりとりを並べる。続けて使った道具は一つに畳む（開いたかどうかは画面の中だけで覚える）
 function turnsOf(x, opened, label) {
   const out = [];
@@ -441,7 +465,7 @@ function turnsOf(x, opened, label) {
         ? `<div class="ai md"><button class="copy icon" data-copy-flow="${x.id}:${i}" title="${esc(L.copy)}" aria-label="${esc(L.copy)}">${ICON.copy}</button>${md(f.text)}</div>`
         : f.who === "human"
           ? `<div class="human">${rewindable(x, f.say) ? `<button class="rewind icon" data-rewind="${x.id}:${f.say}" title="${esc(L.rewind)}" aria-label="${esc(L.rewind)}">${ICON.rewind}</button>` : ""}${linkify(esc(f.text), LINK_RULES)}</div>` +
-            (rewinding === `${x.id}:${f.say}` ? `<div class="rewinding"><span>${esc(L.rewindSure)}</span><button data-rewind-go="${x.id}:${f.say}">${esc(L.rewindGo)}</button><button class="quiet" data-rewind="${x.id}:${f.say}">${esc(L.rewindQuit)}</button></div>` : "")
+            (rewinding === `${x.id}:${f.say}` ? rewindAsk(x, f.say) : "")
           : `<div class="${f.who}">${esc(f.text)}</div>`);
       i++;
       continue;
@@ -822,10 +846,13 @@ document.addEventListener("click", (e) => {
   }
   // 巻き戻しは、押すとその場で確かめる（ダイアログは出さない）
   if (t("[data-rewind-go]")) {
-    const [session, say] = t("[data-rewind-go]").dataset.rewindGo.split(":").map(Number);
+    const b = t("[data-rewind-go]");
+    const [session, say] = b.dataset.rewindGo.split(":").map(Number);
     rewinding = null;
     renderPeek();
-    return void post("/api/rewind", { session, say });
+    return void fetch("/api/rewind", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session, say, files: !!b.dataset.files }) })
+      .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.rewindBad(r.message ?? ""); })
+      .catch((err) => { $("#note").textContent = L.rewindBad(String(err)); });
   }
   if (t("[data-rewind]")) {
     const k = t("[data-rewind]").dataset.rewind;

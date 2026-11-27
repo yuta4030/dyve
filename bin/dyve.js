@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { Log } from "../src/log.js";
 import { createServer } from "../src/server.js";
-import { Sessions, claudeSpawn, claudeMissing } from "../src/sessions.js";
+import { Sessions, claudeSpawn, claudeRestore, claudeMissing } from "../src/sessions.js";
 import { Kakari, claudeAsk } from "../src/kakari.js";
 
 const HOME = path.join(os.homedir(), ".dyve");
@@ -83,7 +83,7 @@ for (const x of log.state.sessions) if (x.status === "run") log.add("end", { ses
 const place = path.dirname(file);
 // セッションに貸す道具の口の鍵（起動ごと）。口の URL はサーバーが待ちはじめてから決まる
 const mcpKey = crypto.randomBytes(16).toString("hex");
-const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude), user: place });
+const sessions = new Sessions({ log, room, model: v.model ?? null, slots, spawn: claudeSpawn(claude), restore: claudeRestore(claude), user: place });
 // 係は道具を持たない。起きる場所は記録の隣の空のディレクトリ（リポジトリの CLAUDE.md などを読まないように）
 const kakariDir = path.join(path.dirname(file), "kakari");
 fs.mkdirSync(kakariDir, { recursive: true });

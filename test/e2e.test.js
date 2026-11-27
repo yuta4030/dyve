@@ -123,3 +123,17 @@ test("巻き戻すと、その発言から後が外れ、次の発言は手前�
   assert.ok(!s.sessions[0].flow.some((f) => /年払い/.test(f.text)));
   await stop();
 });
+
+test("巻き戻すときファイルも戻すと、その発言の時点を Claude Code に渡す", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-e2e-"));
+  const { base, stop } = await serve(dir);
+  await say(base, "料金を調べて");
+  await until(base, (s) => s.sessions[0]?.status === "wait");
+  await say(base, "A は年払いも");
+  const s = await until(base, (s) => s.sessions[0].turns?.length === 2 && s.sessions[0].turns[1].prompt && s.sessions[0].status === "wait");
+  const t = s.sessions[0].turns[1];
+  const r = await fetch(`${base}/api/rewind`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: 1, say: t.say, files: true }) });
+  assert.equal(r.status, 200);
+  assert.equal(fs.readFileSync(path.join(dir, "rewound.txt"), "utf8"), `${s.sessions[0].claude} ${t.prompt}`);
+  await stop();
+});

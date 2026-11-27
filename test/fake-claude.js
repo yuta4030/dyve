@@ -4,7 +4,9 @@
 //   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）。
 //     「新規…それ」は new で、直前の発言を ref に（「A の答え」を含めば A を from に）
 //   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）。答えには uuid を付ける。
-//     --resume-session-at で起きたら、最初の答えに「（<ID> から）」と付ける
+//     --resume-session-at で起きたら、最初の答えに「（<ID> から）」と付ける。--replay-user-messages なら、渡された発言を ID 付きで返す
+//   「書いて」を含むと、道具は Read ではなく Write にする（ファイルを書いたことにする）
+//   --rewind-files：ファイルを戻すふり（作業場の rewound.txt に、会話の ID と発言の ID を書く）
 const args = process.argv.slice(2);
 const after = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
 const out = (j) => process.stdout.write(JSON.stringify(j) + "\n");
@@ -72,7 +74,7 @@ async function session() {
       out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", unifiedWindows: { five_hour: { utilization: 0.21, resetsAt: 1795602000 }, seven_day: { utilization: 0.39, resetsAt: 1795680000 } } } });
       say("調べはじめます。");
       await sleep(slow);
-      out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "README.md" } }] }, parent_tool_use_id: null, session_id: id });
+      out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: asked.some((t) => /書いて/.test(t)) ? "Write" : "Read", input: { file_path: "README.md" } }] }, parent_tool_use_id: null, session_id: id });
       await sleep(slow);
       // 道具の合間に届いた発言は、このターンで一緒に答える
       asked.push(...take());
@@ -104,12 +106,22 @@ async function session() {
     while ((i = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, i);
       buf = buf.slice(i + 1);
-      try { queue.push(JSON.parse(line).message.content); } catch {}
+      try {
+        const text = JSON.parse(line).message.content;
+        queue.push(text);
+        // 渡された発言を ID 付きで返す（本物の --replay-user-messages と同じ）
+        if (args.includes("--replay-user-messages")) out({ type: "user", uuid: `${id}-u${++n}`, message: { role: "user", content: text }, parent_tool_use_id: null, session_id: id });
+      } catch {}
     }
     work();
   });
   process.stdin.on("end", () => { closed = true; if (!working) process.exit(0); });
 }
 
+// ファイルを戻す：本物の代わりに、どの会話のどの発言の時点に戻したかを作業場の rewound.txt に書いて終わる
+if (args.includes("--rewind-files")) {
+  (await import("node:fs")).writeFileSync("rewound.txt", `${after("--resume")} ${after("--rewind-files")}`);
+  process.exit(0);
+}
 if (args.includes("--json-schema")) kakari();
 else session();

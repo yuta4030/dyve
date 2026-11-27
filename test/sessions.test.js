@@ -226,26 +226,31 @@ test("指しているものがあれば、元の文のまま添えて渡す。�
   assert.deepEqual(log.state.said.find((q) => q.id === s).ref, [p]);
 });
 
+// 偽のターン：渡した発言が ID 付きで返り、答えに ID が付く
+const turnOf = (procs) => (i, uuid, text, prompt = null) => {
+  procs[i].emit({ type: "system", subtype: "init", session_id: "c0" });
+  if (prompt) procs[i].emit({ type: "user", uuid: prompt, parent_tool_use_id: null, message: { role: "user", content: "x" } });
+  procs[i].emit({ type: "user", uuid: "tr", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", content: "" }] } });
+  procs[i].emit({ type: "assistant", uuid, parent_tool_use_id: null, message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: "a.js" } }, { type: "text", text }] } });
+  procs[i].emit({ type: "result", is_error: false, result: text, session_id: "c0" });
+};
+
 test("巻き戻す：その発言から後を外し、一つ前のターンの最後の答えから枝分かれさせて起こす", async () => {
   const { log, sessions, say, procs, answer } = setup();
+  const emit = turnOf(procs);
   const id = sessions.open("料金");
-  const emit = (i, uuid, text) => {
-    procs[i].emit({ type: "system", subtype: "init", session_id: "c0" });
-    procs[i].emit({ type: "assistant", uuid, parent_tool_use_id: null, message: { content: [{ type: "text", text }] } });
-    procs[i].emit({ type: "result", is_error: false, result: text, session_id: "c0" });
-  };
   const a = say("料金を", id);
   emit(0, "m1", "月 10 ドル");
   log.add("tree", { session: id, groups: [{ name: "一", items: [] }] });
   const b = say("年払いも", id);
   // 動いているあいだは戻せない
-  assert.equal(sessions.rewind(id, b), false);
+  assert.equal((await sessions.rewind(id, b)).ok, false);
   emit(0, "m2", "年 100 ドル");
   log.add("tree", { session: id, groups: [{ name: "二", items: [] }] });
-  assert.equal(sessions.rewind(id, 999), false);
-  assert.equal(sessions.rewind(id, b), true);
+  assert.equal((await sessions.rewind(id, 999)).ok, false);
+  assert.deepEqual(await sessions.rewind(id, b), { ok: true });
   const x = log.state.sessions.find((y) => y.id === id);
-  assert.deepEqual(x.flow.map((f) => f.who), ["human", "ai", "note"]);
+  assert.deepEqual(x.flow.map((f) => f.who), ["human", "tool", "ai", "note"]);
   assert.equal(x.last, "月 10 ドル");
   assert.equal(x.tree[0].name, "一");
   assert.equal(log.state.said.find((s) => s.id === b).rewound, true);
@@ -259,10 +264,35 @@ test("巻き戻す：その発言から後を外し、一つ前のターンの�
   assert.equal(log.state.sessions.find((y) => y.id === id).resumeAt, null);
   // 最初の発言まで戻したら、会話を新しく始める
   await answer(1);
-  assert.equal(sessions.rewind(id, a), true);
+  assert.equal((await sessions.rewind(id, a)).ok, true);
   assert.equal(log.state.sessions.find((y) => y.id === id).claude, null);
   say("やり直し", id);
   assert.ok(!procs[2].job.args.includes("--resume"));
+});
+
+test("巻き戻すときファイルも：その発言の ID で戻してから会話を戻す。戻せなければ会話も戻さない", async () => {
+  const log = new Log(), f = fakeSpawn(), restored = [];
+  let fail = false;
+  const restore = async (job) => { restored.push(job); return fail ? { ok: false, error: "だめ" } : { ok: true }; };
+  const sessions = new Sessions({ log, spawn: f.spawn, room: "/room", prompt: "P", restore });
+  const say = (text, session) => { const r = log.add("say", { text }); log.add("route", { say: r.seq, session }); sessions.send(session, r.seq); return r.seq; };
+  const emit = turnOf(f.procs);
+  const id = sessions.open("料金");
+  say("料金を", id);
+  emit(0, "m1", "月 10 ドル", "u1");
+  const b = say("年払いも", id);
+  emit(0, "m2", "年 100 ドル", "u2");
+  const x = () => log.state.sessions.find((y) => y.id === id);
+  // 道具の結果は発言の ID と取り違えない
+  assert.deepEqual(x().turns.map((t) => t.prompt), ["u1", "u2"]);
+  assert.ok(f.procs[0].job.args.includes("--replay-user-messages"));
+  fail = true;
+  assert.deepEqual(await sessions.rewind(id, b, true), { ok: false, message: "ファイルを戻せなかった：だめ" });
+  assert.equal(x().turns.length, 2);
+  fail = false;
+  assert.deepEqual(await sessions.rewind(id, b, true), { ok: true });
+  assert.deepEqual(restored.at(-1), { claude: "c0", uuid: "u2", cwd: "/room" });
+  assert.equal(x().flow.at(-1).text, "ここまで戻した（ファイルも）");
 });
 
 test("利用枠：rate_limit_event を、変わったときだけ記録に置く", () => {

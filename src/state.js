@@ -4,7 +4,8 @@
 //                                          ref・from・quote は発言の「それ」が指すもの（前の発言の id、セッションとそのときの最後の答え）
 //   fold  { session, on }                  人がカードを畳んだ（on）・広げた
 //   cancel { say }                         人が発言を取り消した
-//   rewind { session, say }                人がセッションを、その発言の手前まで巻き戻した（say はターンの最初の発言）
+//   rewind { session, say, files }         人がセッションを、その発言の手前まで巻き戻した（say はターンの最初の発言。files ならファイルも戻した）
+//   prompt { session, say, uuid }          渡した発言の、Claude Code での ID（ファイルをその時点に戻すときの目印）
 //   asks  { session, questions }           セッションが dyve の道具（ask）で人に聞いた。前の質問は置き換わる。空なら質問を下げる
 //   tree  { session, groups }              セッションが dyve の道具（state）で書いた、決まったこと・まだのことの木
 //   open  { session, name }                新しいセッション
@@ -82,7 +83,8 @@ export const KINDS = {
   bind: (b) => ({ session: need(b.session, "セッション"), claude: need(b.claude, "会話") }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
   end: (b) => ({ session: need(b.session, "セッション"), claude: b.claude ?? null, result: b.result ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.stopped ? { stopped: true } : {}), ...(b.mark ? { mark: String(b.mark) } : {}) }),
-  rewind: (b) => ({ session: need(b.session, "セッション"), say: need(b.say, "発言") }),
+  rewind: (b) => ({ session: need(b.session, "セッション"), say: need(b.say, "発言"), ...(b.files ? { files: true } : {}) }),
+  prompt: (b) => ({ session: need(b.session, "セッション"), say: need(b.say, "発言"), uuid: String(need(b.uuid, "ID")) }),
   cancel: (b) => ({ say: need(b.say, "発言") }),
   fold: (b) => ({ session: need(b.session, "セッション"), on: !!b.on }),
   asks: (b) => ({ session: need(b.session, "セッション"), questions: Array.isArray(b.questions) ? b.questions : [] }),
@@ -220,6 +222,11 @@ export function step(state, r) {
       if (!x.hidden) state.chat.push({ reply: x.id, text: x.last, error: !!r.error });
       break;
     }
+    case "prompt": {
+      const t = ses(r.session)?.turns?.find((u) => u.say === r.say);
+      if (t) t.prompt = r.uuid;
+      break;
+    }
     case "rewind": {
       const x = ses(r.session);
       const i = x?.turns?.findIndex((t) => t.say === r.say) ?? -1;
@@ -228,7 +235,7 @@ export function step(state, r) {
       // その発言から後の発言は、答え終えたことにする（取り消しや付け替えの的にしない）
       const gone = new Set(x.flow.slice(t.flowAt).filter((f) => f.say != null).map((f) => f.say));
       for (const s of state.said) if (gone.has(s.id) && s.session === x.id) Object.assign(s, { done: true, rewound: true });
-      x.flow = [...x.flow.slice(0, t.flowAt), { who: "note", text: "ここまで戻した" }];
+      x.flow = [...x.flow.slice(0, t.flowAt), { who: "note", text: r.files ? "ここまで戻した（ファイルも）" : "ここまで戻した" }];
       // 最初の発言まで戻したら、会話を新しく始める。そうでなければ、一つ前のターンの最後の答えから枝分かれさせる
       x.resumeAt = i ? x.turns[i - 1].mark : null;
       if (!i) x.claude = null;
