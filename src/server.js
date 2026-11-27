@@ -135,11 +135,12 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         return json(200, { ok: true, record: log.add("undo") });
       }
       // 取り消す・止める・届け先を変える：人が画面で押したときの口
-      if (route === "POST /api/cancel" || route === "POST /api/stop" || route === "POST /api/move") {
+      if (route === "POST /api/cancel" || route === "POST /api/stop" || route === "POST /api/move" || route === "POST /api/rewind") {
         if (!sessions) return json(409, { ok: false, message: "セッションがない" });
         const b = await readJson(req);
         const ok = route === "POST /api/cancel" ? sessions.cancel(Number(b.say))
           : route === "POST /api/stop" ? sessions.stop(Number(b.session))
+          : route === "POST /api/rewind" ? sessions.rewind(Number(b.session), Number(b.say))
           : sessions.move(Number(b.say), b.to === "new" ? "new" : Number(b.to));
         return json(ok ? 200 : 409, { ok });
       }

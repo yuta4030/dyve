@@ -4,7 +4,7 @@
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { cancelable, shown } from "./state.js";
+import { cancelable, rewindable, shown } from "./state.js";
 import { withUser } from "./user.js";
 
 const PROMPT = fileURLToPath(new URL("../prompts/セッション.md", import.meta.url));
@@ -17,13 +17,15 @@ const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 // 起こすときの引数。発言は標準入力に stream-json で一通ずつ流す
 // 道具は絞らない。人に聞かずに進め、危ない操作だけを Claude Code の判定（auto）が止める
 // mcp：dyve が貸す道具の口の URL（あれば --mcp-config で足し、その道具だけは聞かずに使えるようにする）
-export function claudeArgs({ prompt, resume = null, model = null, mcp = null }) {
+// resumeAt：巻き戻したとき、その答えまでで会話を切り、枝分かれさせて続ける
+export function claudeArgs({ prompt, resume = null, resumeAt = null, model = null, mcp = null }) {
   return [
     "-p",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--verbose",
     ...(resume ? ["--resume", resume] : []),
+    ...(resume && resumeAt ? ["--resume-session-at", resumeAt, "--fork-session"] : []),
     "--append-system-prompt", prompt,
     ...(model ? ["--model", model] : []),
     "--permission-mode", "auto",
@@ -179,6 +181,7 @@ export class Sessions {
       }
       // 行の中で呼ばれたもの（サブエージェント）の出来事は出さない
       if (ev.type === "assistant" && !ev.parent_tool_use_id) {
+        if (ev.uuid) p.mark = ev.uuid;
         // 答え終えたあとに、差し込まれた発言でまた動きだしたら、動いていることにする
         if (!p.busy) { p.busy = true; this.log.add("turn", { session, says: [] }); }
         for (const c of ev.message?.content ?? []) {
@@ -197,17 +200,17 @@ export class Sessions {
         p.says = [];
         this.log.add("end", ev.is_error
           ? { session, claude: p.claude, error: oneLine(ev.result || ev.subtype || "失敗した") }
-          : { session, claude: p.claude, result: String(ev.result ?? "").trim() });
+          : { session, claude: p.claude, result: String(ev.result ?? "").trim(), mark: p.mark });
         this.rest(session, p);
         this.pump();
       }
     };
-    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
+    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, resumeAt: x.resumeAt, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
     this.procs.set(session, p);
     p.h.done.then(({ code, stderr }) => {
       clearTimeout(p.timer);
       if (this.procs.get(session) === p) this.procs.delete(session);
-      if (p.stopped) this.log.add("end", { session, claude: p.claude, stopped: true });
+      if (p.stopped) this.log.add("end", { session, claude: p.claude, stopped: true, mark: p.mark });
       // 答えている途中で落ちたら、そうとわかるように終わらせる（しばらく使わなくて閉じたときは何も書かない）
       else if (p.busy && !p.quiet) this.log.add("end", { session, claude: p.claude, error: stderr?.trim() ? clip(oneLine(stderr.trim().split("\n").at(-1)), 200) : `結果を出さずに終わった（終了コード ${code}）` });
       this.pump();
@@ -267,6 +270,16 @@ export class Sessions {
     const target = to === "new" ? this.open(clip(oneLine(s.text), 20)) : to;
     this.log.add("route", { say, session: target });
     this.send(target, say);
+    return true;
+  }
+
+  // 巻き戻す：止まっているセッションを、その発言の手前まで。起きたままのプロセスは閉じ、次の発言で枝分かれさせて起こす
+  rewind(session, say) {
+    const x = this.log.state.sessions.find((y) => y.id === session);
+    if (!rewindable(x, say) || this.procs.get(session)?.busy || this.pending.has(session)) return false;
+    const p = this.procs.get(session);
+    if (p) { clearTimeout(p.timer); p.quiet = true; this.procs.delete(session); p.h.end(); }
+    this.log.add("rewind", { session, say });
     return true;
   }
 

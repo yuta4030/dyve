@@ -3,7 +3,8 @@
 //   --version：版を出す
 //   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）。
 //     「新規…それ」は new で、直前の発言を ref に（「A の答え」を含めば A を from に）
-//   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）
+//   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）。答えには uuid を付ける。
+//     --resume-session-at で起きたら、最初の答えに「（<ID> から）」と付ける
 const args = process.argv.slice(2);
 const after = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
 const out = (j) => process.stdout.write(JSON.stringify(j) + "\n");
@@ -48,10 +49,13 @@ async function kakari() {
 // セッション：stream-json で届く発言を一通ずつ読む。答えている途中に届いた発言は、道具の合間に読んで同じターンで答える（本物と同じ）。
 // 「ゆっくり」を含むと、出来事のあいだを少しあける。「失敗」を含むと結果を出さずに終わる
 async function session() {
-  const id = after("--resume") ?? `fake-${process.pid}-${Date.now()}`;
+  // --fork-session なら、続きでも新しい会話の ID にする
+  const id = after("--resume") && !args.includes("--fork-session") ? after("--resume") : `fake-${process.pid}-${Date.now()}`;
+  const at = after("--resume-session-at");
+  let n = 0;
   let turns = after("--resume") ? 1 : 0, buf = "", closed = false, working = false;
   const queue = [];
-  const say = (text) => out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: id });
+  const say = (text) => out({ type: "assistant", uuid: `${id}-m${++n}`, message: { role: "assistant", content: [{ type: "text", text }] }, parent_tool_use_id: null, session_id: id });
   // dyve が頭に添える一行（記号と名前）は読み飛ばす
   const take = () => queue.splice(0).map((t) => t.trim().replace(/^［dyve：[^\n]*］\n\n/, ""));
   out({ type: "system", subtype: "init", session_id: id, cwd: process.cwd(), permissionMode: after("--permission-mode") });
@@ -83,6 +87,8 @@ async function session() {
       // dyve が添えた「指しているもの」は、何を受け取ったか答えに出す
       const pointed = asked[0].match(/^人の前の発言：(.*)$/m)?.[1];
       if (pointed) answer += `（指しているもの：${pointed}）`;
+      // 巻き戻して起きたときは、どこから続けたかを答えに出す
+      if (at && turns === 1) answer += `（${at} から）`;
       if (asked.length > 1) answer += `（途中で：${asked.slice(1).map((t) => t.split("\n")[0]).join("／")}）`;
       turns++;
       say(answer);

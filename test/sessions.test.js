@@ -48,6 +48,11 @@ test("起こしっぱなしで発言を流し込む形。道具を絞らず、�
   const b = claudeArgs({ prompt: "P", resume: "c1", model: "sonnet" });
   assert.equal(b[b.indexOf("--resume") + 1], "c1");
   assert.equal(b[b.indexOf("--model") + 1], "sonnet");
+  assert.ok(!b.includes("--resume-session-at"));
+  // 巻き戻したあとは、その答えまでで切って枝分かれさせる
+  const r = claudeArgs({ prompt: "P", resume: "c1", resumeAt: "m3" });
+  assert.equal(r[r.indexOf("--resume-session-at") + 1], "m3");
+  assert.ok(r.includes("--fork-session"));
   // dyve の道具の口を足すときは、その道具だけ聞かずに使える
   const c = claudeArgs({ prompt: "P", mcp: "http://127.0.0.1:1/mcp/k/3" });
   assert.deepEqual(JSON.parse(c[c.indexOf("--mcp-config") + 1]), { mcpServers: { dyve: { type: "http", url: "http://127.0.0.1:1/mcp/k/3" } } });
@@ -219,6 +224,45 @@ test("指しているものがあれば、元の文のまま添えて渡す。�
   assert.equal(body(procs[0].writes[0]), "新規でそれやって\n\n［dyve：この発言が指しているもの（人の言葉と、ほかのセッションの答えをそのまま写したもの）］\n人の前の発言：請求書も\nA「料金」の最後の答え：\n次は請求書を直せます");
   log.add("route", { say: s, session: a });
   assert.deepEqual(log.state.said.find((q) => q.id === s).ref, [p]);
+});
+
+test("巻き戻す：その発言から後を外し、一つ前のターンの最後の答えから枝分かれさせて起こす", async () => {
+  const { log, sessions, say, procs, answer } = setup();
+  const id = sessions.open("料金");
+  const emit = (i, uuid, text) => {
+    procs[i].emit({ type: "system", subtype: "init", session_id: "c0" });
+    procs[i].emit({ type: "assistant", uuid, parent_tool_use_id: null, message: { content: [{ type: "text", text }] } });
+    procs[i].emit({ type: "result", is_error: false, result: text, session_id: "c0" });
+  };
+  const a = say("料金を", id);
+  emit(0, "m1", "月 10 ドル");
+  log.add("tree", { session: id, groups: [{ name: "一", items: [] }] });
+  const b = say("年払いも", id);
+  // 動いているあいだは戻せない
+  assert.equal(sessions.rewind(id, b), false);
+  emit(0, "m2", "年 100 ドル");
+  log.add("tree", { session: id, groups: [{ name: "二", items: [] }] });
+  assert.equal(sessions.rewind(id, 999), false);
+  assert.equal(sessions.rewind(id, b), true);
+  const x = log.state.sessions.find((y) => y.id === id);
+  assert.deepEqual(x.flow.map((f) => f.who), ["human", "ai", "note"]);
+  assert.equal(x.last, "月 10 ドル");
+  assert.equal(x.tree[0].name, "一");
+  assert.equal(log.state.said.find((s) => s.id === b).rewound, true);
+  assert.equal(procs[0].ended, true);
+  // 次の発言で、m1 までで切って枝分かれさせて起きる
+  say("月払いで", id);
+  const args = procs[1].job.args;
+  assert.equal(args[args.indexOf("--resume") + 1], "c0");
+  assert.equal(args[args.indexOf("--resume-session-at") + 1], "m1");
+  procs[1].emit({ type: "system", subtype: "init", session_id: "c9" });
+  assert.equal(log.state.sessions.find((y) => y.id === id).resumeAt, null);
+  // 最初の発言まで戻したら、会話を新しく始める
+  await answer(1);
+  assert.equal(sessions.rewind(id, a), true);
+  assert.equal(log.state.sessions.find((y) => y.id === id).claude, null);
+  say("やり直し", id);
+  assert.ok(!procs[2].job.args.includes("--resume"));
 });
 
 test("利用枠：rate_limit_event を、変わったときだけ記録に置く", () => {
