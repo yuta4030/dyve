@@ -104,7 +104,18 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         const b = await readJson(req);
         const cmd = String(b.cmd ?? "").trim();
         if (!cmd) return json(400, { ok: false, message: "コマンドがない" });
-        return json(200, { ok: true, ...(await run(shell, cmd, room)) });
+        // そのセッションの返事の中のシェルは、そのセッションが起きた場所で動かす
+        const x = log.state.sessions.find((y) => y.id === b.session);
+        return json(200, { ok: true, ...(await run(shell, cmd, x?.room ?? room)) });
+      }
+      // これから起こすセッションの場所を変える。画面から押したときだけ。ある場所（フォルダ）だけ
+      if (route === "POST /api/room") {
+        if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
+        const b = await readJson(req);
+        const dir = resolvePath(String(b.path ?? ""), log.state.room ?? room);
+        if (!dir || !fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return json(404, { ok: false, message: `フォルダが見つからない：${b.path}` });
+        if (log.state.room !== dir) log.add("room", { path: dir });
+        return json(200, { ok: true, path: dir });
       }
       // 返事の中のファイルを、人が押したときに手元のアプリで開く。画面から押したときだけ
       if (route === "POST /api/open") {
@@ -112,7 +123,7 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         const b = await readJson(req);
         // 相対の場所は、起きる場所を先に、そのセッションが触った場所の順に探す（セッションが下のフォルダで作業していることがある）
         const x = log.state.sessions.find((y) => y.id === b.session);
-        const file = [room, ...placesOf(x)].map((base) => resolvePath(String(b.path ?? ""), base)).find((f) => f && fs.existsSync(f));
+        const file = [...new Set([x?.room, room, ...placesOf(x)].filter(Boolean))].map((base) => resolvePath(String(b.path ?? ""), base)).find((f) => f && fs.existsSync(f));
         if (!file) return json(404, { ok: false, message: `見つからない：${b.path}` });
         const line = Number.isInteger(b.line) && b.line > 0 ? b.line : null;
         const col = Number.isInteger(b.col) && b.col > 0 ? b.col : null;

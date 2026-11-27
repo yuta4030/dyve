@@ -8,7 +8,8 @@
 //   prompt { session, say, uuid }          渡した発言の、Claude Code での ID（ファイルをその時点に戻すときの目印）
 //   asks  { session, questions }           セッションが dyve の道具（ask）で人に聞いた。前の質問は置き換わる。空なら質問を下げる
 //   tree  { session, groups }              セッションが dyve の道具（state）で書いた、決まったこと・まだのことの木
-//   open  { session, name }                新しいセッション
+//   open  { session, name, room }          新しいセッション（room はそのセッションが起きる場所）
+//   room  { path }                         人が、これから起こすセッションの場所を変えた
 //   turn  { session, says }                セッションに発言を渡した（答えている途中なら差し込み）。says が空なら、差し込まれた発言でまた動きだした
 //   bind  { session, claude }              Claude Code の会話の ID が届いた（立て直しても続きを頼めるように、すぐ書く）
 //   step  { session, what, text }          ターンの中の出来事（what は text か tool）
@@ -16,7 +17,7 @@
 //   quota { five, fiveAt, week, weekAt, status } Claude の利用枠（使った割合 0〜1 と、戻る時刻の秒）。変わったときだけ
 //   links { rules }                        リンクの決まり（当てはまる言葉を押せるようにする）。まるごと置き換える
 //   set   { key, value }                   設定を変えた（SETTINGS にあるものだけ）
-//   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）
+//   reset {}                               画面をまっさらにする（チャットを空にし、動いていないセッションを一覧から外す）。外したものは履歴に残る
 //   undo  {}                               直前のリセットを戻す（リセットのあと、まだ何も話していないときだけ）
 
 // 記号：A〜Z、そのあと AA, AB…
@@ -46,7 +47,9 @@ export function linkRules(rules) {
 }
 
 // since：最後にリセットした記録の番号（それより前の発言は、係にも見せない）。undo：リセットを戻すための控え
-export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null, links: [] });
+// room：これから起こすセッションの場所（null なら起動したときの --room）。rooms：使った場所（新しいほうから）
+// history：リセットで外した区切り（古いほうから）。{ at, chat, sessions（外したセッションの番号） }
+export const empty = () => ({ seq: 0, since: 0, said: [], sessions: [], chat: [], undo: null, settings: defaults(), quota: null, links: [], room: null, rooms: [], history: [] });
 
 // 一覧に出ているセッション
 export const shown = (state) => state.sessions.filter((x) => !x.hidden);
@@ -78,7 +81,8 @@ export const KINDS = {
     if (!Object.hasOwn(SETTINGS, b.key) || !SETTINGS[b.key].includes(b.value)) throw new Error(`変えられない設定：${b.key}=${b.value}`);
     return { key: b.key, value: b.value };
   },
-  open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと" }),
+  open: (b) => ({ session: need(b.session, "セッション"), name: String(b.name ?? "").trim() || "頼まれたこと", ...(b.room ? { room: String(b.room) } : {}) }),
+  room: (b) => ({ path: need(String(b.path ?? "").trim(), "場所") }),
   turn: (b) => ({ session: need(b.session, "セッション"), says: b.says ?? [] }),
   bind: (b) => ({ session: need(b.session, "セッション"), claude: need(b.claude, "会話") }),
   step: (b) => ({ session: need(b.session, "セッション"), what: b.what === "tool" ? "tool" : "text", text: String(b.text ?? "") }),
@@ -168,7 +172,7 @@ export function step(state, r) {
       break;
     }
     case "open":
-      state.sessions.push({ id: r.session, sym: freeSym(state), name: r.name, at: r.at, status: "idle", claude: null, flow: [], last: "" });
+      state.sessions.push({ id: r.session, sym: freeSym(state), name: r.name, at: r.at, status: "idle", claude: null, flow: [], last: "", room: r.room ?? null });
       break;
     case "turn": {
       const x = ses(r.session);
@@ -247,6 +251,10 @@ export function step(state, r) {
       x.info = [];
       break;
     }
+    case "room":
+      state.room = r.path;
+      state.rooms = [r.path, ...state.rooms.filter((p) => p !== r.path)].slice(0, 8);
+      break;
     case "quota":
       state.quota = { five: r.five, fiveAt: r.fiveAt, week: r.week, weekAt: r.weekAt, status: r.status, at: r.at };
       break;
@@ -260,7 +268,9 @@ export function step(state, r) {
     case "reset": {
       // 動いているもの・まだ始まっていないものは残す（仕事を落とさない）
       const hide = shown(state).filter((x) => x.status !== "run" && x.status !== "idle");
-      state.undo = { since: state.since, chat: state.chat, hidden: hide.map((x) => x.id) };
+      state.undo = { since: state.since, chat: state.chat, hidden: hide.map((x) => x.id), seq: r.seq };
+      // 外したものは履歴に残す（読み返すだけ。トークンは使わない）
+      if (state.chat.length || hide.length) state.history.push({ at: r.at, seq: r.seq, chat: state.chat, sessions: hide.map((x) => x.id) });
       for (const x of hide) x.hidden = true;
       state.chat = [];
       state.since = r.seq;
@@ -272,6 +282,7 @@ export function step(state, r) {
       for (const x of state.sessions) if (u.hidden.includes(x.id)) x.hidden = false;
       state.chat = [...u.chat, ...state.chat];
       state.since = u.since;
+      if (state.history.at(-1)?.seq === u.seq) state.history.pop();
       state.undo = null;
       break;
     }

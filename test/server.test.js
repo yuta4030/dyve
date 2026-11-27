@@ -169,3 +169,22 @@ test("カードを畳む・広げる。ないセッションは断る", async ()
   assert.equal((await fold({ session: 9, on: true })).status, 404);
   close();
 });
+
+test("作業する場所を変える：あるフォルダだけ。画面から押したときだけ。シェルはそのセッションの場所で動く", async () => {
+  const fsm = await import("node:fs"), osm = await import("node:os"), pathm = await import("node:path");
+  const room = fsm.mkdtempSync(pathm.join(osm.tmpdir(), "dyve-room-"));
+  fsm.mkdirSync(pathm.join(room, "sub"));
+  const log = new Log();
+  const server = createServer({ log, room });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (u, b, origin = base) => fetch(`${base}${u}`, { method: "POST", headers: origin ? { origin } : {}, body: JSON.stringify(b) });
+  assert.equal((await post("/api/room", { path: "sub" })).status, 200);
+  assert.equal(log.state.room, pathm.join(room, "sub"));
+  assert.equal((await post("/api/room", { path: "nope" })).status, 404);
+  assert.equal((await post("/api/room", { path: room }, null)).status, 403);
+  log.add("open", { session: 1, name: "a", room: pathm.join(room, "sub") });
+  const r = await (await post("/api/run", { cmd: "pwd", session: 1 })).json();
+  assert.equal(fsm.realpathSync(r.out.trim()), fsm.realpathSync(pathm.join(room, "sub")));
+  server.closeAll();
+});

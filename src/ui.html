@@ -33,6 +33,24 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top .brand { font-weight: 700; color: var(--ink); margin-right: auto; }
 #top button:hover { color: var(--ink); }
 #top [data-undo] { color: var(--run); }
+#top button { white-space: nowrap; flex: none; }
+[data-roomchip] svg { vertical-align: -2px; margin-right: 4px; }
+[data-roomchip] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; font-size: 12px; color: var(--sub); }
+[data-roomchip]:hover { color: var(--ink); }
+#top [data-history][aria-pressed="true"] { color: var(--ink); }
+.room { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+#settings .room-row input.path { flex-basis: 100%; font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+#history { display: flex; flex-direction: column; gap: 12px; max-width: 860px; margin: 0 auto; width: 100%; }
+#history .bar { display: flex; align-items: baseline; gap: 10px; color: var(--sub); font-size: 12px; }
+#history .bar button:hover { color: var(--ink); }
+#history .era { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+#history .when { font-size: 12px; color: var(--sub); }
+#history .first { font-weight: 600; }
+#history .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+#history details summary { font-size: 12px; color: var(--sub); cursor: pointer; }
+#history .lines { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; font-size: 13px; }
+#history .lines .r { color: var(--sub); }
+#history .empty { color: var(--sub); }
 #top .brand { margin-right: 0; }
 #quota { position: relative; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default; }
 /* マウスを載せたらすぐ出る吹き出し：いつ戻るか */
@@ -220,14 +238,15 @@ a.file code { color: inherit; }
 </head>
 <body>
 <section id="chat">
-  <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-reset></button></div>
+  <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-history aria-pressed="false" hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
-  <div id="input"><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
+  <div id="input"><button data-roomchip></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
 </section>
 <main>
   <div id="cards"></div>
   <div id="peek" hidden></div>
+  <div id="history" hidden></div>
 </main>
 <script type="module">
 const L = {
@@ -306,6 +325,20 @@ const L = {
   askRef: (n) => `質問 ${n}`,
   best: "★ ",
   lost: "つながりが切れた。つなぎ直している",
+  room: "作業する場所",
+  roomChip: (n) => `${n} で起こす`,
+  roomTitle: (p) => `これから起こすセッションは ${p} で起きる（押すと変える）`,
+  roomHint: "フォルダの場所を書いて Enter。動いているセッションは元の場所のまま",
+  roomBad: (m) => `場所を変えられなかった：${m}`,
+  roomOf: (p) => `${p} で起きた`,
+  history: "履歴",
+  historyTitle: "リセットで外したものを読み返す（トークンは使わない）",
+  historyHead: "リセットで外したもの。読み返すだけで、続きは頼めない（頼むと長い会話をまた読み込むため）",
+  historyClose: "閉じる",
+  historyEmpty: "まだリセットしていない",
+  historyWhen: (t, n) => `${t} にリセット・セッション ${n} 本`,
+  historyChat: (n) => `チャット（${n}）`,
+  readOnly: "履歴：読み返すだけ",
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
   undo: "元に戻す",
@@ -432,7 +465,7 @@ function md(src) {
 
 // 巻き戻せるか（サーバーの rewindable と同じ決まり）
 const rewindable = (x, say) => {
-  if (!x || say == null || x.status === "run" || x.status === "idle") return false;
+  if (!x || x.hidden || say == null || x.status === "run" || x.status === "idle") return false;
   const i = x.turns?.findIndex((t) => t.say === say) ?? -1;
   return i === 0 || (i > 0 && !!x.turns[i - 1].mark);
 };
@@ -484,6 +517,10 @@ const opened = new Set(); // 開いた道具のまとまり
 let first = true;
 
 const ses = (id) => state.sessions.find((x) => x.id === id);
+// 場所の短い名前（いちばん下のフォルダ）
+const baseName = (p) => String(p ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || String(p ?? "");
+// 時刻（ミリ秒）を「11/26 14:03」に
+const whenOf = (at) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
 const svg = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICON = {
@@ -498,6 +535,8 @@ const ICON = {
   copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>'),
   // 取り消す：丸にバツ
   cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+  // 作業する場所：フォルダ
+  folder: svg('<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>'),
   // 巻き戻す：左回りの矢印
   rewind: svg('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/>'),
 };
@@ -592,6 +631,9 @@ function marked(x) {
   return (x.status === "wait" || x.status === "fail") && seen.get(x.id) !== x.endedAt;
 }
 
+// 今の場所と違う場所で起きたセッションには、その場所を小さく添える
+const roomTag = (x) => (x.room && x.room !== state.room ? `<span class="room" title="${esc(L.roomOf(x.room))}">${esc(baseName(x.room))}</span>` : "");
+
 function renderCards() {
   const el = $("#cards");
   const live = [...state.sessions.filter((x) => !x.hidden)].reverse();
@@ -602,7 +644,7 @@ function renderCards() {
   el.innerHTML = live.length
     ? open.map((x) => `
     <div class="card${marked(x) ? " mark" : ""}" data-go="${x.id}">
-      <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${btn(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
+      <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}${btn(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
       <div class="last">${inline(headOf(x.last))}</div>
     </div>`).join("") +
       // 畳んだものは、一覧の下に小さな札で並べる
@@ -680,12 +722,13 @@ function asksOf(x) {
 
 function renderPeek() {
   const el = $("#peek"), x = ses(peek);
-  if (!x || x.hidden) { peek = null; return renderCards(); }
+  // 一覧から外れたものは、履歴から開いたときだけ見せる（読み返すだけ）
+  if (!x || (x.hidden && !hist)) { peek = null; return renderCards(); }
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main), side = x.tree?.length && !layout.sideOff;
   el.innerHTML = `
-    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
-    <div class="body${side ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${asksOf(x)}</div>${side ? `<aside class="side"><div class="split" data-split="side" title="${esc(L.split)}"></div>${treeOf(x)}</aside>` : ""}</div>`;
+    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${x.hidden ? `<span class="room">${esc(L.readOnly)}</span>` : roomTag(x)}${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
+    <div class="body${side ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${x.hidden ? "" : asksOf(x)}</div>${side ? `<aside class="side"><div class="split" data-split="side" title="${esc(L.split)}"></div>${treeOf(x)}</aside>` : ""}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
 
@@ -699,7 +742,7 @@ function renderSettings() {
   if (!gear) { linkRows = null; shownSettings = ""; return; }
   linkRows ??= (state.links ?? []).map((r) => ({ ...r }));
   const cur = state.settings ?? {};
-  const key = JSON.stringify([cur, linkRows.length, state.links]);
+  const key = JSON.stringify([cur, linkRows.length, state.links, state.room, state.rooms]);
   if (key === shownSettings) return;
   shownSettings = key;
   const links = `<div class="row"><span class="label">${esc(L.links)}</span><div class="links">` +
@@ -709,8 +752,21 @@ function renderSettings() {
     // 間の長さは、間があいたら送るときだけ
     .filter(([k]) => k !== "pause" || cur.send !== "each")
     .map(([k, d]) => `<div class="row"><span class="label">${esc(d.label)}</span><span class="seg">${Object.entries(d.values).map(([v, t]) => `<button data-set="${k}" data-value="${esc(v)}" aria-pressed="${String(cur[k]) === v}">${esc(t)}</button>`).join("")}</span></div>`)
-    .join("") + links;
+    .join("") + roomRow() + links;
+  // 長い場所は終わりのほうが大事なので、欄の右端を見せる
+  const r = el.querySelector("[data-room]");
+  if (r) r.scrollLeft = r.scrollWidth;
 }
+
+// 作業する場所：書いて Enter か、前に使った場所を押す
+function roomRow() {
+  const others = (state.rooms ?? []).filter((p) => p !== state.room);
+  return `<div class="row room-row"><span class="label">${esc(L.room)}</span><input class="path" data-room value="${esc(state.room ?? "")}" title="${esc(L.roomHint)}" spellcheck="false">` +
+    (others.length ? `<span class="seg">${others.map((p) => `<button data-room-pick="${esc(p)}" title="${esc(p)}">${esc(baseName(p))}</button>`).join("")}</span>` : "") + `</div>`;
+}
+const setRoom = (path) => fetch("/api/room", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) })
+  .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.roomBad(r.message ?? ""); })
+  .catch((err) => { $("#note").textContent = L.roomBad(String(err)); });
 
 // 書けているリンクの決まりだけを置く（書きかけは画面に残す）
 function saveLinks() {
@@ -740,15 +796,49 @@ function resetOf(at, now) {
   return [`${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`, left];
 }
 
+// 上の帯：これから起こすセッションの場所と、履歴の口
+function renderRoom() {
+  const b = $("[data-roomchip]");
+  b.innerHTML = `${ICON.folder}<span>${esc(L.roomChip(baseName(state.room)))}</span>`;
+  b.title = L.roomTitle(state.room ?? "");
+  const h = $("[data-history]");
+  h.hidden = !state.history?.length && !hist;
+  h.setAttribute("aria-pressed", String(hist));
+}
+
+// 履歴：リセットで外した区切りを新しいほうから。セッションは押すと読み返せる
+let hist = false; // 履歴を見ているか（画面の中だけ）
+function renderHistory() {
+  const said = new Map(state.said.map((s) => [s.id, s]));
+  const eras = [...(state.history ?? [])].reverse();
+  const era = (h) => {
+    const xs = h.sessions.map(ses).filter(Boolean);
+    const lines = h.chat.map((c) => {
+      if (c.say != null) { const s = said.get(c.say); return s ? `<div>${esc(s.fair ?? s.text)}</div>` : ""; }
+      const x = ses(c.reply);
+      return x ? `<div class="r">${esc(x.sym)}　${esc(headOf(c.text))}</div>` : "";
+    }).join("");
+    const first = h.chat.map((c) => said.get(c.say)).find(Boolean);
+    return `<div class="era"><div class="when">${esc(L.historyWhen(whenOf(h.at), xs.length))}</div>` +
+      (first ? `<div class="first">${esc(first.fair ?? first.text)}</div>` : "") +
+      (xs.length ? `<div class="tags">${xs.map((x) => `<span class="tag" data-go="${x.id}" title="${esc(headOf(x.last))}"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></span>`).join("")}</div>` : "") +
+      (h.chat.length ? `<details><summary>${esc(L.historyChat(h.chat.length))}</summary><div class="lines">${lines}</div></details>` : "") + `</div>`;
+  };
+  $("#history").innerHTML = `<div class="bar"><span>${esc(L.historyHead)}</span><button data-history-close>${esc(L.historyClose)}</button></div>` +
+    (eras.length ? eras.map(era).join("") : `<div class="empty">${esc(L.historyEmpty)}</div>`);
+}
+
 function render() {
   renderSettings();
   renderQuota();
   $("[data-undo]").hidden = !state.undo;
+  renderRoom();
   renderChat();
   // 覗いていたセッションが一覧から外れていたら、一覧に戻る（renderPeek が peek を空にする）
   if (peek != null) renderPeek();
-  if (peek == null) renderCards();
-  $("#cards").hidden = peek != null;
+  if (peek == null) (hist ? renderHistory() : renderCards());
+  $("#cards").hidden = peek != null || hist;
+  $("#history").hidden = peek != null || !hist;
   $("#peek").hidden = peek == null;
 }
 
@@ -800,7 +890,8 @@ document.addEventListener("click", (e) => {
     if (runs.get(cmd)?.busy) return;
     runs.set(cmd, { busy: true });
     render();
-    fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cmd }) })
+    const session = Number(t(".code").closest("[data-go]")?.dataset.go ?? peek) || null;
+    fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cmd, session }) })
       .then((r) => r.json()).catch((e) => ({ code: -1, out: String(e) }))
       .then((r) => { runs.set(cmd, { code: r.code ?? -1, out: r.out ?? r.message ?? "" }); render(); });
     return;
@@ -869,6 +960,9 @@ document.addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");
   if (go) return open(Number(go.dataset.go));
   if (e.target.closest("[data-close]")) open(null);
+  if (t("[data-roomchip]")) { gear = true; return renderSettings(); }
+  if (t("[data-room-pick]")) return void setRoom(t("[data-room-pick]").dataset.roomPick);
+  if (t("[data-history]") || t("[data-history-close]")) { hist = !hist && !t("[data-history-close]"); peek = null; return render(); }
   if (e.target.closest("[data-side]")) { layout.sideOff = !layout.sideOff; saveLayout(); return renderPeek(); }
   // リセットは確かめずに走らせる（記録は消えず、次に話すまでは「元に戻す」で戻せる）
   if (e.target.closest("[data-reset]")) post("/api/reset").then(() => open(null));
@@ -886,7 +980,11 @@ document.addEventListener("toggle", (e) => {
   const k = e.target.dataset?.key;
   if (k) e.target.open ? opened.add(k) : opened.delete(k);
 }, true);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && peek != null) open(null); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && peek != null) open(null);
+  // 作業する場所の欄は Enter で変える（変換中の Enter は除く）
+  if (e.key === "Enter" && !e.isComposing && e.target.matches?.("[data-room]")) { e.preventDefault(); setRoom(e.target.value); }
+});
 // リンクの決まりの欄：打ったものは書きかけに残し、欄を離れたら（または Enter で）置く
 document.addEventListener("input", (e) => {
   const el = e.target.closest?.("[data-link]");
@@ -928,7 +1026,8 @@ async function post(url, body = {}) {
   }
 }
 
-const say = (text) => post("/api/say", { text, ...(peek != null ? { peek } : {}) });
+// 履歴から読み返しているセッション（一覧から外れたもの）は、届け先の手がかりにしない
+const say = (text) => post("/api/say", { text, ...(peek != null && !ses(peek)?.hidden ? { peek } : {}) });
 
 // 声と打鍵の見分け：入力の直前にキーが押されていればキーボード（OS の音声入力はキーを押さずに文字が入る）
 // 声だけなら、間があいたら置く。書きかけに一文字でも打ったら、その書きかけは Enter まで待つ。欄が空になったら声に戻る
@@ -987,6 +1086,8 @@ $("[data-gear]").setAttribute("aria-label", L.gear);
 $("[data-reset]").textContent = L.reset;
 $("[data-reset]").title = L.resetTitle;
 $("[data-undo]").textContent = L.undo;
+$("[data-history]").textContent = L.history;
+$("[data-history]").title = L.historyTitle;
 // マイク：ブラウザの音声認識（Chrome など）。押すと聞きつづけ、ひと区切り確定するたびにすぐ置く。
 // 途中経過は欄の末尾に出し、確定したら差し替える。書きかけにキーで打っていたら、Enter まで待つ
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
