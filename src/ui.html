@@ -34,9 +34,16 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top button:hover { color: var(--ink); }
 #top [data-undo] { color: var(--run); }
 #top button { white-space: nowrap; flex: none; }
-[data-roomchip] svg { vertical-align: -2px; margin-right: 4px; }
-[data-roomchip] { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 6px; font-size: 12px; color: var(--sub); }
-[data-roomchip]:hover { color: var(--ink); }
+/* 場所のチップ：フォルダとその名前 */
+.rchip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px 1px 7px; background: var(--panel); font-size: 12px; color: var(--sub); }
+.rchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rchip svg { flex: none; }
+.rchip:hover { color: var(--ink); border-color: var(--sub); }
+#input > .rchip { margin-bottom: 6px; }
+.rchip.small { flex: none; padding: 0 7px 0 5px; font-size: 11px; max-width: 120px; align-self: center; }
+.rchip.small svg { width: 11px; height: 11px; }
+#settings .rooms { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+#top [data-history] { display: inline-flex; }
 #top [data-history][aria-pressed="true"] { color: var(--ink); }
 .room { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 #settings .room-row input.path { flex-basis: 100%; font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
@@ -241,7 +248,7 @@ a.file code { color: inherit; }
   <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-history aria-pressed="false" hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
-  <div id="input"><button data-roomchip></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
+  <div id="input"><button class="rchip" data-roomchip></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
 </section>
 <main>
   <div id="cards"></div>
@@ -326,7 +333,6 @@ const L = {
   best: "★ ",
   lost: "つながりが切れた。つなぎ直している",
   room: "作業する場所",
-  roomChip: (n) => `${n} で起こす`,
   roomTitle: (p) => `これから起こすセッションは ${p} で起きる（押すと変える）`,
   roomHint: "フォルダの場所を書いて Enter。動いているセッションは元の場所のまま",
   roomBad: (m) => `場所を変えられなかった：${m}`,
@@ -334,7 +340,7 @@ const L = {
   history: "履歴",
   historyTitle: "リセットで外したものを読み返す（トークンは使わない）",
   historyHead: "リセットで外したもの。読み返すだけで、続きは頼めない（頼むと長い会話をまた読み込むため）",
-  historyClose: "閉じる",
+  historyClose: "履歴を閉じる",
   historyEmpty: "まだリセットしていない",
   historyWhen: (t, n) => `${t} にリセット・セッション ${n} 本`,
   historyChat: (n) => `チャット（${n}）`,
@@ -535,6 +541,10 @@ const ICON = {
   copy: svg('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>'),
   // 取り消す：丸にバツ
   cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
+  // 履歴：時計に戻る矢印
+  history: svg('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>'),
+  // 閉じる：バツ
+  close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   // 作業する場所：フォルダ
   folder: svg('<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>'),
   // 巻き戻す：左回りの矢印
@@ -632,7 +642,7 @@ function marked(x) {
 }
 
 // 今の場所と違う場所で起きたセッションには、その場所を小さく添える
-const roomTag = (x) => (x.room && x.room !== state.room ? `<span class="room" title="${esc(L.roomOf(x.room))}">${esc(baseName(x.room))}</span>` : "");
+const roomTag = (x) => (x.room && x.room !== state.room ? `<span class="rchip small" title="${esc(L.roomOf(x.room))}">${ICON.folder}<span>${esc(baseName(x.room))}</span></span>` : "");
 
 function renderCards() {
   const el = $("#cards");
@@ -762,7 +772,7 @@ function renderSettings() {
 function roomRow() {
   const others = (state.rooms ?? []).filter((p) => p !== state.room);
   return `<div class="row room-row"><span class="label">${esc(L.room)}</span><input class="path" data-room value="${esc(state.room ?? "")}" title="${esc(L.roomHint)}" spellcheck="false">` +
-    (others.length ? `<span class="seg">${others.map((p) => `<button data-room-pick="${esc(p)}" title="${esc(p)}">${esc(baseName(p))}</button>`).join("")}</span>` : "") + `</div>`;
+    (others.length ? `<div class="rooms">${others.map((p) => `<button class="rchip" data-room-pick="${esc(p)}" title="${esc(p)}">${ICON.folder}<span>${esc(baseName(p))}</span></button>`).join("")}</div>` : "") + `</div>`;
 }
 const setRoom = (path) => fetch("/api/room", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) })
   .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.roomBad(r.message ?? ""); })
@@ -799,7 +809,7 @@ function resetOf(at, now) {
 // 上の帯：これから起こすセッションの場所と、履歴の口
 function renderRoom() {
   const b = $("[data-roomchip]");
-  b.innerHTML = `${ICON.folder}<span>${esc(L.roomChip(baseName(state.room)))}</span>`;
+  b.innerHTML = `${ICON.folder}<span>${esc(baseName(state.room))}</span>`;
   b.title = L.roomTitle(state.room ?? "");
   const h = $("[data-history]");
   h.hidden = !state.history?.length && !hist;
@@ -824,7 +834,7 @@ function renderHistory() {
       (xs.length ? `<div class="tags">${xs.map((x) => `<span class="tag" data-go="${x.id}" title="${esc(headOf(x.last))}"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></span>`).join("")}</div>` : "") +
       (h.chat.length ? `<details><summary>${esc(L.historyChat(h.chat.length))}</summary><div class="lines">${lines}</div></details>` : "") + `</div>`;
   };
-  $("#history").innerHTML = `<div class="bar"><span>${esc(L.historyHead)}</span><button data-history-close>${esc(L.historyClose)}</button></div>` +
+  $("#history").innerHTML = `<div class="bar"><span>${esc(L.historyHead)}</span><button class="icon" data-history-close title="${esc(L.historyClose)}" aria-label="${esc(L.historyClose)}">${ICON.close}</button></div>` +
     (eras.length ? eras.map(era).join("") : `<div class="empty">${esc(L.historyEmpty)}</div>`);
 }
 
@@ -1086,8 +1096,9 @@ $("[data-gear]").setAttribute("aria-label", L.gear);
 $("[data-reset]").textContent = L.reset;
 $("[data-reset]").title = L.resetTitle;
 $("[data-undo]").textContent = L.undo;
-$("[data-history]").textContent = L.history;
+$("[data-history]").innerHTML = ICON.history;
 $("[data-history]").title = L.historyTitle;
+$("[data-history]").setAttribute("aria-label", L.history);
 // マイク：ブラウザの音声認識（Chrome など）。押すと聞きつづけ、ひと区切り確定するたびにすぐ置く。
 // 途中経過は欄の末尾に出し、確定したら差し替える。書きかけにキーで打っていたら、Enter まで待つ
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
