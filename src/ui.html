@@ -39,7 +39,11 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill svg { flex: none; }
 .pill:hover { color: var(--ink); border-color: var(--sub); }
-#input > .pill { margin-bottom: 6px; }
+#input .under { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; min-width: 0; }
+#mode { font: 11px ui-monospace, Menlo, monospace; color: var(--sub); letter-spacing: .04em; }
+#mode.normal { color: var(--run); }
+#input textarea.normal { caret-color: transparent; }
+.card.sel { border-color: var(--run); box-shadow: 0 0 0 1px var(--run); }
 .pill.small { flex: none; padding: 0 7px 0 5px; font-size: 11px; max-width: 120px; align-self: center; }
 .pill.small svg { width: 11px; height: 11px; }
 /* 場所を選ぶ小さな欄：入力欄の上のチップのすぐ上に出る */
@@ -251,7 +255,7 @@ a.file code { color: inherit; }
   <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-history aria-pressed="false" hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
-  <div id="input"><div id="roompick" hidden></div><button class="pill" data-roomchip aria-expanded="false"></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
+  <div id="input"><div id="roompick" hidden></div><div class="under"><button class="pill" data-roomchip aria-expanded="false"></button><span id="mode" hidden></span></div><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
 </section>
 <main>
   <div id="cards"></div>
@@ -325,6 +329,7 @@ const L = {
     pause: { label: "間", values: { 1: "1 秒", 2: "2 秒", 3: "3 秒", 5: "5 秒" } },
     fair: { label: "清書", values: { false: "しない", true: "する（係が直す）" } },
     opener: { label: "ファイルを開く", values: { os: "OS の既定", vscode: "VS Code" } },
+    keys: { label: "キー操作", values: { plain: "ふつう", vim: "vim" } },
   },
   original: (t) => `元の文：${t}`,
   infoNav: "見たもの・書いたもの",
@@ -337,6 +342,8 @@ const L = {
   best: "★ ",
   lost: "つながりが切れた。つなぎ直している",
   room: "作業する場所",
+  modes: { normal: "NORMAL", insert: "INSERT", screen: "画面" },
+  modeTitle: "vim のモード（Esc でノーマル、もう一度 Esc で画面。画面では j/k で選び Enter で開く、i か / で入力欄へ）",
   roomTitle: (p) => `これから起こすセッションの場所：${p}（押すと変える）`,
   roomHint: "フォルダの場所を書いて Enter。動いているセッションは元の場所のまま",
   roomBad: (m) => `場所を変えられなかった：${m}`,
@@ -378,6 +385,87 @@ function headOf(s) {
   const pick = lines.find((l) => !/^#+\s/.test(l)) ?? lines[0] ?? "";
   const line = pick.replace(/^(#+|>|[-*+]|\d+[.)])\s+/, "").trim();
   return line.length > 140 ? line.slice(0, 139) + "…" : line;
+}
+
+// vim の編集：v { text, pos, mode（insert か normal）, pend（打ちかけの d・c・y・g・r）, reg（消したり写したりしたもの）, undo（前の形の山） } と、押したキー
+// 返すもの：{ handled（このキーを使ったか）, act（send：置く、leave：入力欄から抜ける）, v（新しい形） }。中から外のものを触らない
+function vimKey(v, key) {
+  const t = v.text, n = t.length, pos = Math.min(v.pos, n);
+  const out = (o = {}) => ({ handled: true, act: o.act ?? null, v: { text: o.text ?? t, pos: o.pos ?? pos, mode: o.mode ?? v.mode, pend: o.pend ?? "", reg: o.reg ?? v.reg, undo: o.undo ?? v.undo } });
+  const lsIn = (s, p) => s.lastIndexOf("\n", p - 1) + 1;
+  const leIn = (s, p) => { const i = s.indexOf("\n", p); return i < 0 ? s.length : i; };
+  const ls = (p) => lsIn(t, p), le = (p) => leIn(t, p);
+  // ノーマルでは行の終わりの文字の上まで
+  const clamp = (s, p) => { p = Math.max(0, Math.min(p, s.length)); return Math.max(lsIn(s, p), Math.min(p, leIn(s, p) - 1)); };
+  if (v.mode === "insert") return key === "Escape" ? out({ mode: "normal", pos: Math.max(ls(pos), pos - 1) }) : { handled: false, act: null, v };
+  // 文字の種類：空白・英数・ひらがな・カタカナ・漢字・そのほか。種類が変わるところを単語の切れ目にする
+  const cls = (c) => (c == null ? -1 : /\s/.test(c) ? 0 : /\w/.test(c) ? 1 : /[぀-ゟ]/.test(c) ? 2 : /[゠-ヿ]/.test(c) ? 3 : /[一-鿿々]/.test(c) ? 4 : 5);
+  const fwd = (p) => { const c = cls(t[p]); if (c > 0) while (p < n && cls(t[p]) === c) p++; while (p < n && cls(t[p]) === 0) p++; return p; };
+  const back = (p) => { if (p <= 0) return 0; p--; while (p > 0 && cls(t[p]) === 0) p--; const c = cls(t[p]); while (p > 0 && cls(t[p - 1]) === c) p--; return p; };
+  const end = (p) => { p++; while (p < n && cls(t[p]) === 0) p++; const c = cls(t[p]); while (p < n - 1 && cls(t[p + 1]) === c) p++; return Math.min(p, Math.max(0, n - 1)); };
+  const first = (p) => { let s = ls(p); while (s < le(p) && /[ \t]/.test(t[s])) s++; return s; };
+  const snap = [...v.undo, { text: t, pos }].slice(-100);
+  // 書き換え：from〜to を消して ins を入れる。mode が insert なら、そのまま打てる
+  const edit = (from, to, ins, o = {}) => {
+    const text = t.slice(0, from) + ins + t.slice(to);
+    const p = o.pos ?? from;
+    return out({ text, pos: o.mode === "insert" ? p : clamp(text, p), undo: snap, reg: o.reg ?? v.reg, mode: o.mode });
+  };
+  if (v.pend === "r") return key.length === 1 && pos < le(pos) ? edit(pos, pos + 1, key, { pos }) : out();
+  const k = v.pend + key;
+  switch (k) {
+    case "h": return out({ pos: Math.max(ls(pos), pos - 1) });
+    case "l": return out({ pos: clamp(t, Math.min(pos + 1, le(pos))) });
+    case "j": { const e = le(pos); if (e >= n) return out(); return out({ pos: clamp(t, Math.min(e + 1 + pos - ls(pos), le(e + 1))) }); }
+    case "k": { const s = ls(pos); if (!s) return out(); const s2 = ls(s - 1); return out({ pos: clamp(t, Math.min(s2 + pos - s, s - 1)) }); }
+    case "0": return out({ pos: ls(pos) });
+    case "^": return out({ pos: first(pos) });
+    case "$": return out({ pos: clamp(t, le(pos)) });
+    case "w": return out({ pos: clamp(t, fwd(pos)) });
+    case "b": return out({ pos: back(pos) });
+    case "e": return out({ pos: end(pos) });
+    case "gg": return out({ pos: 0 });
+    case "G": return out({ pos: ls(n) });
+    case "x": return pos < le(pos) ? edit(pos, pos + 1, "", { pos, reg: t[pos] }) : out();
+    case "X": return pos > ls(pos) ? edit(pos - 1, pos, "", { reg: t[pos - 1] }) : out();
+    case "s": return edit(pos, Math.min(pos + 1, le(pos)), "", { mode: "insert", reg: t.slice(pos, pos + 1) });
+    case "dd": case "cc": case "S": {
+      const s = ls(pos), e = le(pos), reg = t.slice(s, e) + "\n";
+      if (k !== "dd") return edit(s, e, "", { mode: "insert", reg });
+      if (e < n) return edit(s, e + 1, "", { reg });
+      return s > 0 ? edit(s - 1, e, "", { pos: lsIn(t.slice(0, s - 1), s - 1), reg }) : edit(0, n, "", { reg });
+    }
+    case "D": case "d$": return edit(pos, le(pos), "", { pos, reg: t.slice(pos, le(pos)) });
+    case "C": case "c$": return edit(pos, le(pos), "", { pos, mode: "insert", reg: t.slice(pos, le(pos)) });
+    case "d0": return edit(ls(pos), pos, "", { reg: t.slice(ls(pos), pos) });
+    case "dw": { const to = Math.min(fwd(pos), Math.max(le(pos), pos + 1)); return edit(pos, to, "", { pos, reg: t.slice(pos, to) }); }
+    case "de": { const to = end(pos) + 1; return edit(pos, to, "", { pos, reg: t.slice(pos, to) }); }
+    case "db": { const from = back(pos); return edit(from, pos, "", { reg: t.slice(from, pos) }); }
+    case "cw": case "ce": { const to = Math.min(end(pos) + 1, n); return edit(pos, to, "", { pos, mode: "insert", reg: t.slice(pos, to) }); }
+    case "yy": return out({ reg: t.slice(ls(pos), le(pos)) + "\n" });
+    case "yw": return out({ reg: t.slice(pos, fwd(pos)) });
+    case "p": case "P": {
+      const r = v.reg;
+      if (!r) return out();
+      if (r.endsWith("\n")) {
+        const at = k === "p" ? le(pos) : ls(pos), body = r.slice(0, -1);
+        return k === "p" ? edit(at, at, "\n" + body, { pos: at + 1 }) : edit(at, at, body + "\n", { pos: at });
+      }
+      const at = k === "p" && n ? Math.min(pos + 1, le(pos)) : pos;
+      return edit(at, at, r, { pos: at + r.length - 1 });
+    }
+    case "u": { const last = v.undo.at(-1); return last ? out({ text: last.text, pos: clamp(last.text, last.pos), undo: v.undo.slice(0, -1) }) : out(); }
+    case "i": return out({ mode: "insert", undo: snap });
+    case "a": return out({ mode: "insert", undo: snap, pos: Math.min(pos + 1, le(pos)) });
+    case "I": return out({ mode: "insert", undo: snap, pos: first(pos) });
+    case "A": return out({ mode: "insert", undo: snap, pos: le(pos) });
+    case "o": return edit(le(pos), le(pos), "\n", { pos: le(pos) + 1, mode: "insert" });
+    case "O": return edit(ls(pos), ls(pos), "\n", { pos: ls(pos), mode: "insert" });
+    case "Enter": return out({ act: "send", mode: "insert" });
+    case "Escape": return out({ act: "leave" });
+    case "d": case "c": case "y": case "g": case "r": return out({ pend: k });
+    default: return out();
+  }
 }
 
 // リンクの決まり（設定から作る）：{ re, url }。画面の中だけで持つ
@@ -675,7 +763,7 @@ function renderCards() {
     : `<button class="act icon" data-fold="${x.id}" title="${esc(L.fold)}" aria-label="${esc(L.fold)}">${ICON.fold}</button>`;
   el.innerHTML = live.length
     ? open.map((x) => `
-    <div class="card${marked(x) ? " mark" : ""}" data-go="${x.id}">
+    <div class="card${marked(x) ? " mark" : ""}${vimOn() && sel === x.id ? " sel" : ""}" data-go="${x.id}">
       <div class="head"><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${roomTag(x)}${btn(x)}<span class="status ${x.status}">${esc(L.status[x.status])}</span></div>
       <div class="last">${inline(headOf(x.last))}</div>
     </div>`).join("") +
@@ -836,12 +924,70 @@ function resetOf(at, now) {
   return [`${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`, left];
 }
 
+// vim のキー操作
+const vimOn = () => state.settings?.keys === "vim";
+let sel = null; // 画面のモードで選んでいるカード（画面の中だけ）
+function renderMode() {
+  const el = $("#mode"), m = $("#input textarea");
+  el.hidden = !vimOn();
+  if (el.hidden) { m.classList.remove("normal"); return; }
+  const mode = document.activeElement === m ? input.vs.mode : "screen";
+  el.className = mode;
+  el.textContent = L.modes[mode];
+  el.title = L.modeTitle;
+  m.classList.toggle("normal", mode === "normal");
+}
+// フォーカスを動かすのはここだけ。人がキーで入力欄へ戻ると頼んだときに使う
+function keyFocus(el) {
+  el.focus();
+}
+const editable = (el) => el?.matches?.("input, textarea, select, [contenteditable]");
+// 画面のモード：入力欄の外で j/k・Enter・gg/G・i か /
+let screenPend = "";
+function screenKey(e) {
+  if (!vimOn() || editable(e.target) || e.metaKey || e.ctrlKey || e.altKey) return false;
+  const main = $("main"), k = screenPend + e.key;
+  screenPend = "";
+  if (k === "i" || k === "/" || k === "a") {
+    // 入力欄へ戻ったら、続きを打てるように文の終わりから（ノーマルの一文字の選択は外す）
+    input.vs = { ...input.vs, mode: "insert" };
+    keyFocus(input.m);
+    input.m.setSelectionRange(input.m.value.length, input.m.value.length);
+    renderMode();
+    return true;
+  }
+  if (k === "g") { screenPend = "g"; return true; }
+  if (peek != null || hist) {
+    const step = { j: 60, k: -60, d: main.clientHeight / 2, u: -main.clientHeight / 2 }[k];
+    if (step) { main.scrollTop += step; return true; }
+    if (k === "gg") { main.scrollTop = 0; return true; }
+    if (k === "G") { main.scrollTop = main.scrollHeight; return true; }
+    if (k === "h" && peek != null) { open(null); return true; }
+    return false;
+  }
+  // 一覧：開いているカードを並んでいる順に
+  const ids = [...document.querySelectorAll("#cards .card[data-go]")].map((c) => Number(c.dataset.go));
+  if (!ids.length) return false;
+  const i = ids.indexOf(sel);
+  const to = { j: i + 1, l: i + 1, k: i - 1, h: i - 1, gg: 0, G: ids.length - 1 }[k];
+  if (to != null) {
+    sel = ids[Math.max(0, Math.min(ids.length - 1, i < 0 ? 0 : to))];
+    renderCards();
+    const c = document.querySelector(`#cards .card[data-go="${sel}"]`);
+    if (c && (c.offsetTop < main.scrollTop || c.offsetTop + c.offsetHeight > main.scrollTop + main.clientHeight)) main.scrollTop = c.offsetTop - 14;
+    return true;
+  }
+  if ((k === "Enter" || k === "o") && ids.includes(sel)) { open(sel); return true; }
+  return false;
+}
+
 // 上の帯：これから起こすセッションの場所と、履歴の口
 function renderRoom() {
   const b = $("[data-roomchip]");
   b.innerHTML = `${ICON.folder}<span>${esc(baseName(state.room))}</span>`;
   b.title = L.roomTitle(state.room ?? "");
   renderRoomPick();
+  renderMode();
   const h = $("[data-history]");
   h.hidden = !state.history?.length && !hist;
   h.setAttribute("aria-pressed", String(hist));
@@ -1032,6 +1178,7 @@ document.addEventListener("toggle", (e) => {
   if (k) e.target.open ? opened.add(k) : opened.delete(k);
 }, true);
 document.addEventListener("keydown", (e) => {
+  if (screenKey(e)) { e.preventDefault(); return; }
   if (e.key === "Escape" && roomOpen) { roomOpen = false; return renderRoomPick(); }
   if (e.key === "Escape" && peek != null) open(null);
   // 作業する場所の欄は Enter で変える（変換中の Enter は除く）
@@ -1091,8 +1238,11 @@ const input = {
     const byKey = () => Date.now() - this.lastKey < 300;
     m.addEventListener("keydown", (e) => {
       this.lastKey = Date.now();
+      if (vimOn() && !e.isComposing && e.keyCode !== 229 && !e.metaKey && !e.ctrlKey && !e.altKey && this.vim(e)) return;
       if (isSendKey(e)) { e.preventDefault(); clearTimeout(this.timer); this.send(); }
     });
+    m.addEventListener("focus", () => renderMode());
+    m.addEventListener("blur", () => renderMode());
     m.addEventListener("input", () => {
       this.grow();
       if (!m.value.trim()) this.typed = false;
@@ -1101,6 +1251,33 @@ const input = {
     });
     m.addEventListener("compositionstart", () => { this.composing = true; });
     m.addEventListener("compositionend", () => { this.composing = false; if (!byKey() && !this.typed) this.arm(); });
+  },
+  // vim：キーを vimKey に通し、使ったキーなら欄に当てる。使ったら true
+  vs: { mode: "insert", pend: "", reg: "", undo: [] },
+  vim(e) {
+    const m = this.m;
+    // Shift+Enter は改行のまま（挿入のとき）
+    if (e.key === "Enter" && (e.shiftKey || this.vs.mode === "insert")) return false;
+    const r = vimKey({ ...this.vs, text: m.value, pos: m.selectionStart }, e.key);
+    if (!r.handled) return false;
+    e.preventDefault();
+    // 覗いた画面を閉じる Esc などに渡さない
+    e.stopPropagation();
+    const { text, pos, ...rest } = r.v;
+    this.vs = rest;
+    if (text !== m.value) {
+      m.value = text;
+      this.grow();
+      this.typed = !!text.trim();
+      clearTimeout(this.timer);
+    }
+    // ノーマルでは今の一文字を選んで、四角い印の代わりにする
+    const block = rest.mode === "normal" && pos < text.length && text[pos] !== "\n";
+    m.setSelectionRange(pos, block ? pos + 1 : pos);
+    if (r.act === "send") { clearTimeout(this.timer); this.send(); }
+    if (r.act === "leave") m.blur();
+    renderMode();
+    return true;
   },
   arm() {
     clearTimeout(this.timer);
