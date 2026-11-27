@@ -151,7 +151,8 @@ export class Sessions {
   // 新しいセッション。返すのはその番号
   open(name) {
     const id = Math.max(0, ...this.log.state.sessions.map((x) => x.id)) + 1;
-    this.log.add("open", { session: id, name });
+    // 起きる場所は、開いたときの場所で決める（あとで人が場所を変えても、続きは同じ場所で）
+    this.log.add("open", { session: id, name, room: this.log.state.room ?? this.room });
     return id;
   }
 
@@ -236,7 +237,7 @@ export class Sessions {
         this.pump();
       }
     };
-    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, resumeAt: x.resumeAt, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: this.room }, emit);
+    p.h = this.spawn({ args: claudeArgs({ prompt: withUser(this.prompt, this.user, "セッション"), resume: x.claude, resumeAt: x.resumeAt, model: this.model, mcp: this.mcpUrl?.(session) ?? null }), cwd: x.room ?? this.room }, emit);
     this.procs.set(session, p);
     p.h.done.then(({ code, stderr }) => {
       clearTimeout(p.timer);
@@ -321,7 +322,7 @@ export class Sessions {
       const p = this.procs.get(session);
       if (p) { clearTimeout(p.timer); p.quiet = true; this.procs.delete(session); p.h.end(); await p.h.done; }
       if (files) {
-        const r = await this.restore({ claude: x.claude, uuid, cwd: this.room });
+        const r = await this.restore({ claude: x.claude, uuid, cwd: x.room ?? this.room });
         if (!r.ok) return { ok: false, message: `ファイルを戻せなかった：${r.error}` };
       }
     } finally {

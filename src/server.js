@@ -104,14 +104,27 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         const b = await readJson(req);
         const cmd = String(b.cmd ?? "").trim();
         if (!cmd) return json(400, { ok: false, message: "コマンドがない" });
-        return json(200, { ok: true, ...(await run(shell, cmd, room)) });
+        // そのセッションの返事の中のシェルは、そのセッションが起きた場所で動かす
+        const x = log.state.sessions.find((y) => y.id === b.session);
+        return json(200, { ok: true, ...(await run(shell, cmd, x?.room ?? room)) });
+      }
+      // これから起こすセッションの場所を変える。画面から押したときだけ。ある場所（フォルダ）だけ
+      if (route === "POST /api/room") {
+        if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
+        const b = await readJson(req);
+        const dir = resolvePath(String(b.path ?? ""), log.state.room ?? room);
+        if (!dir || !fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return json(404, { ok: false, message: `フォルダが見つからない：${b.path}` });
+        if (log.state.room !== dir) log.add("room", { path: dir });
+        return json(200, { ok: true, path: dir });
       }
       // 返事の中のファイルを、人が押したときに手元のアプリで開く。画面から押したときだけ
       if (route === "POST /api/open") {
         if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
         const b = await readJson(req);
-        const file = resolvePath(String(b.path ?? ""), room);
-        if (!file || !fs.existsSync(file)) return json(404, { ok: false, message: `見つからない：${b.path}` });
+        // 相対の場所は、起きる場所を先に、そのセッションが触った場所の順に探す（セッションが下のフォルダで作業していることがある）
+        const x = log.state.sessions.find((y) => y.id === b.session);
+        const file = [...new Set([x?.room, room, ...placesOf(x)].filter(Boolean))].map((base) => resolvePath(String(b.path ?? ""), base)).find((f) => f && fs.existsSync(f));
+        if (!file) return json(404, { ok: false, message: `見つからない：${b.path}` });
         const line = Number.isInteger(b.line) && b.line > 0 ? b.line : null;
         const col = Number.isInteger(b.col) && b.col > 0 ? b.col : null;
         opener({ file, line, col, how: log.state.settings?.opener ?? "os" });
@@ -176,6 +189,24 @@ export function createServer({ log, sessions = null, room = null, shell = proces
 }
 
 // 返事に書かれた場所を、手元のファイルの場所にする：~ は家、途中からの場所は room から
+// セッションが触った場所：道具の一行に出た絶対の場所（ファイルならそのフォルダ）と cd の先、そこから上のフォルダ。近いものから
+export function placesOf(x) {
+  if (!x) return [];
+  const seen = new Set(), out = [];
+  const lines = [...(x.flow ?? []).filter((f) => f.who === "tool").map((f) => f.text), ...(x.info ?? []).filter((i) => i.kind === "file").map((i) => `Edit ${i.ref}`)].reverse();
+  for (const line of lines) {
+    const hits = [line.match(/^\S+ (\/\S+)/)?.[1], ...[...line.matchAll(/(?:^|[;&|]\s*|\s)cd\s+(\/[^\s;&|]+)/g)].map((m) => m[1])].filter(Boolean);
+    for (const hit of hits) {
+      let dir = path.normalize(hit);
+      if (path.extname(dir) || /\/[^/]*\.[^/]*$/.test(dir)) dir = path.dirname(dir);
+      for (; dir !== path.dirname(dir) && dir !== os.homedir(); dir = path.dirname(dir)) {
+        if (!seen.has(dir)) { seen.add(dir); out.push(dir); }
+      }
+    }
+  }
+  return out;
+}
+
 export function resolvePath(p, room) {
   p = p.trim();
   if (!p) return null;
@@ -194,12 +225,12 @@ export function runnable(file) {
   }
 }
 
-// 本物の開き方。VS Code と Cursor は行まで飛ぶ。OS の既定では、動いてしまうものは開かずにフォルダで見せる
+// 本物の開き方。VS Code は行まで飛ぶ。OS の既定では、動いてしまうものは開かずにフォルダで見せる
 export function openFile({ file, line, col, how }) {
   const at = line ? `${file}:${line}${col ? `:${col}` : ""}` : file;
   const mac = process.platform === "darwin", win = process.platform === "win32";
   let cmd, args;
-  if (how === "vscode" || how === "cursor") [cmd, args] = [how === "vscode" ? "code" : "cursor", ["-g", at]];
+  if (how === "vscode") [cmd, args] = ["code", ["-g", at]];
   else if (runnable(file)) [cmd, args] = mac ? ["open", ["-R", file]] : win ? ["explorer", [`/select,${file}`]] : ["xdg-open", [path.dirname(file)]];
   else [cmd, args] = mac ? ["open", [file]] : win ? ["cmd", ["/c", "start", "", file]] : ["xdg-open", [file]];
   try {

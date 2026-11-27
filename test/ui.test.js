@@ -33,6 +33,13 @@ test("web のリンクは別ウィンドウ一枚を名前で使い回す", () =
   assert.match(script, /window\.open\(url, "dyve-view", "popup/);
 });
 
+test("ボタンは文字で作らない（アイコンか、チップ）", () => {
+  // 中身がいきなり言葉のボタン（L の言葉や地の文字）を探す。チップ（pill・qref）は短い名前を持ってよい
+  const text = [...script.matchAll(/<button(?![^>]*class="[^"]*\b(?:pill|qref)\b)[^>]*>(\$\{esc\(L\.|[^<$\s])/g)].map((m) => m[0]);
+  assert.deepEqual(text, []);
+  assert.doesNotMatch(script, /\$\("\[data-(?:reset|undo|history)\]"\)\.textContent/);
+});
+
 test("幅と右のパネルはブラウザに覚え、読めなくても既定の幅で描く", () => {
   assert.match(script, /try \{ return JSON\.parse\(localStorage\.getItem\("dyve\.layout"\)\) \?\? \{\}; \} catch \{ return \{\}; \}/);
   assert.match(script, /try \{ localStorage\.setItem\("dyve\.layout"/);

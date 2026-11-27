@@ -17,7 +17,7 @@ const USAGE = `使い方:
 オプション:
   --port N        待つポート（既定：4750。0 なら空いているもの）
   --data FILE     記録（既定：~/.dyve/record.jsonl）
-  --room DIR      セッションが起きる場所（既定：いまの場所）
+  --room DIR      セッションが起きる場所（既定：前に画面で選んだ場所。なければいまの場所）
   --model NAME    セッションのモデル（既定：Claude Code の既定）
   --kakari NAME   係のモデル（既定：haiku）
   --slots N       同時に答えていられるセッションの数（既定：3）
@@ -37,7 +37,7 @@ try {
     options: {
       port: { type: "string", default: "4750" },
       data: { type: "string", default: path.join(HOME, "record.jsonl") },
-      room: { type: "string", default: process.cwd() },
+      room: { type: "string" },
       model: { type: "string" },
       kakari: { type: "string", default: "haiku" },
       slots: { type: "string", default: "3" },
@@ -61,7 +61,7 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) die(`--port は 0〜655
 const slots = Number(v.slots);
 if (!Number.isInteger(slots) || slots < 1) die(`--slots は 1 以上の整数\n${USAGE}`);
 const file = path.resolve(v.data);
-const room = path.resolve(v.room);
+const room = path.resolve(v.room ?? process.cwd());
 if (!fs.statSync(room, { throwIfNoEntry: false })?.isDirectory()) die(`--room がディレクトリでない：${room}`);
 
 let log;
@@ -75,6 +75,10 @@ if (log.skipped) process.stderr.write(`注意：記録の ${log.skipped} 行が�
 const claude = v.claude.includes("/") ? path.resolve(v.claude) : v.claude;
 const missing = claudeMissing(claude);
 if (missing) process.stderr.write(`注意：${missing}\n`);
+
+// これから起こすセッションの場所：--room を渡したらそこ。渡さなければ、前に画面で選んだ場所（なければいまの場所）
+if (v.room != null ? log.state.room !== room : log.state.room == null) log.add("room", { path: room });
+const here = log.state.room;
 
 // 止まる前に走っていたターンは、もう帰ってこない。そうとわかるように終わらせる（続きを頼めば同じ会話で動く）
 for (const x of log.state.sessions) if (x.status === "run") log.add("end", { session: x.id, error: "dyve を立て直したので止まった。続きを頼めば再開する" });
@@ -97,7 +101,7 @@ server.listen(port, "127.0.0.1", () => {
     const x = s.session != null && log.state.sessions.find((y) => y.id === s.session);
     if (x && !s.canceled && !x.flow.some((f) => f.say === s.id)) sessions.send(x.id, s.id);
   }
-  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${room}\n`);
+  process.stdout.write(`チャット：http://127.0.0.1:${server.address().port}/\n記録：${file}（${log.state.seq} 件）\nセッションが起きる場所：${here}\n`);
 });
 const quit = () => {
   kakari.stop();

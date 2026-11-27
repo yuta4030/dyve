@@ -295,6 +295,24 @@ test("巻き戻すときファイルも：その発言の ID で戻してから�
   assert.equal(x().flow.at(-1).text, "ここまで戻した（ファイルも）");
 });
 
+test("セッションは、開いたときの場所で起きる。あとで場所を変えても、続きは同じ場所で", async () => {
+  const { log, sessions, say, procs, answer } = setup();
+  log.add("room", { path: "/one" });
+  const a = sessions.open("a");
+  log.add("room", { path: "/two" });
+  const b = sessions.open("b");
+  say("x", a);
+  say("y", b);
+  assert.deepEqual(procs.map((p) => p.job.cwd), ["/one", "/two"]);
+  // 場所を決めていない記録なら、起動したときの場所
+  const c = new Log(), f = fakeSpawn();
+  const s2 = new Sessions({ log: c, spawn: f.spawn, room: "/room", prompt: "P" });
+  const id = s2.open("c");
+  assert.equal(c.state.sessions[0].room, "/room");
+  s2.send(id, c.add("say", { text: "z" }).seq);
+  assert.equal(f.procs[0].job.cwd, "/room");
+});
+
 test("利用枠：rate_limit_event を、変わったときだけ記録に置く", () => {
   const { log, sessions, say, procs } = setup();
   const id = sessions.open("a");

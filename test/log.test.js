@@ -83,6 +83,37 @@ test("リセットは、次に話すまで戻せる。そのあいだに帰っ�
   assert.equal(log.state.undo, null);
 });
 
+test("リセットで外したものは履歴に残る。リセットを戻せば履歴からも外す", () => {
+  const log = new Log();
+  log.add("open", { session: 1, name: "a" });
+  const s = log.add("say", { text: "料金を" }).seq;
+  log.add("end", { session: 1, result: "答え" });
+  log.add("open", { session: 2, name: "b" });
+  log.add("turn", { session: 2, says: [] });
+  log.add("reset");
+  assert.equal(log.state.history.length, 1);
+  assert.deepEqual(log.state.history[0].sessions, [1]);
+  assert.deepEqual(log.state.history[0].chat.map((c) => c.say ?? c.reply), [s, 1]);
+  log.add("undo");
+  assert.equal(log.state.history.length, 0);
+  // 何もないときにリセットしても、空の区切りは残さない
+  log.add("reset");
+  log.add("reset");
+  assert.equal(log.state.history.length, 1);
+});
+
+test("作業する場所：これから起こすセッションの場所を変える。使った場所は新しいほうから覚える", () => {
+  const log = new Log();
+  log.add("room", { path: "/a" });
+  log.add("open", { session: 1, name: "x", room: "/a" });
+  log.add("room", { path: "/b" });
+  log.add("room", { path: "/a" });
+  assert.equal(log.state.room, "/a");
+  assert.deepEqual(log.state.rooms, ["/a", "/b"]);
+  assert.equal(log.state.sessions[0].room, "/a");
+  assert.throws(() => log.add("room", { path: " " }));
+});
+
 test("付け替えた発言は、前のセッションが止まっても答え終えたことにしない", () => {
   const log = new Log();
   log.add("open", { session: 1, name: "a" });
@@ -105,6 +136,15 @@ test("設定：決まった名前と値だけ変えられ、立て直しても�
   assert.equal(log.state.settings.pause, 3);
   assert.throws(() => log.add("set", { key: "pause", value: 4 }));
   assert.throws(() => log.add("set", { key: "nope", value: 1 }));
+});
+
+test("設定：前の版で選べた値（Cursor）が記録に残っていたら、既定に戻す", async () => {
+  const { step, empty } = await import("../src/state.js");
+  const state = empty();
+  step(state, { seq: 1, kind: "set", key: "opener", value: "vscode" });
+  assert.equal(state.settings.opener, "vscode");
+  step(state, { seq: 2, kind: "set", key: "opener", value: "cursor" });
+  assert.equal(state.settings.opener, "os");
 });
 
 test("清書した文は元の文と別に持ち、セッションには清書を渡す", () => {
