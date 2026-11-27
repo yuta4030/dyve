@@ -1,6 +1,7 @@
 // 状態：記録を頭から一件ずつ当てて作る。データに持つのは記録だけで、状態はいつも作り直せる
 //   say   { id, text, peek, to }           人の発言（to は、人が選択肢を押して届け先を決めて言ったもの）
-//   route { say, session | null, error }   届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
+//   route { say, session | null, error, fair, ref, from, quote } 届け先（null はどこにも届けない）。もう届け先がある発言なら、人が付け替えた
+//                                          ref・from・quote は発言の「それ」が指すもの（前の発言の id、セッションとそのときの最後の答え）
 //   fold  { session, on }                  人がカードを畳んだ（on）・広げた
 //   cancel { say }                         人が発言を取り消した
 //   asks  { session, questions }           セッションが dyve の道具（ask）で人に聞いた。前の質問は置き換わる。空なら質問を下げる
@@ -63,7 +64,9 @@ const need = (v, what) => {
 // 種類ごとの、記録に書く中身の作り方（足りなければ断る）
 export const KINDS = {
   say: (b) => ({ text: need(String(b.text ?? "").trim(), "文"), peek: Number.isInteger(b.peek) ? b.peek : null, ...(Number.isInteger(b.to) ? { to: b.to } : {}) }),
-  route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}) }),
+  route: (b) => ({ say: need(b.say, "発言"), session: b.session ?? null, ...(b.error ? { error: String(b.error) } : {}), ...(b.fair ? { fair: String(b.fair).trim() } : {}),
+    ...(Array.isArray(b.ref) && b.ref.length ? { ref: b.ref.filter(Number.isInteger) } : {}),
+    ...(Number.isInteger(b.from) && b.quote ? { from: b.from, quote: String(b.quote) } : {}) }),
   quota: (b) => {
     const n = (v) => (Number.isFinite(v) ? v : null);
     return { five: n(b.five), fiveAt: n(b.fiveAt), week: n(b.week), weekAt: n(b.weekAt), status: String(b.status ?? "allowed") };
@@ -124,6 +127,9 @@ export function step(state, r) {
       s.done = false;
       // 清書した文（元の文は text に残す）。元と同じなら持たない
       if (r.fair && r.fair !== s.text) s.fair = r.fair;
+      // 「それ」が指すもの。人が付け替えたとき（ref も from もない route）は、前のものを残す
+      if (r.ref) s.ref = r.ref;
+      if (r.from != null) Object.assign(s, { from: r.from, quote: r.quote });
       if (old != null && old !== s.session) orphan(old);
       break;
     }

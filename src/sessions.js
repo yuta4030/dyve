@@ -98,6 +98,21 @@ export function toolLine(name, input = {}) {
   return clip(oneLine(`${name} ${typeof arg === "string" ? arg : ""}`), 120);
 }
 
+// 発言の文（清書したものがあればそれ）。「それ」が指すものがあれば、元の文のまま添える
+export function withPointed(state, q) {
+  if (!q) return "";
+  const text = q.fair ?? q.text;
+  const refs = (q.ref ?? []).map((id) => state.said.find((r) => r.id === id)).filter((r) => r && !r.canceled);
+  const from = q.quote ? state.sessions.find((x) => x.id === q.from) : null;
+  if (!refs.length && !from) return text;
+  return [
+    text, "",
+    "［dyve：この発言が指しているもの（人の言葉と、ほかのセッションの答えをそのまま写したもの）］",
+    ...refs.map((r) => `人の前の発言：${r.fair ?? r.text}`),
+    ...(from ? [`${from.sym}「${from.name}」の最後の答え：`, q.quote] : []),
+  ].join("\n");
+}
+
 export class Sessions {
   // user：利用者の書き足し（用語.md とセッション.md）を置くフォルダ。起こすたびに読み直す
   // mcpUrl(session)：そのセッションに貸す道具の口の URL（サーバーが待ちはじめてから決まる）
@@ -143,7 +158,7 @@ export class Sessions {
     const p = this.procs.get(session) ?? this.wake(session);
     clearTimeout(p.timer);
     // 清書したものがあればそれを渡す
-    const text = says.map((id) => { const q = this.log.state.said.find((r) => r.id === id); return q?.fair ?? q?.text; }).filter(Boolean).join("\n\n");
+    const text = says.map((id) => withPointed(this.log.state, this.log.state.said.find((r) => r.id === id))).filter(Boolean).join("\n\n");
     p.busy = true;
     p.says.push(...says);
     this.log.add("turn", { session, says });

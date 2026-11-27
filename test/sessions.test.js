@@ -206,6 +206,21 @@ test("清書したものがあれば、セッションにはそれを渡す", ()
   assert.equal(body(procs[0].writes[0]), "料金を");
 });
 
+test("指しているものがあれば、元の文のまま添えて渡す。付け替えても残る", () => {
+  const { log, sessions, procs } = setup();
+  const a = sessions.open("料金");
+  log.add("end", { session: a, result: "次は請求書を直せます" });
+  const p = log.add("say", { text: "えー請求書も" }).seq;
+  log.add("route", { say: p, session: a, fair: "請求書も" });
+  const b = sessions.open("それ");
+  const s = log.add("say", { text: "新規でそれやって" }).seq;
+  log.add("route", { say: s, session: b, ref: [p], from: a, quote: "次は請求書を直せます" });
+  sessions.send(b, s);
+  assert.equal(body(procs[0].writes[0]), "新規でそれやって\n\n［dyve：この発言が指しているもの（人の言葉と、ほかのセッションの答えをそのまま写したもの）］\n人の前の発言：請求書も\nA「料金」の最後の答え：\n次は請求書を直せます");
+  log.add("route", { say: s, session: a });
+  assert.deepEqual(log.state.said.find((q) => q.id === s).ref, [p]);
+});
+
 test("利用枠：rate_limit_event を、変わったときだけ記録に置く", () => {
   const { log, sessions, say, procs } = setup();
   const id = sessions.open("a");

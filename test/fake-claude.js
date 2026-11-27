@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Claude Code のふりをする小さなスクリプト。外につながず、決まった返事を返す（serve --claude にこれを渡して、通しで確かめる）
 //   --version：版を出す
-//   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）
+//   --json-schema：係。発言ごとに届け先を返す（「独り言」「うーん」で始まれば none、「続き」を含めば最後のセッション、ほかは new）。
+//     「新規…それ」は new で、直前の発言を ref に（「A の答え」を含めば A を from に）
 //   それ以外：セッション。発言は標準入力に stream-json で届く（下の session を見る）
 const args = process.argv.slice(2);
 const after = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : null);
@@ -32,6 +33,11 @@ async function kakari() {
     if (/^(うーん|独り言)/.test(text)) says.push({ id, to: "none" });
     else if (peek && /それ|あと/.test(text)) says.push({ id, to: peek });
     else if (/続き/.test(text) && syms.length) says.push({ id, to: syms.at(-1) });
+    else if (/新規.*それ/.test(text)) {
+      const prev = [...(prompt.split("直前の発言：\n")[1] ?? "").matchAll(/^- (\d+)（/gm)].map((m) => Number(m[1])).at(-1);
+      const from = text.match(/([A-Z]+) の答え/)?.[1];
+      says.push({ id, to: "new", name: "それ", ...(prev && !from ? { ref: [prev] } : {}), ...(from ? { from } : {}) });
+    }
     else says.push({ id, to: "new", name: text.slice(0, 10) });
   }
   await sleep(Number(process.env.FAKE_KAKARI_MS ?? 10));
@@ -74,6 +80,9 @@ async function session() {
         await callTool("state", { groups: [{ name: "契約", items: [{ done: true, name: "人数", value: "8 人", why: "会話で決めた" }, { done: false, name: "案", ask: 1 }] }] });
       }
       let answer = /選ばせて/.test(first) ? "候補は甲と乙です。どちらにしますか？" : `「${first.slice(0, 30)}」の答えは 42 です。${turns ? "（続き）" : ""}`;
+      // dyve が添えた「指しているもの」は、何を受け取ったか答えに出す
+      const pointed = asked[0].match(/^人の前の発言：(.*)$/m)?.[1];
+      if (pointed) answer += `（指しているもの：${pointed}）`;
       if (asked.length > 1) answer += `（途中で：${asked.slice(1).map((t) => t.split("\n")[0]).join("／")}）`;
       turns++;
       say(answer);

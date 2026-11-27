@@ -95,3 +95,14 @@ test("答えている途中の発言は差し込まれ、同じターンで答�
   assert.equal(s.sessions.length, 1);
   await stop();
 });
+
+test("「新規でそれやって」は、指している前の発言を添えて新しいセッションに届く", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dyve-e2e-"));
+  const { base, stop } = await serve(dir);
+  await say(base, "料金を調べて");
+  await until(base, (s) => s.sessions[0]?.status === "wait");
+  await say(base, "新規でそれやって");
+  const s = await until(base, (s) => s.sessions[1]?.status === "wait");
+  assert.match(s.sessions[1].last, /指しているもの：料金を調べて/);
+  await stop();
+});

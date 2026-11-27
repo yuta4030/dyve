@@ -133,3 +133,34 @@ test("係に見せる直前の発言に、取り消したものは載せない",
   const b = log.add("say", { text: "これは料金の話じゃない" }).seq;
   assert.doesNotMatch(routePrompt(log.state, [log.state.said.find((p) => p.id === b)]), /直前の発言/);
 });
+
+test("前の何かを指す発言：指している発言とセッションの答えを、記録に添える。中身は記録から取る", async () => {
+  let a;
+  const { log, sessions, kakari, asked } = setup((t) => {
+    const id = Number(t.split("新しい発言：")[1].match(/^- (\d+)：/m)[1]);
+    return { ok: true, json: { says: [/それ/.test(t.split("新しい発言：")[1]) ? { id, to: "new", name: "請求", ref: [a, 99], from: "A" } : { id, to: "A" }] } };
+  });
+  log.add("open", { session: 1, name: "料金" });
+  log.add("end", { session: 1, result: "次は請求書の形を直せます" });
+  a = log.add("say", { text: "A 請求書も見て" }).seq;
+  await kakari.kick();
+  const b = log.add("say", { text: "新規でそれやって" }).seq;
+  await kakari.kick();
+  assert.match(asked[0], new RegExp(`- ${a}（→ A）：A 請求書も見て`));
+  const s = log.state.said.find((p) => p.id === b);
+  // 知らない id は落とす。A の答えは、そのときの最後の答えを写す
+  assert.deepEqual([s.session, s.ref, s.from, s.quote], [2, [a], 1, "次は請求書の形を直せます"]);
+  assert.deepEqual(sessions.sent.at(-1), [2, b]);
+});
+
+test("指しているものが届く先と同じなら、添えない", async () => {
+  const { log, kakari } = setup((t) => ({ ok: true, json: { says: [{ id: Number(t.split("新しい発言：")[1].match(/^- (\d+)：/m)[1]), to: "A", ref: [1], from: "A" }] } }));
+  log.add("open", { session: 1, name: "料金" });
+  log.add("end", { session: 1, result: "答え" });
+  log.add("say", { text: "A 料金を" });
+  await kakari.kick();
+  const b = log.add("say", { text: "それもお願い" }).seq;
+  await kakari.kick();
+  const s = log.state.said.find((p) => p.id === b);
+  assert.deepEqual([s.session, s.ref, s.from], [1, undefined, undefined]);
+});
