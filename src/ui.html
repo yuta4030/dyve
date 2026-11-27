@@ -42,12 +42,15 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #input > .pill { margin-bottom: 6px; }
 .pill.small { flex: none; padding: 0 7px 0 5px; font-size: 11px; max-width: 120px; align-self: center; }
 .pill.small svg { width: 11px; height: 11px; }
-#settings .rooms { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+/* 場所を選ぶ小さな欄：入力欄の上のチップのすぐ上に出る */
+#roompick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12px; }
+#roompick[hidden] { display: none; }
+#roompick input { font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+#roompick .rooms { display: flex; flex-wrap: wrap; gap: 6px; }
 #top [data-history], #top [data-reset], #top [data-undo] { display: inline-flex; }
 #top [data-undo][hidden] { display: none; }
 #top [data-history][aria-pressed="true"] { color: var(--ink); }
 .room { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
-#settings .room-row input.path { flex-basis: 100%; font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
 #history { display: flex; flex-direction: column; gap: 12px; max-width: 860px; margin: 0 auto; width: 100%; }
 #history .bar { display: flex; align-items: baseline; gap: 10px; color: var(--sub); font-size: 12px; }
 #history .bar button:hover { color: var(--ink); }
@@ -248,7 +251,7 @@ a.file code { color: inherit; }
   <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-history aria-pressed="false" hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
-  <div id="input"><button class="pill" data-roomchip></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
+  <div id="input"><div id="roompick" hidden></div><button class="pill" data-roomchip aria-expanded="false"></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
 </section>
 <main>
   <div id="cards"></div>
@@ -334,7 +337,7 @@ const L = {
   best: "★ ",
   lost: "つながりが切れた。つなぎ直している",
   room: "作業する場所",
-  roomTitle: (p) => `これから起こすセッションは ${p} で起きる（押すと変える）`,
+  roomTitle: (p) => `これから起こすセッションの場所：${p}（押すと変える）`,
   roomHint: "フォルダの場所を書いて Enter。動いているセッションは元の場所のまま",
   roomBad: (m) => `場所を変えられなかった：${m}`,
   roomOf: (p) => `${p} で起きた`,
@@ -770,7 +773,7 @@ function renderSettings() {
   if (!gear) { linkRows = null; shownSettings = ""; return; }
   linkRows ??= (state.links ?? []).map((r) => ({ ...r }));
   const cur = state.settings ?? {};
-  const key = JSON.stringify([cur, linkRows.length, state.links, state.room, state.rooms]);
+  const key = JSON.stringify([cur, linkRows.length, state.links]);
   if (key === shownSettings) return;
   shownSettings = key;
   const links = `<div class="row"><span class="label">${esc(L.links)}</span><div class="links">` +
@@ -780,20 +783,29 @@ function renderSettings() {
     // 間の長さは、間があいたら送るときだけ
     .filter(([k]) => k !== "pause" || cur.send !== "each")
     .map(([k, d]) => `<div class="row"><span class="label">${esc(d.label)}</span><span class="seg">${Object.entries(d.values).map(([v, t]) => `<button data-set="${k}" data-value="${esc(v)}" aria-pressed="${String(cur[k]) === v}">${esc(t)}</button>`).join("")}</span></div>`)
-    .join("") + roomRow() + links;
-  // 長い場所は終わりのほうが大事なので、欄の右端を見せる
-  const r = el.querySelector("[data-room]");
-  if (r) r.scrollLeft = r.scrollWidth;
+    .join("") + links;
 }
 
-// 作業する場所：書いて Enter か、前に使った場所を押す
-function roomRow() {
+// 作業する場所：入力欄の上のチップを押すと、そのすぐ上に出る。書いて Enter か、前に使った場所を押す。変えたら閉じる
+let roomOpen = false, shownRoomPick = "";
+function renderRoomPick() {
+  const el = $("#roompick");
+  el.hidden = !roomOpen;
+  $("[data-roomchip]").setAttribute("aria-expanded", String(roomOpen));
+  if (!roomOpen) { shownRoomPick = ""; return; }
+  // 書いている途中の欄を消さないように、場所が変わったときだけ描き直す
+  const key = JSON.stringify([state.room, state.rooms]);
+  if (key === shownRoomPick) return;
+  shownRoomPick = key;
   const others = (state.rooms ?? []).filter((p) => p !== state.room);
-  return `<div class="row room-row"><span class="label">${esc(L.room)}</span><input class="path" data-room value="${esc(state.room ?? "")}" title="${esc(L.roomHint)}" spellcheck="false">` +
-    (others.length ? `<div class="rooms">${others.map((p) => `<button class="pill" data-room-pick="${esc(p)}" title="${esc(p)}">${ICON.folder}<span>${esc(baseName(p))}</span></button>`).join("")}</div>` : "") + `</div>`;
+  el.innerHTML = `<input data-room value="${esc(state.room ?? "")}" placeholder="${esc(L.room)}" title="${esc(L.roomHint)}" spellcheck="false">` +
+    (others.length ? `<div class="rooms">${others.map((p) => chipBtn(`data-room-pick="${esc(p)}"`, ICON.folder, baseName(p), p)).join("")}</div>` : "");
+  // 長い場所は終わりのほうが大事なので、欄の右端を見せる
+  const r = el.querySelector("[data-room]");
+  r.scrollLeft = r.scrollWidth;
 }
 const setRoom = (path) => fetch("/api/room", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) })
-  .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.roomBad(r.message ?? ""); })
+  .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.roomBad(r.message ?? ""); if (r.ok) { roomOpen = false; renderRoomPick(); } })
   .catch((err) => { $("#note").textContent = L.roomBad(String(err)); });
 
 // 書けているリンクの決まりだけを置く（書きかけは画面に残す）
@@ -829,6 +841,7 @@ function renderRoom() {
   const b = $("[data-roomchip]");
   b.innerHTML = `${ICON.folder}<span>${esc(baseName(state.room))}</span>`;
   b.title = L.roomTitle(state.room ?? "");
+  renderRoomPick();
   const h = $("[data-history]");
   h.hidden = !state.history?.length && !hist;
   h.setAttribute("aria-pressed", String(hist));
@@ -990,7 +1003,7 @@ document.addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");
   if (go) return open(Number(go.dataset.go));
   if (e.target.closest("[data-close]")) open(null);
-  if (t("[data-roomchip]")) { gear = true; return renderSettings(); }
+  if (t("[data-roomchip]")) { roomOpen = !roomOpen; return renderRoomPick(); }
   if (t("[data-room-pick]")) return void setRoom(t("[data-room-pick]").dataset.roomPick);
   // 履歴の会話に戻る（セッションを押したら、戻ってそのセッションを開く）
   if (t("[data-era]")) { hist = false; return void post("/api/restore", { era: Number(t("[data-era]").dataset.era) }).then(() => open(null)); }
@@ -1019,6 +1032,7 @@ document.addEventListener("toggle", (e) => {
   if (k) e.target.open ? opened.add(k) : opened.delete(k);
 }, true);
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && roomOpen) { roomOpen = false; return renderRoomPick(); }
   if (e.key === "Escape" && peek != null) open(null);
   // 作業する場所の欄は Enter で変える（変換中の Enter は除く）
   if (e.key === "Enter" && !e.isComposing && e.target.matches?.("[data-room]")) { e.preventDefault(); setRoom(e.target.value); }
