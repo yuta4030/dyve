@@ -35,15 +35,16 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #top [data-undo] { color: var(--run); }
 #top button { white-space: nowrap; flex: none; }
 /* 場所のチップ：フォルダとその名前 */
-.rchip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px 1px 7px; background: var(--panel); font-size: 12px; color: var(--sub); }
-.rchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rchip svg { flex: none; }
-.rchip:hover { color: var(--ink); border-color: var(--sub); }
-#input > .rchip { margin-bottom: 6px; }
-.rchip.small { flex: none; padding: 0 7px 0 5px; font-size: 11px; max-width: 120px; align-self: center; }
-.rchip.small svg { width: 11px; height: 11px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px 1px 7px; background: var(--panel); font-size: 12px; color: var(--sub); }
+.pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill svg { flex: none; }
+.pill:hover { color: var(--ink); border-color: var(--sub); }
+#input > .pill { margin-bottom: 6px; }
+.pill.small { flex: none; padding: 0 7px 0 5px; font-size: 11px; max-width: 120px; align-self: center; }
+.pill.small svg { width: 11px; height: 11px; }
 #settings .rooms { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
-#top [data-history] { display: inline-flex; }
+#top [data-history], #top [data-reset], #top [data-undo] { display: inline-flex; }
+#top [data-undo][hidden] { display: none; }
 #top [data-history][aria-pressed="true"] { color: var(--ink); }
 .room { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 #settings .room-row input.path { flex-basis: 100%; font: 12px ui-monospace, Menlo, monospace; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
@@ -86,9 +87,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .say:hover .act, .card:hover .act, .bar .act { opacity: 1; }
 .act:hover { color: var(--ink); text-decoration: underline; }
 .moveto { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.moveto button { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: var(--bg); }
-.moveto button:hover { border-color: var(--sub); }
-.moveto .quiet { border-color: transparent; color: var(--sub); }
+.moveto { align-items: center; }
+.pill b { color: var(--ink); }
 .chip { display: inline-block; margin-top: 2px; font-size: 12px; color: var(--sub); }
 button.chip:hover { color: var(--ink); text-decoration: underline; }
 .ret { border-left: 3px solid var(--wait); padding: 2px 0 2px 8px; font-size: 13px; }
@@ -171,7 +171,7 @@ main { min-height: 0; overflow-y: auto; padding: 14px; }
 .asks .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--sub); }
 .asks .dot.got { background: var(--wait); border-color: var(--wait); }
 .asks .n { margin-left: auto; font-size: 11.5px; color: var(--sub); font-variant-numeric: tabular-nums; }
-.asks .send { margin-left: 6px; padding: 1px 10px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; }
+.asks .send { margin-left: 6px; display: inline-grid; place-items: center; width: 26px; height: 22px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; }
 .asks .send.all { background: var(--run); color: #fff; }
 .asks .x, .asks .mini { color: var(--sub); padding: 0 4px; }
 .asks .mini svg { display: block; }
@@ -248,7 +248,7 @@ a.file code { color: inherit; }
   <div id="top"><span class="brand">dyve</span><span id="quota" hidden></span><button data-gear aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button data-undo hidden></button><button data-history aria-pressed="false" hidden></button><button data-reset></button></div>
   <div id="settings" hidden></div>
   <div id="flow"></div>
-  <div id="input"><button class="rchip" data-roomchip></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
+  <div id="input"><button class="pill" data-roomchip></button><div class="row"><textarea rows="1"></textarea><button id="mic" aria-pressed="false" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><div id="note"></div></div><div class="split" data-split="chat"></div>
 </section>
 <main>
   <div id="cards"></div>
@@ -268,7 +268,7 @@ const L = {
   missed: (e) => `届け先が決まらなかった（次に話したとき読み直す）：${e}`,
   to: (sym, name) => `→ ${sym} ${name}`,
   failed: "置けなかった。Enter でもう一度",
-  close: "← 一覧",
+  close: "一覧に戻る",
   split: "ドラッグで幅を変える（ダブルクリックで戻す）",
   sideShow: "右のパネルを出す",
   sideHide: "右のパネルを隠す",
@@ -280,13 +280,14 @@ const L = {
   rewindSure: "この発言から後を外して、手前から続ける",
   rewindFiles: "このあと書き換えたファイル（シェルで変えたものは戻らない）：",
   rewindOthers: (syms) => `${syms.join("・")} も書いた`,
-  rewindAll: "会話とファイルを戻す",
-  rewindTalk: "会話だけ戻す",
+  rewindAll: "会話とファイル",
+  rewindTalk: "会話だけ",
   rewindGo: "戻す",
-  rewindQuit: "やめる",
+  rewindQuit: "戻すのをやめる",
   rewindBad: (m) => `戻せなかった：${m}`,
-  moveNew: "新しく起こす",
-  moveQuit: "やめる",
+  moveNew: "新しく起こして、そこへ送る",
+  moveNewShort: "新規",
+  moveQuit: "送り先を変えるのをやめる",
   stop: "止める",
   fold: "畳む",
   unfold: "広げる",
@@ -303,7 +304,7 @@ const L = {
   links: "リンク",
   linkPattern: "当てはまる言葉（正規表現）",
   linkUrl: "開く URL（$0 が言葉）",
-  linkAdd: "＋ 決まりを足す",
+  linkAdd: "決まりを足す",
   linkDel: "この決まりを消す",
   linkHint: "例：[A-Z]+-\\d+ → https://xxx.atlassian.net/browse/$0",
   linkBad: (m) => `リンクの決まりを置けなかった：${m}`,
@@ -324,12 +325,12 @@ const L = {
   },
   original: (t) => `元の文：${t}`,
   infoNav: "見たもの・書いたもの",
-  askSend: "送る ↵",
+  askSend: "送る",
   askSendTitle: "選んだ答えを、まとめてこのセッションに送る",
   askDrop: "質問を下げる",
   askMini: "小さくする",
   askOpen: "広げる",
-  askRef: (n) => `質問 ${n}`,
+  askRef: (n) => `Q${n}`,
   best: "★ ",
   lost: "つながりが切れた。つなぎ直している",
   room: "作業する場所",
@@ -348,6 +349,7 @@ const L = {
   reset: "リセット",
   resetTitle: "チャットを空にし、動いていないセッションを一覧から外す（記録は消えない）",
   undo: "元に戻す",
+  undoTitle: "直前のリセットを元に戻す（次に話すまで）",
   tools: (n) => `道具を ${n} 回`,
 };
 
@@ -490,8 +492,8 @@ function rewindAsk(x, say) {
   const canFiles = files.length && t.prompt;
   return `<div class="rewinding"><span>${esc(L.rewindSure)}</span>` +
     (files.length ? `<ul><li>${esc(L.rewindFiles)}</li>${files.map((file) => { const o = others(file); return `<li${o.length ? ` class="warn"` : ""}>${esc(file)}${o.length ? ` — ${esc(L.rewindOthers(o))}` : ""}</li>`; }).join("")}</ul>` : "") +
-    (canFiles ? `<button data-rewind-go="${k}" data-files="1">${esc(L.rewindAll)}</button><button data-rewind-go="${k}">${esc(L.rewindTalk)}</button>` : `<button data-rewind-go="${k}">${esc(L.rewindGo)}</button>`) +
-    `<button class="quiet" data-rewind="${k}">${esc(L.rewindQuit)}</button></div>`;
+    (canFiles ? chipBtn(`data-rewind-go="${k}" data-files="1"`, ICON.rewind, L.rewindAll) + chipBtn(`data-rewind-go="${k}"`, ICON.rewind, L.rewindTalk) : chipBtn(`data-rewind-go="${k}"`, ICON.rewind, L.rewindGo)) +
+    iconBtn(`data-rewind="${k}"`, ICON.close, L.rewindQuit) + `</div>`;
 }
 
 // やりとりを並べる。続けて使った道具は一つに畳む（開いたかどうかは画面の中だけで覚える）
@@ -543,6 +545,18 @@ const ICON = {
   cancel: svg('<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>'),
   // 履歴：時計に戻る矢印
   history: svg('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>'),
+  // 一覧に戻る：左向きの矢印
+  back: svg('<path d="M19 12H5M11 6l-6 6 6 6"/>'),
+  // 止める：四角
+  stop: svg('<rect x="6" y="6" width="12" height="12" rx="2"/>'),
+  // 足す：十字
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  // 送る：上向きの矢印
+  send: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  // 元に戻す：左へ戻る曲がった矢印
+  undo: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'),
+  // リセット：消しゴム
+  reset: svg('<path d="M20 20H9L4 15a2 2 0 0 1 0-3l9-9a2 2 0 0 1 3 0l4 4a2 2 0 0 1 0 3l-8 8"/><path d="M8 11l6 6"/>'),
   // 閉じる：バツ
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   // 作業する場所：フォルダ
@@ -550,6 +564,10 @@ const ICON = {
   // 巻き戻す：左回りの矢印
   rewind: svg('<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/>'),
 };
+
+// ボタンは文字で作らない：アイコンだけ（説明はマウスを載せると出る）か、アイコンと短い名前のチップ
+const iconBtn = (attrs, icon, label, cls = "") => `<button class="icon${cls ? ` ${cls}` : ""}" ${attrs} title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
+const chipBtn = (attrs, icon, label, title = label, cls = "") => `<button class="pill${cls ? ` ${cls}` : ""}" ${attrs} title="${esc(title)}">${icon ?? ""}<span>${esc(label)}</span></button>`;
 
 // 幅と右のパネル：この画面を見る人の好み。ブラウザに覚え、読めなくても既定の幅で描く
 const layout = (() => { try { return JSON.parse(localStorage.getItem("dyve.layout")) ?? {}; } catch { return {}; } })();
@@ -611,15 +629,15 @@ function actsOf(s) {
 
 function moveTo(s) {
   const to = state.sessions.filter((x) => !x.hidden && x.id !== s.session);
-  return `<div class="moveto">${to.map((x) => `<button data-to="${x.id}" data-say="${s.id}">${esc(x.sym)} ${esc(x.name)}</button>`).join("")}` +
-    `<button data-to="new" data-say="${s.id}">${esc(L.moveNew)}</button><button class="quiet" data-move="${s.id}">${esc(L.moveQuit)}</button></div>`;
+  return `<div class="moveto">${to.map((x) => chipBtn(`data-to="${x.id}" data-say="${s.id}"`, `<b>${esc(x.sym)}</b>`, x.name, L.to(x.sym, x.name))).join("")}` +
+    chipBtn(`data-to="new" data-say="${s.id}"`, ICON.plus, L.moveNewShort, L.moveNew) + iconBtn(`data-move="${s.id}"`, ICON.close, L.moveQuit) + `</div>`;
 }
 
 function chipOf(s) {
   if (s.session === undefined) return s.error ? `<span class="chip">${esc(L.missed(s.error))}</span>` : `<span class="chip">${L.pending}</span>`;
   if (s.session === null) return `<span class="chip">${esc(L.aside)}</span>`;
   const x = ses(s.session);
-  return x ? `<button class="chip" data-go="${x.id}">${esc(L.to(x.sym, x.name))}</button>` : "";
+  return x ? chipBtn(`data-go="${x.id}"`, `<b>${esc(x.sym)}</b>`, x.name, L.to(x.sym, x.name), "small") : "";
 }
 
 function renderChat() {
@@ -642,14 +660,14 @@ function marked(x) {
 }
 
 // 今の場所と違う場所で起きたセッションには、その場所を小さく添える
-const roomTag = (x) => (x.room && x.room !== state.room ? `<span class="rchip small" title="${esc(L.roomOf(x.room))}">${ICON.folder}<span>${esc(baseName(x.room))}</span></span>` : "");
+const roomTag = (x) => (x.room && x.room !== state.room ? `<span class="pill small" title="${esc(L.roomOf(x.room))}">${ICON.folder}<span>${esc(baseName(x.room))}</span></span>` : "");
 
 function renderCards() {
   const el = $("#cards");
   const live = [...state.sessions.filter((x) => !x.hidden)].reverse();
   const open = live.filter((x) => !x.folded), folded = live.filter((x) => x.folded);
   const btn = (x) => busy(x)
-    ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>`
+    ? iconBtn(`data-stop="${x.id}"`, ICON.stop, L.stop, "act")
     : `<button class="act icon" data-fold="${x.id}" title="${esc(L.fold)}" aria-label="${esc(L.fold)}">${ICON.fold}</button>`;
   el.innerHTML = live.length
     ? open.map((x) => `
@@ -721,7 +739,7 @@ function asksOf(x) {
   const tabs = qs.map((it, i) => `<button class="tab${i === a.at ? " on" : ""}${a.picked[i] ? " got" : ""}" data-qtab="${i}" data-session="${x.id}"><span class="dot${a.picked[i] ? " got" : ""}"></span>${i + 1} ${esc(a.picked[i] ?? it.title)}</button>`).join("");
   // 小さくしているときは上の一行だけ（番号を押すか、もう一度押すと広がる）
   const mini = `<button class="mini" data-mini="${x.id}" title="${esc(a.small ? L.askOpen : L.askMini)}" aria-label="${esc(a.small ? L.askOpen : L.askMini)}" aria-expanded="${!a.small}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${a.small ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"}"/></svg></button>`;
-  const head = `<div class="tabs">${qs.length > 1 || a.small ? tabs : ""}<span class="n">${got}/${qs.length}</span><button class="send${got === qs.length ? " all" : ""}" data-send="${x.id}" title="${esc(L.askSendTitle)}">${esc(L.askSend)}</button>${mini}<button class="x" data-drop="${x.id}" title="${esc(L.askDrop)}" aria-label="${esc(L.askDrop)}">×</button></div>`;
+  const head = `<div class="tabs">${qs.length > 1 || a.small ? tabs : ""}<span class="n">${got}/${qs.length}</span><button class="send${got === qs.length ? " all" : ""}" data-send="${x.id}" title="${esc(L.askSendTitle)}" aria-label="${esc(L.askSend)}">${ICON.send}</button>${mini}<button class="x" data-drop="${x.id}" title="${esc(L.askDrop)}" aria-label="${esc(L.askDrop)}">${ICON.close}</button></div>`;
   if (a.small) return `<section class="asks small" aria-label="${esc(q.title)}">${head}</section>`;
   return `<section class="asks" aria-label="${esc(q.title)}">
     ${head}
@@ -737,7 +755,7 @@ function renderPeek() {
   seen.set(x.id, x.endedAt);
   const main = $("main"), keep = atBottom(main), side = x.tree?.length && !layout.sideOff;
   el.innerHTML = `
-    <div class="bar"><button data-close>${esc(L.close)}</button><span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${x.hidden ? `<span class="room">${esc(L.readOnly)}</span>` : roomTag(x)}${busy(x) ? `<button class="act" data-stop="${x.id}">${esc(L.stop)}</button>` : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
+    <div class="bar">${iconBtn("data-close", ICON.back, L.close)}<span class="sym">${esc(x.sym)}</span><span class="name">${esc(x.name)}</span>${x.hidden ? `<span class="room">${esc(L.readOnly)}</span>` : roomTag(x)}${busy(x) ? iconBtn(`data-stop="${x.id}"`, ICON.stop, L.stop, "act") : ""}<span class="status ${x.status}">${esc(L.status[x.status])}</span>${infoOf(x)}${x.tree?.length ? `<button class="icon" data-side aria-pressed="${!layout.sideOff}" title="${esc(layout.sideOff ? L.sideShow : L.sideHide)}" aria-label="${esc(layout.sideOff ? L.sideShow : L.sideHide)}">${ICON.side}</button>` : ""}</div>
     <div class="body${side ? "" : " solo"}"><div><div class="turns">${turnsOf(x, opened, L.tools)}</div>${x.hidden ? "" : asksOf(x)}</div>${side ? `<aside class="side"><div class="split" data-split="side" title="${esc(L.split)}"></div>${treeOf(x)}</aside>` : ""}</div>`;
   if (keep) main.scrollTop = main.scrollHeight;
 }
@@ -757,7 +775,7 @@ function renderSettings() {
   shownSettings = key;
   const links = `<div class="row"><span class="label">${esc(L.links)}</span><div class="links">` +
     linkRows.map((r, i) => `<div class="lr"><input data-link="${i}" data-part="pattern" value="${esc(r.pattern)}" placeholder="${esc(L.linkPattern)}" spellcheck="false"><input data-link="${i}" data-part="url" value="${esc(r.url)}" placeholder="${esc(L.linkUrl)}" spellcheck="false"><button class="icon" data-link-del="${i}" title="${esc(L.linkDel)}" aria-label="${esc(L.linkDel)}">${ICON.cancel}</button></div>`).join("") +
-    `<div class="lr"><button data-link-add>${esc(L.linkAdd)}</button><span class="hint">${esc(L.linkHint)}</span></div></div></div>`;
+    `<div class="lr">${iconBtn("data-link-add", ICON.plus, L.linkAdd)}<span class="hint">${esc(L.linkHint)}</span></div></div></div>`;
   el.innerHTML = Object.entries(L.settings)
     // 間の長さは、間があいたら送るときだけ
     .filter(([k]) => k !== "pause" || cur.send !== "each")
@@ -772,7 +790,7 @@ function renderSettings() {
 function roomRow() {
   const others = (state.rooms ?? []).filter((p) => p !== state.room);
   return `<div class="row room-row"><span class="label">${esc(L.room)}</span><input class="path" data-room value="${esc(state.room ?? "")}" title="${esc(L.roomHint)}" spellcheck="false">` +
-    (others.length ? `<div class="rooms">${others.map((p) => `<button class="rchip" data-room-pick="${esc(p)}" title="${esc(p)}">${ICON.folder}<span>${esc(baseName(p))}</span></button>`).join("")}</div>` : "") + `</div>`;
+    (others.length ? `<div class="rooms">${others.map((p) => `<button class="pill" data-room-pick="${esc(p)}" title="${esc(p)}">${ICON.folder}<span>${esc(baseName(p))}</span></button>`).join("")}</div>` : "") + `</div>`;
 }
 const setRoom = (path) => fetch("/api/room", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path }) })
   .then((r) => r.json()).then((r) => { $("#note").textContent = r.ok ? "" : L.roomBad(r.message ?? ""); })
@@ -1093,9 +1111,12 @@ const input = {
 $("#quota").addEventListener("mouseenter", renderQuota);
 $("[data-gear]").title = L.gear;
 $("[data-gear]").setAttribute("aria-label", L.gear);
-$("[data-reset]").textContent = L.reset;
 $("[data-reset]").title = L.resetTitle;
-$("[data-undo]").textContent = L.undo;
+$("[data-reset]").setAttribute("aria-label", L.reset);
+$("[data-reset]").innerHTML = ICON.reset;
+$("[data-undo]").title = L.undoTitle;
+$("[data-undo]").setAttribute("aria-label", L.undo);
+$("[data-undo]").innerHTML = ICON.undo;
 $("[data-history]").innerHTML = ICON.history;
 $("[data-history]").title = L.historyTitle;
 $("[data-history]").setAttribute("aria-label", L.history);
