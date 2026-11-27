@@ -188,3 +188,26 @@ test("作業する場所を変える：あるフォルダだけ。画面から�
   assert.equal(fsm.realpathSync(r.out.trim()), fsm.realpathSync(pathm.join(room, "sub")));
   server.closeAll();
 });
+
+test("シェルの結果を、そのセッションへの発言として届ける。長い出力は終わりのほうを残す", async () => {
+  const { reportOf } = await import("../src/server.js");
+  assert.equal(reportOf("npm test\n", 1, "ng\n"), "［dyve：人がコマンドを動かした結果］\n```\n$ npm test\nng\n```\n終了コード 1");
+  const long = reportOf("x", 0, "a".repeat(5000) + "END");
+  assert.match(long, /前の 1003 文字は省いた/);
+  assert.match(long, /aEND\n```/);
+  const log = new Log(), sent = [];
+  const sessions = { send: (id, say) => sent.push([id, say]) };
+  const server = createServer({ log, sessions });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (b, origin = base) => fetch(`${base}/api/report`, { method: "POST", headers: origin ? { origin } : {}, body: JSON.stringify(b) });
+  log.add("open", { session: 1, name: "a" });
+  assert.equal((await post({ session: 1, cmd: "ls", code: 0, out: "a.txt" }, null)).status, 403);
+  assert.equal((await post({ session: 9, cmd: "ls", code: 0, out: "a.txt" })).status, 404);
+  assert.equal((await post({ session: 1, cmd: "ls", code: 0, out: "a.txt" })).status, 200);
+  const s = log.state.said.at(-1);
+  assert.equal(s.session, 1);
+  assert.match(s.text, /^［dyve：人がコマンドを動かした結果］\n```\n\$ ls\na\.txt/);
+  assert.deepEqual(sent, [[1, s.id]]);
+  server.closeAll();
+});

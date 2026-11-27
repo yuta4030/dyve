@@ -108,6 +108,15 @@ export function createServer({ log, sessions = null, room = null, shell = proces
         const x = log.state.sessions.find((y) => y.id === b.session);
         return json(200, { ok: true, ...(await run(shell, cmd, x?.room ?? room)) });
       }
+      // シェルを動かした結果を、そのセッションへの発言として届ける（係を通さない）。画面から押したときだけ
+      if (route === "POST /api/report") {
+        if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
+        const b = await readJson(req);
+        if (!sessions || !log.state.sessions.some((x) => x.id === b.session && !x.hidden)) return json(404, { ok: false, message: "そのセッションはない" });
+        const record = log.add("say", { text: reportOf(String(b.cmd ?? ""), b.code, String(b.out ?? "")), peek: null, to: b.session });
+        sessions.send(b.session, record.seq);
+        return json(200, { ok: true, record });
+      }
       // これから起こすセッションの場所を変える。画面から押したときだけ。ある場所（フォルダ）だけ
       if (route === "POST /api/room") {
         if (!origin) return json(403, { ok: false, message: "画面から押したときだけ" });
@@ -246,6 +255,13 @@ export function openFile({ file, line, col, how }) {
 }
 
 // シェルを動かして、終了コードと出力（標準出力と標準エラーを混ぜたもの）を返す。長いものは後ろを残し、止まらなければ切る
+// シェルを動かした結果をセッションへ届ける文。出力が長ければ終わりのほうを残す（エラーは終わりに出ることが多いので）
+const REPORT_MAX = 4000;
+export function reportOf(cmd, code, out) {
+  const body = out.length > REPORT_MAX ? `…（前の ${out.length - REPORT_MAX} 文字は省いた）\n${out.slice(-REPORT_MAX)}` : out;
+  return ["［dyve：人がコマンドを動かした結果］", "```", `$ ${cmd.trim()}`, body.replace(/\n+$/, ""), "```", `終了コード ${code}`].join("\n");
+}
+
 const RUN_MS = 120 * 1000;
 const RUN_MAX = 20000;
 export function run(shell, cmd, cwd, ms = RUN_MS) {

@@ -156,7 +156,7 @@ test("付け替えた発言は、前のセッションが止まっても答え�
 
 test("設定：決まった名前と値だけ変えられ、立て直しても残る", () => {
   const log = new Log();
-  assert.deepEqual(log.state.settings, { send: "pause", pause: 2, fair: false, opener: "os", keys: "plain" });
+  assert.deepEqual(log.state.settings, { send: "pause", pause: 2, fair: false, opener: "os", keys: "plain", report: "manual" });
   log.add("set", { key: "fair", value: true });
   log.add("set", { key: "pause", value: 3 });
   assert.equal(log.state.settings.fair, true);
